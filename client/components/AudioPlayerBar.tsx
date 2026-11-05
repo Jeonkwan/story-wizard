@@ -27,18 +27,24 @@ export function AudioPlayerBar({
   const [duration, setDuration] = useState<number>(activeVersion.duration_sec || 0);
   const [playbackRate, setPlaybackRate] = useState<number>(1.0);
 
-  // Sync duration with activeVersion initial value when version changes
+  // Reset playback and sync duration when version changes
   useEffect(() => {
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
-      audioRef.current.defaultPlaybackRate = playbackRate;
-      audioRef.current.playbackRate = playbackRate;
     }
     setCurrentTime(0);
     setDuration(activeVersion.duration_sec || 0);
     setIsPlaying(false);
-  }, [activeVersion.version_id, activeVersion.duration_sec, playbackRate]);
+  }, [activeVersion.version_id, activeVersion.duration_sec]);
+
+  // Keep audio playbackRate in sync without resetting playback position
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.defaultPlaybackRate = playbackRate;
+      audioRef.current.playbackRate = playbackRate;
+    }
+  }, [activeVersion.version_id, playbackRate]);
 
   // Handle Play/Pause
   const togglePlayPause = async () => {

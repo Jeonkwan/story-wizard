@@ -269,8 +269,8 @@ describe('Phase 2 UI Component Tests', () => {
     expect(localStorage.getItem('story_theme')).toBe('light');
   });
 
-  // Review Regression Test 1: AudioPlayerBar preserves 0.9x playbackRate on version switch
-  it('AudioPlayerBar preserves 0.9x playbackRate and resets currentTime on version switch', () => {
+  // Review Regression Test 1: AudioPlayerBar preserves currentTime on speed toggle, and preserves 0.9x on version switch
+  it('AudioPlayerBar preserves currentTime on speed toggle, and resets currentTime while preserving 0.9x playbackRate on version switch', () => {
     function AudioPlayerHarness() {
       const [activeVer, setActiveVer] = useState<AudioVersion>(baseStoryFixture.audio_versions[0]);
       return (
@@ -286,17 +286,23 @@ describe('Phase 2 UI Component Tests', () => {
     const audioElement = container.querySelector('audio')!;
     expect(audioElement.playbackRate).toBe(1.0);
 
-    // Toggle playback rate to 0.9x
+    // 1. Seek mid-track to 42s
+    const scrubBar = screen.getByLabelText(/Audio scrub bar/i);
+    fireEvent.change(scrubBar, { target: { value: '42' } });
+    expect(audioElement.currentTime).toBe(42);
+
+    // 2. Toggle playback rate to 0.9x -> MUST NOT rewind currentTime to 0!
     const speedButton = screen.getByRole('button', { name: /playback speed/i });
     fireEvent.click(speedButton);
     expect(screen.getByText('0.9x')).toBeInTheDocument();
     expect(audioElement.playbackRate).toBe(0.9);
+    expect(audioElement.currentTime).toBe(42);
 
-    // Switch version to v2-aoede-solo
+    // 3. Switch version to v2-aoede-solo -> resets currentTime to 0 while preserving 0.9x playbackRate
     const versionSelect = screen.getByLabelText(/Audio Version/i);
     fireEvent.change(versionSelect, { target: { value: 'v2-aoede-solo' } });
 
-    // Audio src updated AND 0.9x playback rate preserved
+    // Audio src updated, 0.9x playback rate preserved, and version switch rewound to 0
     expect(audioElement.getAttribute('src')).toBe(
       '/api/stories/2026-11-04-sleepy-little-train/audios/v2-aoede-solo.wav'
     );
