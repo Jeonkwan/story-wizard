@@ -9,10 +9,12 @@ import {
   LocalStorageAdapter,
   GcsStorageAdapter,
   InvalidSlugError,
+  createStorageAdapter,
 } from '../server/storage/index.js';
 import {
   signAdminSession,
   ADMIN_COOKIE_NAME,
+  createDefaultGoogleTokenVerifier,
   type GoogleTokenVerifier,
 } from '../server/middleware/auth.js';
 import { wrapPcmAsWav } from '../server/lib/wav.js';
@@ -289,6 +291,34 @@ describe('Phase 1: Dual-Mode Storage, HTTP Range Streaming & Admin Auth', () => 
       expect(res.status).toBe(416);
       expect(res.headers['content-range']).toBe(`bytes */${wavLength}`);
     });
+
+    it('sets Cache-Control to private, no-store for draft audio and public immutable for published audio', async () => {
+      await seedTestStories();
+      const app = createTestApp();
+      const adminCookie = signAdminSession(adminEmail, sessionSecret);
+
+      // Published audio -> public, max-age=31536000, immutable
+      const resPub = await request(app).get('/api/stories/published-story/audios/v1-solo.wav');
+      expect(resPub.headers['cache-control']).toBe('public, max-age=31536000, immutable');
+
+      // Draft audio accessed by admin -> private, no-store
+      const resDraft = await request(app)
+        .get('/api/stories/draft-story/audios/v1-draft.wav')
+        .set('Cookie', [`${ADMIN_COOKIE_NAME}=${adminCookie}`]);
+      expect(resDraft.headers['cache-control']).toBe('private, no-store');
+    });
+
+    it('returns 416 when range header contains non-digit characters (e.g., bytes=0abc-10xyz)', async () => {
+      const { wavLength } = await seedTestStories();
+      const app = createTestApp();
+
+      const res = await request(app)
+        .get('/api/stories/published-story/audios/v1-solo.wav')
+        .set('Range', 'bytes=0abc-10xyz');
+
+      expect(res.status).toBe(416);
+      expect(res.headers['content-range']).toBe(`bytes */${wavLength}`);
+    });
   });
 
   /* -------------------------------------------------------------------------
@@ -318,6 +348,13 @@ describe('Phase 1: Dual-Mode Storage, HTTP Range Streaming & Admin Auth', () => 
       );
       await expect(
         storage.updateJsonAtomic('../outside.json', () => ({ ok: true }))
+      ).rejects.toThrow(InvalidSlugError);
+    });
+
+    it('rejects sibling directory prefix bypass paths with InvalidSlugError in localStorage', async () => {
+      const siblingPath = `../${path.basename(tmpDir)}-evil/leak.json`;
+      await expect(
+        storage.updateJsonAtomic(siblingPath, () => ({ leak: true }))
       ).rejects.toThrow(InvalidSlugError);
     });
   });
@@ -558,12 +595,59 @@ describe('Phase 1: Dual-Mode Storage, HTTP Range Streaming & Admin Auth', () => 
       expect(resLogout.status).toBe(200);
       expect(resLogout.headers['set-cookie'][0]).toContain('Max-Age=0');
     });
+
+    it('fails closed with 403 when ADMIN_GOOGLE_EMAIL is empty even with a verified token', async () => {
+      const verifier: GoogleTokenVerifier = async () => ({
+        email: 'attacker@gmail.com',
+        email_verified: true,
+      });
+      const config = loadConfig({
+        DATA_DIR: tmpDir,
+        ADMIN_GOOGLE_EMAIL: '',
+        SESSION_SECRET: sessionSecret,
+        NODE_ENV: 'test',
+        DEV_ADMIN_BYPASS: 'false',
+      });
+      const app = createApp({ config, storage, verifyGoogleIdToken: verifier });
+      const res = await request(app).post('/api/admin/login').send({ idToken: 'valid-token' });
+      expect(res.status).toBe(403);
+      expect(res.body.error).toContain('Admin email is not configured');
+    });
+
+    it('throws error when createDefaultGoogleTokenVerifier is called with empty clientId', async () => {
+      const verifier = createDefaultGoogleTokenVerifier('');
+      await expect(verifier('any-token')).rejects.toThrow('GOOGLE_CLIENT_ID is not configured');
+    });
   });
 
   /* -------------------------------------------------------------------------
-   * 7. Configuration Safety Checks
+   * 7. Express 4 Async Handler & Global Error Handling
    * ----------------------------------------------------------------------- */
-  describe('Config Startup Safety', () => {
+  describe('Express 4 Async Handler & Error Handling', () => {
+    it('forwards rejected async storage promises to global error handler returning 500 JSON without crashing', async () => {
+      const mockStorage = {
+        ...storage,
+        getCatalog: async () => {
+          throw new Error('GCS timeout');
+        },
+      };
+      const config = loadConfig({
+        DATA_DIR: tmpDir,
+        ADMIN_GOOGLE_EMAIL: adminEmail,
+        SESSION_SECRET: sessionSecret,
+        NODE_ENV: 'test',
+      });
+      const app = createApp({ config, storage: mockStorage as any });
+      const res = await request(app).get('/api/catalog');
+      expect(res.status).toBe(500);
+      expect(res.body.error).toBe('GCS timeout');
+    });
+  });
+
+  /* -------------------------------------------------------------------------
+   * 8. Configuration Safety Checks & Storage Factory
+   * ----------------------------------------------------------------------- */
+  describe('Config Startup Safety & Storage Factory', () => {
     it('throws error at startup in production or Cloud Run if SESSION_SECRET is missing or < 32 chars', () => {
       expect(() => {
         loadConfig({
@@ -578,6 +662,14 @@ describe('Phase 1: Dual-Mode Storage, HTTP Range Streaming & Admin Auth', () => 
           SESSION_SECRET: '',
         });
       }).toThrow('SESSION_SECRET must be at least 32 characters');
+    });
+
+    it('createStorageAdapter chooses GcsStorageAdapter when gcsBucketName is set, and LocalStorageAdapter otherwise', () => {
+      const gcsAdapter = createStorageAdapter({ gcsBucketName: 'my-bucket' } as any);
+      expect(gcsAdapter instanceof GcsStorageAdapter).toBe(true);
+
+      const localAdapter = createStorageAdapter({ gcsBucketName: '', dataDir: tmpDir } as any);
+      expect(localAdapter instanceof LocalStorageAdapter).toBe(true);
     });
   });
 });

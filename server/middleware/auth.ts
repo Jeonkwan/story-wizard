@@ -15,11 +15,17 @@ export type GoogleTokenVerifier = (
 ) => Promise<{ email: string; email_verified: boolean }>;
 
 export function createDefaultGoogleTokenVerifier(clientId: string): GoogleTokenVerifier {
-  const client = new OAuth2Client(clientId);
+  const trimmedClientId = clientId?.trim() || '';
+  if (!trimmedClientId) {
+    return async () => {
+      throw new Error('GOOGLE_CLIENT_ID is not configured');
+    };
+  }
+  const client = new OAuth2Client(trimmedClientId);
   return async (idToken: string) => {
     const ticket = await client.verifyIdToken({
       idToken,
-      audience: clientId || undefined,
+      audience: trimmedClientId,
     });
     const payload = ticket.getPayload();
     if (!payload || !payload.email) {
@@ -49,9 +55,23 @@ export function signAdminSession(
 export function verifyAdminSession(
   token: string | undefined,
   secret: string,
-  adminEmail: string
+  adminEmailOrConfig: string | AppConfig
 ): AdminSessionPayload | null {
   if (!token || typeof token !== 'string') return null;
+
+  let expectedEmail = '';
+  if (typeof adminEmailOrConfig === 'string') {
+    expectedEmail = adminEmailOrConfig.trim();
+  } else if (adminEmailOrConfig) {
+    expectedEmail =
+      adminEmailOrConfig.adminGoogleEmail?.trim() ||
+      (adminEmailOrConfig.allowDevBypass ? 'admin@storyteller.local' : '');
+  }
+
+  // Fail closed if expected email is empty
+  if (!expectedEmail) {
+    return null;
+  }
 
   const parts = token.split('.');
   if (parts.length !== 2) return null;
@@ -75,10 +95,7 @@ export function verifyAdminSession(
     if (typeof payload.exp !== 'number' || payload.exp <= Date.now()) {
       return null;
     }
-    if (
-      adminEmail &&
-      payload.email.toLowerCase() !== adminEmail.toLowerCase()
-    ) {
+    if (payload.email.toLowerCase() !== expectedEmail.toLowerCase()) {
       return null;
     }
     return payload;
@@ -101,7 +118,7 @@ export function getAdminCookieOptions(config: AppConfig) {
 export function createRequireAdminMiddleware(config: AppConfig) {
   return (req: Request, res: Response, next: NextFunction): void => {
     const cookieToken = req.cookies?.[ADMIN_COOKIE_NAME];
-    const session = verifyAdminSession(cookieToken, config.sessionSecret, config.adminGoogleEmail);
+    const session = verifyAdminSession(cookieToken, config.sessionSecret, config);
 
     if (!session) {
       res.status(401).json({ error: 'Unauthorized: Admin session required or invalid' });

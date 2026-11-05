@@ -34,7 +34,9 @@ export class GcsStorageAdapter implements StorageAdapter {
       try {
         const [metadata] = await file.getMetadata();
         generation = metadata.generation ?? 0;
-        const [contents] = await file.download();
+        const [contents] = await (file.download as (opts?: { generation?: string | number }) => Promise<[Buffer]>)(
+          generation !== 0 ? { generation } : undefined
+        );
         current = JSON.parse(contents.toString('utf-8')) as T;
       } catch (err: unknown) {
         const error = err as { code?: number; status?: number };
@@ -51,7 +53,7 @@ export class GcsStorageAdapter implements StorageAdapter {
           contentType: 'application/json',
           resumable: false,
           preconditionOpts: {
-            ifGenerationMatch: typeof generation === 'string' ? Number(generation) : generation,
+            ifGenerationMatch: generation,
           },
         });
         return updated;

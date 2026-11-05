@@ -19,7 +19,7 @@ export class LocalStorageAdapter implements StorageAdapter {
 
   private resolveSafePath(relativePath: string): string {
     const resolved = path.resolve(this.dataDir, relativePath);
-    if (!resolved.startsWith(this.dataDir)) {
+    if (resolved !== this.dataDir && !resolved.startsWith(this.dataDir + path.sep)) {
       throw new InvalidSlugError(`Path traversal detected: "${relativePath}"`);
     }
     return resolved;

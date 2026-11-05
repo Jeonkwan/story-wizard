@@ -5,7 +5,7 @@ import path from 'node:path';
 import { loadConfig, type AppConfig } from './config.js';
 import {
   type StorageAdapter,
-  LocalStorageAdapter,
+  createStorageAdapter,
   InvalidSlugError,
   StorageNotFoundError,
 } from './storage/index.js';
@@ -24,7 +24,7 @@ export interface CreateAppOptions {
 
 export function createApp(options: CreateAppOptions = {}): express.Express {
   const config = options.config || loadConfig();
-  const storage = options.storage || new LocalStorageAdapter(config.dataDir);
+  const storage = options.storage || createStorageAdapter(config);
   const verifyGoogleIdToken =
     options.verifyGoogleIdToken ||
     createDefaultGoogleTokenVerifier(config.googleClientId);
@@ -58,9 +58,12 @@ export function createApp(options: CreateAppOptions = {}): express.Express {
       err: unknown,
       _req: express.Request,
       res: express.Response,
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      _next: express.NextFunction
+      next: express.NextFunction
     ) => {
+      if (res.headersSent) {
+        next(err);
+        return;
+      }
       if (err instanceof InvalidSlugError) {
         res.status(400).json({ error: err.message });
         return;

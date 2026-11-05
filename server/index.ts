@@ -1,12 +1,9 @@
 import { loadConfig } from './config.js';
 import { createApp } from './app.js';
-import { LocalStorageAdapter, GcsStorageAdapter } from './storage/index.js';
+import { createStorageAdapter } from './storage/index.js';
 
 const config = loadConfig();
-
-const storage = config.gcsBucketName
-  ? new GcsStorageAdapter(config.gcsBucketName)
-  : new LocalStorageAdapter(config.dataDir);
+const storage = createStorageAdapter(config);
 
 const app = createApp({ config, storage });
 

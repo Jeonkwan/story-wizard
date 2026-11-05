@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import type { AppConfig } from '../config.js';
 import type { StorageAdapter } from '../storage/storageAdapter.js';
+import { asyncHandler } from '../lib/asyncHandler.js';
 import {
   ADMIN_COOKIE_NAME,
   signAdminSession,
@@ -19,48 +20,55 @@ export function createAuthRouter(
   const router = Router();
   const requireAdmin = createRequireAdminMiddleware(config);
 
-  router.post('/login', async (req: Request, res: Response) => {
-    const { idToken, devBypass } = req.body || {};
+  router.post(
+    '/login',
+    asyncHandler(async (req: Request, res: Response) => {
+      const { idToken, devBypass } = req.body || {};
 
-    if (devBypass === true) {
-      if (!config.allowDevBypass) {
-        res.status(401).json({ error: 'Dev bypass is disabled in this environment' });
-        return;
-      }
-      const adminEmail = config.adminGoogleEmail || 'admin@storyteller.local';
-      const token = signAdminSession(adminEmail, config.sessionSecret);
-      res.cookie(ADMIN_COOKIE_NAME, token, getAdminCookieOptions(config));
-      res.json({ ok: true, email: adminEmail });
-      return;
-    }
-
-    if (!idToken || typeof idToken !== 'string') {
-      res.status(400).json({ error: 'Missing required idToken or devBypass flag' });
-      return;
-    }
-
-    try {
-      const payload = await verifyGoogleIdToken(idToken);
-      if (!payload.email_verified) {
-        res.status(403).json({ error: 'Google email is not verified' });
+      if (devBypass === true) {
+        if (!config.allowDevBypass) {
+          res.status(401).json({ error: 'Dev bypass is disabled in this environment' });
+          return;
+        }
+        const adminEmail = config.adminGoogleEmail.trim() || 'admin@storyteller.local';
+        const token = signAdminSession(adminEmail, config.sessionSecret);
+        res.cookie(ADMIN_COOKIE_NAME, token, getAdminCookieOptions(config));
+        res.json({ ok: true, email: adminEmail });
         return;
       }
 
-      if (
-        config.adminGoogleEmail &&
-        payload.email.toLowerCase() !== config.adminGoogleEmail.toLowerCase()
-      ) {
-        res.status(403).json({ error: 'Access denied: account not authorized for admin access' });
+      if (!idToken || typeof idToken !== 'string') {
+        res.status(400).json({ error: 'Missing required idToken or devBypass flag' });
         return;
       }
 
-      const token = signAdminSession(payload.email, config.sessionSecret);
-      res.cookie(ADMIN_COOKIE_NAME, token, getAdminCookieOptions(config));
-      res.json({ ok: true, email: payload.email });
-    } catch {
-      res.status(401).json({ error: 'Invalid Google ID token' });
-    }
-  });
+      // Security: fail closed if admin email is not configured
+      const configuredAdminEmail = config.adminGoogleEmail.trim();
+      if (!configuredAdminEmail) {
+        res.status(403).json({ error: 'Admin email is not configured' });
+        return;
+      }
+
+      try {
+        const payload = await verifyGoogleIdToken(idToken);
+        if (!payload.email_verified) {
+          res.status(403).json({ error: 'Google email is not verified' });
+          return;
+        }
+
+        if (payload.email.toLowerCase() !== configuredAdminEmail.toLowerCase()) {
+          res.status(403).json({ error: 'Access denied: account not authorized for admin access' });
+          return;
+        }
+
+        const token = signAdminSession(payload.email, config.sessionSecret);
+        res.cookie(ADMIN_COOKIE_NAME, token, getAdminCookieOptions(config));
+        res.json({ ok: true, email: payload.email });
+      } catch {
+        res.status(401).json({ error: 'Invalid Google ID token' });
+      }
+    })
+  );
 
   router.post('/logout', (_req: Request, res: Response) => {
     res.clearCookie(ADMIN_COOKIE_NAME, {
@@ -72,7 +80,7 @@ export function createAuthRouter(
 
   router.get('/me', (req: Request, res: Response) => {
     const cookieToken = req.cookies?.[ADMIN_COOKIE_NAME];
-    const session = verifyAdminSession(cookieToken, config.sessionSecret, config.adminGoogleEmail);
+    const session = verifyAdminSession(cookieToken, config.sessionSecret, config);
 
     res.json({
       authenticated: Boolean(session),
@@ -82,10 +90,14 @@ export function createAuthRouter(
   });
 
   // Admin probe route for Phase 1 verification: returns all stories in catalog including drafts
-  router.get('/stories', requireAdmin, async (_req: Request, res: Response) => {
-    const catalog = await storage.getCatalog();
-    res.json(catalog);
-  });
+  router.get(
+    '/stories',
+    requireAdmin,
+    asyncHandler(async (_req: Request, res: Response) => {
+      const catalog = await storage.getCatalog();
+      res.json(catalog);
+    })
+  );
 
   return router;
 }

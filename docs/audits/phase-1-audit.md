@@ -3,13 +3,19 @@
 > **Target Audience:** Reviewing Agent / Senior Engineer / Lead Architect  
 > **Milestone:** Phase 1 (Dual-Mode Storage, Audio HTTP Range Streaming, Seed Data & Admin Auth)  
 > **Repository:** `/home/ubuntu/story-wizard`  
-> **Status:** All Phase 1 Requirements & Validation Gates Passed (100% green, 43/43 tests)
+> **Status:** All Phase 1 Requirements & Code Review Remediations Verified (100% green, 50/50 tests)
 
 ---
 
 ## 1. Executive Summary & Objective
 
 Phase 1 implements the complete persistence, audio streaming, seed catalog, and single-admin authentication layers for **Storyteller Studio & Audio Engine** as specified in `HANDOFF_PLAN.md` and `.agents/skills/gcs-json-catalog/SKILL.md`.
+
+Following the Lead Architect's Code & Security Review (`docs/reviews/phase-1-review.md`), 4 critical hardening items were resolved and validated:
+1. **Security Fail-Closed:** Strict validation rejecting unconfigured `ADMIN_GOOGLE_EMAIL` or `GOOGLE_CLIENT_ID` with `403` or startup error.
+2. **Express 4 Async Handlers:** Creation of `server/lib/asyncHandler.ts` wrapping all async route handlers and guarding `res.headersSent` in the global error handler.
+3. **Safe Audio Streaming & Cache Control:** Using `pipeline()` from `'node:stream'`, enforcing strict digit checks on ranges, and setting `Cache-Control: private, no-store` for draft audio.
+4. **Storage Hardening:** Preventing sibling-directory prefix bypasses in `localStorage.ts`, maintaining full 64-bit generation precision in `gcsStorage.ts`, and exporting canonical `createStorageAdapter(config)`.
 
 All architectural guardrails and anti-over-engineering requirements were strictly followed:
 - **No Database:** Storage uses structured JSON documents and WAV audio files exclusively.
@@ -99,7 +105,7 @@ npm run typecheck
 ```text
  ✓ tests/wav.test.ts (6 tests)
  ✓ tests/validators.test.ts (13 tests)
- ✓ tests/storageAndAuth.test.ts (23 tests)
+ ✓ tests/storageAndAuth.test.ts (30 tests)
    ✓ Catalog & Draft Privacy > unauthenticated GET /api/catalog returns only published stories; GET /api/stories/:draft returns 404
    ✓ Catalog & Draft Privacy > authenticated admin receives draft stories in catalog (?includeDrafts=true) and GET /api/stories/:draft
    ✓ HTTP Range Streaming > returns 200 OK with full file when no Range header is provided
@@ -108,8 +114,11 @@ npm run typecheck
    ✓ HTTP Range Streaming > returns 206 Partial Content for suffix range (bytes=-50)
    ✓ HTTP Range Streaming > returns 416 Range Not Satisfiable when range start is beyond total bytes
    ✓ HTTP Range Streaming > returns 416 for inverted range (bytes=50-20)
+   ✓ HTTP Range Streaming > sets Cache-Control to private, no-store for draft audio and public immutable for published audio
+   ✓ HTTP Range Streaming > returns 416 when range header contains non-digit characters (e.g., bytes=0abc-10xyz)
    ✓ Path Traversal Protection > blocks path traversal attempts in URL params with 400
    ✓ Path Traversal Protection > storage layer throws InvalidSlugError for invalid slugs and path traversal in paths
+   ✓ Path Traversal Protection > rejects sibling directory prefix bypass paths with InvalidSlugError in localStorage
    ✓ GCS Optimistic Concurrency Control > retries updateJsonAtomic on HTTP 412 generation conflict and succeeds on second save
    ✓ GCS Optimistic Concurrency Control > throws error when 412 persists across all retries
    ✓ LocalStorage Concurrent Atomic Updates > serializes concurrent updateJsonAtomic calls to the same file without data loss
@@ -122,12 +131,16 @@ npm run typecheck
    ✓ Admin Auth & Session Management > requireAdmin middleware rejects tampered cookie signature with 401
    ✓ Admin Auth & Session Management > requireAdmin middleware rejects expired session cookie with 401
    ✓ Admin Auth & Session Management > authenticated admin can access protected probe route /api/admin/stories and log out
-   ✓ Config Startup Safety > throws error at startup in production or Cloud Run if SESSION_SECRET is missing or < 32 chars
+   ✓ Admin Auth & Session Management > fails closed with 403 when ADMIN_GOOGLE_EMAIL is empty even with a verified token
+   ✓ Admin Auth & Session Management > throws error when createDefaultGoogleTokenVerifier is called with empty clientId
+   ✓ Express 4 Async Handler & Error Handling > forwards rejected async storage promises to global error handler returning 500 JSON without crashing
+   ✓ Config Startup Safety & Storage Factory > throws error at startup in production or Cloud Run if SESSION_SECRET is missing or < 32 chars
+   ✓ Config Startup Safety & Storage Factory > createStorageAdapter chooses GcsStorageAdapter when gcsBucketName is set, and LocalStorageAdapter otherwise
  ✓ tests/esm-build.test.ts (1 test)
    ✓ Native Node ESM Build Verification > compiles with tsconfig.server.json and dynamically imports server modules in plain node
 
 Test Files: 4 passed (4)
-Tests:      43 passed (43)
+Tests:      50 passed (50)
 Result:     100% green
 ```
 
