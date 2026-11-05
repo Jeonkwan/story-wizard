@@ -622,16 +622,16 @@ Use these exact visual tokens in `client/styles/kinetic.css` (from the approved 
    - Play/Pause button, current time / duration (`01:12 / 04:00`), interactive seek/scrub range slider, playback speed toggle (`0.9x`, `1.0x`), and **Voice Version Selector** dropdown switching `audio.src` across `story.audio_versions` (defaulting to `is_default === true`).
 
 #### Phase 2 Tests & Validation Gate (`tests/ui.test.tsx` + `tests/e2e/storybook.spec.ts`)
-- [ ] **Component Tests (`@testing-library/react`):**
+- [x] **Component Tests (`@testing-library/react`):**
   - Renders seeded story in `StoryReader`: asserts `<short pause>` in `turn.text` is absent from DOM while `(painted bright blue)` in `turn.text` IS rendered in DOM, and character speaker badge `"Bibi"` renders.
   - Typing in search input and clicking a tag pill filters displayed story cards accurately.
   - Switching the Audio Version dropdown updates the `<audio>` element's `src` attribute to the selected version's `audio_url`.
   - Clicking Dark Mode toggle sets `data-theme="dark"` on `document.body`.
-- [ ] **Headless Chromium E2E & Visual Capture (`npm run build && npm run test:e2e`):**
+- [x] **Headless Chromium E2E & Visual Capture (`npm run build && npm run test:e2e`):**
   - Asserts zero `pageerror` and zero `console.error` events on load, search, story open, theme toggle, and mobile viewport (`375x812`) horizontal-overflow check (`document.documentElement.scrollWidth <= window.innerWidth`).
   - Verifies the `<audio>` element loads seeded WAV metadata (`audio.duration > 0`) and supports seeking (`audio.currentTime = 0.5`).
   - Saves `qa-screenshots/phase2-reader-light.png` and `qa-screenshots/phase2-reader-dark.png` (and inspect them with `read_file` if multimodal vision is supported).
-- [ ] Commit (`feat(phase-2): kinetic construct public reader and docked audio player`) and tag `phase-2-verified`.
+- [x] Commit (`feat(phase-2): kinetic construct public reader and docked audio player`) and tag `phase-2-verified`.
 
 ---
 
@@ -776,7 +776,7 @@ Use your interactive browser capabilities (`/browser`) on `http://localhost:8080
 
 - [x] **Phase 0:** Scaffolding, `.agents/skills/`, Playwright Headless Chromium Setup, Shared Types, WAV & Validator Core + Unit Tests (`phase-0-verified`)
 - [x] **Phase 1:** Dual-Mode Storage (`./data` + GCS `ifGenerationMatch`), Audio `Range` Streaming, Seed Data & Single-Admin Auth + Integration Tests (`phase-1-verified`)
-- [ ] **Phase 2:** Public Storybook UI (Kinetic Construct Theme, Instant Filter, Formatted Reader, Docked Audio Player) + Component & Headless E2E Tests (`phase-2-verified`)
+- [x] **Phase 2:** Public Storybook UI (Kinetic Construct Theme, Instant Filter, Formatted Reader, Docked Audio Player) + Component & Headless E2E Tests (`phase-2-verified`)
 - [ ] **Phase 3:** Admin Director Studio (Mode A/B Writer -> Val 1 -> Director -> Val 2, Sequels, Draft Editor) + Pipeline & Headless E2E Tests (`phase-3-verified`)
 - [ ] **Phase 4:** Voice Audition Studio (`voices.json`), Chunked Gemini 3.8 TTS (`solo` & `cast`), Version Manager & Cloud Run `Dockerfile` + Release Gate (`phase-4-verified`)
 - [ ] **Phase 5:** Interactive Windows Antigravity `/browser` Visual, Mobile, & Audio Scrubbing QA Pass (`phase-5-qa-complete`)

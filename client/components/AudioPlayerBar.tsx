@@ -1,0 +1,172 @@
+import React, { useEffect, useRef, useState } from 'react';
+import type { AudioVersion, Story } from '../../shared/types';
+
+export interface AudioPlayerBarProps {
+  story: Story;
+  activeVersion: AudioVersion;
+  onVersionChange: (version: AudioVersion) => void;
+}
+
+function formatTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    return '00:00';
+  }
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+export function AudioPlayerBar({
+  story,
+  activeVersion,
+  onVersionChange,
+}: AudioPlayerBarProps): React.JSX.Element {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState<number>(activeVersion.duration_sec || 0);
+  const [playbackRate, setPlaybackRate] = useState<number>(1.0);
+
+  // Sync duration with activeVersion initial value when version changes
+  useEffect(() => {
+    setCurrentTime(0);
+    setDuration(activeVersion.duration_sec || 0);
+    setIsPlaying(false);
+  }, [activeVersion.version_id, activeVersion.duration_sec]);
+
+  // Handle Play/Pause
+  const togglePlayPause = async () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    if (isPlaying) {
+      audio.pause();
+    } else {
+      try {
+        await audio.play();
+      } catch (err) {
+        // Autoplay policy or abort in tests
+        console.warn('Audio play request failed or interrupted:', err);
+      }
+    }
+  };
+
+  // Handle Seeking
+  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const targetTime = parseFloat(e.target.value);
+    setCurrentTime(targetTime);
+    if (audioRef.current) {
+      audioRef.current.currentTime = targetTime;
+    }
+  };
+
+  // Handle Speed Toggle (1.0x <-> 0.9x)
+  const toggleSpeed = () => {
+    const nextRate = playbackRate === 1.0 ? 0.9 : 1.0;
+    setPlaybackRate(nextRate);
+    if (audioRef.current) {
+      audioRef.current.playbackRate = nextRate;
+    }
+  };
+
+  // Audio element event listeners
+  const handleTimeUpdate = () => {
+    if (audioRef.current) {
+      setCurrentTime(audioRef.current.currentTime);
+    }
+  };
+
+  const handleLoadedMetadata = () => {
+    if (audioRef.current && Number.isFinite(audioRef.current.duration) && audioRef.current.duration > 0) {
+      setDuration(audioRef.current.duration);
+    }
+  };
+
+  const handleEnded = () => {
+    setIsPlaying(false);
+    setCurrentTime(0);
+  };
+
+  const effectiveDuration =
+    Number.isFinite(duration) && duration > 0 ? duration : (activeVersion.duration_sec || 0);
+
+  return (
+    <div className="docked-audio-bar" role="region" aria-label="Audio Player">
+      {/* Underlying HTML5 Audio element */}
+      <audio
+        ref={audioRef}
+        preload="metadata"
+        src={activeVersion.audio_url}
+        onTimeUpdate={handleTimeUpdate}
+        onLoadedMetadata={handleLoadedMetadata}
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+        onEnded={handleEnded}
+      />
+
+      <div className="docked-audio-content">
+        <div className="player-main-controls">
+          <button
+            type="button"
+            className="btn-tactile btn-tactile-primary"
+            onClick={togglePlayPause}
+            aria-label={isPlaying ? 'Pause' : 'Play'}
+          >
+            {isPlaying ? '⏸ Pause' : '▶ Play'}
+          </button>
+
+          <button
+            type="button"
+            className="btn-tactile"
+            onClick={toggleSpeed}
+            aria-label="Toggle playback speed"
+            style={{ minWidth: '68px' }}
+          >
+            {playbackRate.toFixed(1)}x
+          </button>
+        </div>
+
+        <div className="player-scrub-section">
+          <input
+            type="range"
+            className="player-scrub-bar"
+            aria-label="Audio scrub bar"
+            min="0"
+            max={effectiveDuration > 0 ? effectiveDuration : 1}
+            step="0.1"
+            value={currentTime}
+            onChange={handleSeek}
+          />
+
+          <span className="player-timecode">
+            {formatTime(currentTime)} / {formatTime(effectiveDuration)}
+          </span>
+        </div>
+
+        <div className="player-meta-controls">
+          <label htmlFor="audio-version-select" style={{ display: 'none' }}>
+            Audio Version
+          </label>
+          <select
+            id="audio-version-select"
+            className="select-tactile version-select"
+            aria-label="Audio Version"
+            value={activeVersion.version_id}
+            onChange={(e) => {
+              const selected = story.audio_versions.find((v) => v.version_id === e.target.value);
+              if (selected) {
+                onVersionChange(selected);
+              }
+            }}
+          >
+            {story.audio_versions.map((ver) => (
+              <option key={ver.version_id} value={ver.version_id}>
+                {ver.label} {ver.is_default ? '(Default)' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+    </div>
+  );
+}

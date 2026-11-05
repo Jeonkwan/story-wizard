@@ -1,0 +1,584 @@
+/* ==========================================================================
+   Storyteller Studio — Kinetic Construct Design System
+   Warm Alabaster (Light) & Dark Slate (Dark) Themes
+   ========================================================================== */
+
+:root {
+  /* Warm Alabaster Palette */
+  --bg-canvas: #F4F0E6;
+  --bg-surface: #FAF7F0;
+  --bg-well: #EAE4D7;
+  --ink-primary: #111111;
+  --ink-prose: #222222;
+  --ink-muted: #4A4740;
+
+  /* Accents */
+  --accent-module: #3730A3;
+  --accent-module-bg: #E0E7FF;
+  --accent-root: #15803D;
+  --accent-root-bg: #DCFCE7;
+  --accent-state: #9A3412;
+  --accent-state-bg: #FFEDD5;
+
+  /* Typography */
+  --font-heading: 'Fraunces', Georgia, serif;
+  --font-prose: 'Bitter', Georgia, serif;
+  --font-mono: 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Tactile Chrome */
+  --border-tactile: 2px solid var(--ink-primary);
+  --shadow-tactile: 2px 2px 0px var(--ink-primary);
+  --shadow-tactile-hover: 4px 4px 0px var(--ink-primary);
+  --shadow-tactile-active: 0px 0px 0px var(--ink-primary);
+  --radius-tactile: 6px;
+}
+
+/* Dark Slate Palette — applied when [data-theme="dark"] is on <html> or <body> */
+:root[data-theme="dark"],
+body[data-theme="dark"] {
+  --bg-canvas: #0E131B;
+  --bg-surface: #161F2C;
+  --bg-well: #1E293B;
+  --ink-primary: #F1F5F9;
+  --ink-prose: #E2E8F0;
+  --ink-muted: #94A3B8;
+
+  /* Accents in Dark Slate */
+  --accent-module: #818CF8;
+  --accent-module-bg: #1E1B4B;
+  --accent-root: #4ADE80;
+  --accent-root-bg: #052E16;
+  --accent-state: #FB923C;
+  --accent-state-bg: #431407;
+}
+
+/* Base Resets & Layout Safety */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-canvas);
+}
+
+body {
+  color: var(--ink-prose);
+  font-family: var(--font-prose);
+  font-size: 16px;
+  line-height: 1.6;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Main App Shell */
+.app-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 3rem 1.25rem;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ==========================================================================
+   Tactile Chrome Primitives
+   ========================================================================== */
+
+.btn-tactile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--ink-primary);
+  background-color: var(--bg-surface);
+  border: var(--border-tactile);
+  border-radius: var(--radius-tactile);
+  box-shadow: var(--shadow-tactile);
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  text-decoration: none;
+  user-select: none;
+  transition: transform 0.1s ease, box-shadow 0.1s ease, background-color 0.15s ease;
+}
+
+.btn-tactile:hover:not(:disabled) {
+  transform: translate(-1px, -1px);
+  box-shadow: var(--shadow-tactile-hover);
+  background-color: var(--bg-well);
+}
+
+.btn-tactile:active:not(:disabled) {
+  transform: translate(1px, 1px);
+  box-shadow: var(--shadow-tactile-active);
+}
+
+.btn-tactile:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-tactile-primary {
+  background-color: var(--accent-module-bg);
+  color: var(--accent-module);
+  border-color: var(--ink-primary);
+}
+
+.btn-tactile-primary:hover:not(:disabled) {
+  background-color: var(--accent-module);
+  color: #FFFFFF;
+}
+
+.input-tactile,
+.select-tactile {
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  color: var(--ink-primary);
+  background-color: var(--bg-surface);
+  border: var(--border-tactile);
+  border-radius: var(--radius-tactile);
+  box-shadow: var(--shadow-tactile);
+  padding: 0.55rem 0.85rem;
+  outline: none;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.input-tactile:focus,
+.select-tactile:focus {
+  border-color: var(--accent-module);
+  box-shadow: var(--shadow-tactile-hover);
+}
+
+.card-tactile {
+  background-color: var(--bg-surface);
+  border: var(--border-tactile);
+  border-radius: var(--radius-tactile);
+  box-shadow: var(--shadow-tactile);
+  padding: 1.25rem;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.card-tactile:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: var(--shadow-tactile-hover);
+}
+
+/* Badges & Pills */
+.badge-mono {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.2rem 0.55rem;
+  border-radius: var(--radius-tactile);
+  border: 1px solid var(--ink-primary);
+  white-space: nowrap;
+}
+
+.series-badge {
+  background-color: var(--accent-module-bg);
+  color: var(--accent-module);
+  border: 1px solid var(--accent-module);
+}
+
+.speaker-badge {
+  background-color: var(--accent-state-bg);
+  color: var(--accent-state);
+  border: 1px solid var(--accent-state);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+}
+
+.tag-pill {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--ink-primary);
+  border-radius: 9999px;
+  background-color: var(--bg-well);
+  color: var(--ink-muted);
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s ease;
+}
+
+.tag-pill:hover {
+  color: var(--ink-primary);
+  border-color: var(--ink-primary);
+}
+
+.tag-pill.active {
+  background-color: var(--ink-primary);
+  color: var(--bg-canvas);
+  border-color: var(--ink-primary);
+  font-weight: 600;
+}
+
+/* ==========================================================================
+   Masthead Component
+   ========================================================================== */
+
+.masthead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding-bottom: 1.25rem;
+  margin-bottom: 2rem;
+  border-bottom: var(--border-tactile);
+}
+
+.masthead-branding {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.masthead-title {
+  font-family: var(--font-heading);
+  font-size: 2.25rem;
+  font-weight: 800;
+  color: var(--ink-primary);
+  margin: 0;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.masthead-subtitle {
+  font-family: var(--font-prose);
+  font-size: 0.95rem;
+  color: var(--ink-muted);
+  margin: 0;
+}
+
+.masthead-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+/* ==========================================================================
+   Catalog View
+   ========================================================================== */
+
+.catalog-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.search-and-series {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.catalog-search-input {
+  flex: 1 1 260px;
+  font-size: 1rem;
+}
+
+.series-filter-select {
+  flex: 0 1 220px;
+}
+
+.tag-pills-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.stories-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1.5rem;
+}
+
+.story-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 100%;
+}
+
+.story-card-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.story-card-title {
+  font-family: var(--font-heading);
+  font-size: 1.45rem;
+  font-weight: 700;
+  color: var(--ink-primary);
+  margin: 0;
+  line-height: 1.25;
+}
+
+.story-card-summary {
+  font-family: var(--font-prose);
+  font-size: 1rem;
+  color: var(--ink-muted);
+  margin: 0 0 1rem 0;
+  line-height: 1.55;
+  flex-grow: 1;
+}
+
+.story-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+
+.story-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 0.75rem;
+  border-top: 1px dashed var(--ink-muted);
+  gap: 0.5rem;
+}
+
+.story-versions-info {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--ink-muted);
+}
+
+/* ==========================================================================
+   Story Reader View
+   ========================================================================== */
+
+.reader-wrapper {
+  /* Extra bottom padding ensures docked player bar never covers text */
+  padding-bottom: 120px;
+}
+
+.reader-header {
+  margin-bottom: 2rem;
+  padding-bottom: 1.25rem;
+  border-bottom: var(--border-tactile);
+}
+
+.reader-back-btn {
+  margin-bottom: 1.25rem;
+}
+
+.reader-title-area {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.reader-title {
+  font-family: var(--font-heading);
+  font-size: 2.5rem;
+  font-weight: 800;
+  color: var(--ink-primary);
+  margin: 0;
+  line-height: 1.15;
+}
+
+.reader-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.reader-prose-body {
+  max-width: 780px;
+  margin: 0 auto;
+}
+
+/* Ornamental Drop-Cap for Opening Narration */
+.opening-narration {
+  font-family: var(--font-prose);
+  font-size: 1.22rem;
+  line-height: 1.65;
+  margin: 1.25rem 0;
+  color: var(--ink-prose);
+}
+
+.opening-narration::first-letter {
+  font-family: var(--font-heading);
+  font-size: 3.2rem;
+  float: left;
+  line-height: 0.85;
+  margin-right: 0.65rem;
+  margin-top: 0.15rem;
+  font-weight: 800;
+  color: var(--ink-primary);
+}
+
+/* Subsequent Prose Narration Paragraphs */
+.prose-narration {
+  font-family: var(--font-prose);
+  font-size: 1.22rem;
+  line-height: 1.65;
+  margin: 1.25rem 0;
+  color: var(--ink-prose);
+}
+
+/* Character Dialogue Turn Blocks */
+.dialogue-turn {
+  margin: 1.5rem 0;
+  padding: 0.85rem 1.25rem;
+  background-color: var(--bg-surface);
+  border-left: 4px solid var(--accent-module);
+  border-radius: 0 var(--radius-tactile) var(--radius-tactile) 0;
+  box-shadow: var(--shadow-tactile);
+}
+
+.dialogue-header {
+  margin-bottom: 0.4rem;
+}
+
+.dialogue-text {
+  font-family: var(--font-prose);
+  font-size: 1.2rem;
+  line-height: 1.6;
+  color: var(--ink-prose);
+  margin: 0;
+  font-style: italic;
+}
+
+/* ==========================================================================
+   Docked Bottom Audio Player Bar
+   ========================================================================== */
+
+.docked-audio-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  background-color: var(--bg-surface);
+  border-top: var(--border-tactile);
+  box-shadow: 0px -4px 12px rgba(0, 0, 0, 0.08);
+  padding: 0.75rem 1.25rem;
+}
+
+.docked-audio-content {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.player-main-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.player-scrub-section {
+  flex: 1 1 240px;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.player-scrub-bar {
+  flex: 1;
+  cursor: pointer;
+  height: 8px;
+  accent-color: var(--accent-module);
+}
+
+.player-timecode {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+
+.player-meta-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.version-select {
+  font-size: 0.85rem;
+  padding: 0.35rem 0.65rem;
+}
+
+/* Mobile Layout Safety (<= 768px & <= 375px) */
+@media (max-width: 768px) {
+  .app-container {
+    padding: 1rem 0.75rem 2.5rem 0.75rem;
+  }
+
+  .masthead {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .masthead-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .reader-title {
+    font-size: 1.85rem;
+  }
+
+  .opening-narration,
+  .prose-narration,
+  .dialogue-text {
+    font-size: 1.1rem;
+  }
+
+  .docked-audio-content {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  .player-main-controls {
+    justify-content: space-between;
+  }
+
+  .player-scrub-section {
+    width: 100%;
+  }
+
+  .player-meta-controls {
+    justify-content: space-between;
+  }
+}
