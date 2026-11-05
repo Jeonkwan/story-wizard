@@ -4,6 +4,7 @@ import os from 'node:os';
 import { loadConfig } from '../server/config.js';
 import { LocalStorageAdapter } from '../server/storage/localStorage.js';
 import { GeminiStoryService } from '../server/services/geminiStory.js';
+import type { Story } from '../shared/types.js';
 
 async function runLiveSmoke() {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
@@ -24,7 +25,7 @@ async function runLiveSmoke() {
     const storage = new LocalStorageAdapter(tmpDir);
     const storyService = new GeminiStoryService(config, storage);
 
-    let draft: any = null;
+    let draft: Story | null = null;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         console.log(`[smoke:live] Calling Gemini 3.8 Flash (generateStoryDraft, attempt ${attempt}/3)...`);
@@ -44,6 +45,9 @@ async function runLiveSmoke() {
       }
     }
 
+    if (!draft) {
+      throw new Error('generateStoryDraft failed to return a draft story');
+    }
     if (draft.status !== 'draft') {
       throw new Error(`Expected draft status "draft", got "${draft.status}"`);
     }
@@ -52,7 +56,7 @@ async function runLiveSmoke() {
     }
     console.log(`[smoke:live] Draft generated successfully! Title: "${draft.title}", turns: ${draft.script_turns.length}`);
 
-    let directed: any = null;
+    let directed: Story | null = null;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         console.log(`[smoke:live] Calling Gemini 3.8 Flash (directStoryScript, attempt ${attempt}/3)...`);
@@ -67,6 +71,10 @@ async function runLiveSmoke() {
           throw err;
         }
       }
+    }
+
+    if (!directed) {
+      throw new Error('directStoryScript failed to return a directed story');
     }
 
     if (!directed.voice_candidates || directed.voice_candidates.length < 1) {

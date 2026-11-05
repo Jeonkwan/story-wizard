@@ -11,6 +11,7 @@ import { Masthead } from '../client/components/Masthead';
 import { AdminLoginGate } from '../client/components/AdminLoginGate';
 import { DirectorStudio } from '../client/components/DirectorStudio';
 import { VoiceStudioPanel } from '../client/components/VoiceStudioPanel';
+import { App } from '../client/App';
 import * as clientApi from '../client/api/client';
 
 // Standard clean Storage mock for jsdom environment under Node 22
@@ -836,6 +837,86 @@ describe('Phase 3 Admin Studio & UI Components', () => {
 
       expect(screen.getByLabelText('Admin Audio Versions')).toBeInTheDocument();
       expect(screen.getByText(/Admin Audio Versions \(2\)/i)).toBeInTheDocument();
+    });
+
+    it('VoiceStudioPanel aborts synthesis and displays error if onBeforeSynthesize rejects', async () => {
+      vi.spyOn(clientApi, 'fetchVoices').mockResolvedValue(mockVoices);
+      const synthSpy = vi.spyOn(clientApi, 'synthesizeStoryAudio');
+      const beforeSynthMock = vi.fn().mockRejectedValue(new Error('Validation error: title required'));
+      const onStoryUpdatedMock = vi.fn();
+
+      render(
+        <VoiceStudioPanel
+          story={phase4StoryFixture}
+          onStoryUpdated={onStoryUpdatedMock}
+          onBeforeSynthesize={beforeSynthMock}
+        />
+      );
+
+      const synthBtn = await screen.findByRole('button', { name: /3\. Synthesize & Publish Audio/i });
+      await waitFor(() => {
+        expect(synthBtn).not.toBeDisabled();
+      });
+
+      fireEvent.click(synthBtn);
+
+      await waitFor(() => {
+        expect(beforeSynthMock).toHaveBeenCalledTimes(1);
+        expect(synthSpy).not.toHaveBeenCalled();
+        expect(onStoryUpdatedMock).not.toHaveBeenCalled();
+        expect(screen.getByText(/Validation error: title required/i)).toBeInTheDocument();
+      });
+    });
+
+    it('App preserves currently selected activeAudioVersion when managing other audio versions', async () => {
+      window.history.pushState(null, '', '/stories/phase4-test-story');
+      vi.spyOn(clientApi, 'fetchAdminSession').mockResolvedValue({
+        authenticated: true,
+        email: 'curator@storyteller.studio',
+        devBypassEnabled: true,
+      });
+      vi.spyOn(clientApi, 'fetchCatalog').mockResolvedValue([]);
+      vi.spyOn(clientApi, 'fetchStory').mockResolvedValue(phase4StoryFixture);
+
+      render(<App />);
+
+      // Wait for story and audio bar to render
+      await waitFor(() => {
+        expect(screen.getByText('Sleepy Starship')).toBeInTheDocument();
+      });
+
+      // Default version is v1-solo-test, so audio src is v1
+      const playerRegion = screen.getByRole('region', { name: /Audio Player/i });
+      const audioElement = playerRegion.querySelector('audio')!;
+      expect(audioElement).toHaveAttribute('src', '/api/stories/phase4-test-story/audios/v1-solo-test.wav');
+
+      // Switch active audio version to v2-cast-test via Audio Version select dropdown
+      const versionSelect = playerRegion.querySelector('select')!;
+      fireEvent.change(versionSelect, { target: { value: 'v2-cast-test' } });
+      expect(audioElement).toHaveAttribute('src', '/api/stories/phase4-test-story/audios/v2-cast-test.wav');
+
+      // Now simulate admin managing audio versions (e.g. promoting v1 or deleting a version)
+      const updatedStory: Story = {
+        ...phase4StoryFixture,
+        audio_versions: [
+          { ...phase4StoryFixture.audio_versions[0], label: 'Updated Solo Label' },
+          phase4StoryFixture.audio_versions[1],
+        ],
+      };
+
+      vi.spyOn(clientApi, 'deleteAudioVersion').mockResolvedValue(updatedStory);
+
+      // In the admin versions panel, delete v1
+      const deleteBtns = screen.getAllByRole('button', { name: /🗑 Delete/i });
+      fireEvent.click(deleteBtns[0]); // delete v1
+
+      const confirmBtn = await screen.findByRole('button', { name: /Confirm/i });
+      fireEvent.click(confirmBtn);
+
+      // Verify that after story update, v2-cast-test is STILL the active playing version
+      await waitFor(() => {
+        expect(audioElement).toHaveAttribute('src', '/api/stories/phase4-test-story/audios/v2-cast-test.wav');
+      });
     });
   });
 });

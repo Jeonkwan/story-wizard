@@ -3,7 +3,7 @@
 > **Target Audience:** Lead Architect / Senior Reviewing Agent  
 > **Milestone:** Phase 4 (Voice Audition Studio, Chunked Gemini 3.8 TTS, Version Manager & Cloud Run Packaging)  
 > **Repository:** `/home/ubuntu/story-wizard`  
-> **Status:** All Phase 4 Requirements Implemented & Verified (100% Green, 82/82 Vitest Unit/Integration Tests + Live Gemini 3.8 Flash & Flash-Lite TTS Wire Smoke + Playwright Headless Chromium E2E + Docker Container Smoke Verification)
+> **Status:** All Phase 4 Requirements Implemented & Verified (100% Green, 85/85 Vitest Unit/Integration Tests + Live Gemini 3.8 Flash & Flash-Lite TTS Wire Smoke + Playwright Headless Chromium E2E + Docker Container Smoke Verification with Prebuilt Voices Out-of-the-Box)
 
 ---
 
@@ -115,24 +115,25 @@ Phase 4 implements the complete voice audition, text-to-speech synthesis, and au
 
 ### 4.1 Vitest Unit & Integration Suites (`npm test`)
 ```text
- ✓ tests/wav.test.ts (6 tests) 19ms
- ✓ tests/validators.test.ts (19 tests) 37ms
- ✓ tests/ttsSynthesis.test.ts (4 tests) 300ms
- ✓ tests/pipelineApi.test.ts (8 tests) 343ms
- ✓ tests/storageAndAuth.test.ts (30 tests) 454ms
- ✓ tests/ui.test.tsx (14 tests) 1232ms
- ✓ tests/esm-build.test.ts (1 test) 3964ms
+ ✓ tests/wav.test.ts (6 tests) 15ms
+ ✓ tests/validators.test.ts (19 tests) 32ms
+ ✓ tests/pipelineApi.test.ts (8 tests) 311ms
+ ✓ tests/ttsSynthesis.test.ts (5 tests) 338ms
+ ✓ tests/storageAndAuth.test.ts (30 tests) 433ms
+ ✓ tests/ui.test.tsx (16 tests) 1639ms
+ ✓ tests/esm-build.test.ts (1 test) 4209ms
 
  Test Files  7 passed (7)
-      Tests  82 passed (82)
-   Duration  4.70s
+      Tests  85 passed (85)
+   Duration  4.94s
 ```
 
-All 4 Phase 4 validation gates in `tests/ttsSynthesis.test.ts` passed:
+All validation gates in `tests/ttsSynthesis.test.ts` passed:
 1. **Gate 1 (Long-Story Batching & RIFF De-duplication):** 28-turn story in solo mode divides into 3 batches (`12 + 12 + 4` turns) with `speechMetadata.speaker === "Narrator"`, character traits folded into `style`. Saved `.wav` file has `"RIFF"` ONLY at byte 0 (`indexOf('RIFF', 4) === -1`) and exact byte size $44 + 3 \times 9600 + 2 \times 7200 = 43244$.
 2. **Gate 2 (3-Speaker Cast Mode Sub-Batching & Exact-2 Rule):** 3-character story (`"Narrator"`, `"Bibi"`, `"Owl"`) in cast mode groups turns without exceeding 2 speakers per call; asserts `multiSpeakerVoiceConfig` has `speakerVoiceConfigs.length === 2` for 2-speaker calls, and single `voiceConfig` for 1-speaker calls. Every turn's speaker matches configured speakers.
 3. **Gate 3 (Version Promotion & Last-Version Deletion):** Synthesize v1 (default, published); synthesize v2 (`makeDefault: false`); `PATCH .../v2/default` updates `catalog.default_audio_url` to v2; `DELETE .../v2` promotes v1 to default; `DELETE .../v1` leaves 0 versions, reverts story to `'draft'`, `default_audio_url: null`, and public `GET /api/catalog` excludes it.
 4. **Gate 4 (Voice Studio Endpoints & Security):** `GET /api/admin/voices`, `POST /api/admin/voices/preview` (by ID and by description prompt), `POST /api/admin/voices` (creates custom voice and synthesizes with `{ voice: 'voice_...' }`), and 401 unauthenticated enforcement on all new admin routes.
+5. **Fresh DATA_DIR Prebuilt Voices Guarantee:** Asserts that on an empty data directory without `saveVoices` ever called, `GET /api/admin/voices` returns 3 prebuilt voices (`Kore`, `Puck`, `Aoede`) and `POST /api/admin/stories/:id/synthesize` succeeds with `prebuilt-kore` and normalized casting.
 
 ### 4.2 Native Node ESM Verification (`tests/esm-build.test.ts`)
 - Server compiles under `tsconfig.server.json` (`"module": "NodeNext"`).
@@ -184,6 +185,15 @@ curl -i http://localhost:18080/          -> HTTP/1.1 200 OK (HTML SPA)
 curl -i http://localhost:18080/api/catalog -> HTTP/1.1 200 OK (JSON [])
 docker stop storyteller-phase4-smoke     -> stopped cleanly
 ```
+
+### 4.6 Architectural Code Review Remediations (Commit `fix(phase-4)`)
+All 6 open checklist findings from `docs/reviews/phase-4-review.md` were addressed, verified, and checked off:
+1. **TypeScript Strictness (TS7006):** Typed `draft: Story | null = null` and `directed: Story | null = null` in `scripts/smokePhase3Live.ts` with explicit null guards, achieving clean `npm run typecheck` (`tsc --noEmit` exit 0).
+2. **Director Workbench Save Persistence:** Extracted `persistWorkbenchEdits(): Promise<Story>` in `DirectorStudio.tsx` that rethrows save errors, wired `onBeforeSynthesize={async () => { await persistWorkbenchEdits(); }}`, passed live `editedCharacters` to `VoiceStudioPanel`, and added regression test in `tests/ui.test.tsx` verifying synthesis aborts on save rejection.
+3. **Out-of-the-Box Built-In Prebuilt Voices:** Exported `DEFAULT_PREBUILT_VOICES` in `server/services/geminiTts.ts` and implemented `listVoices(): Promise<VoiceEntry[]>`. Routed `GET /api/admin/voices`, `previewVoice`, and `synthesizeFullStory` through `listVoices()`. Added integration test in `tests/ttsSynthesis.test.ts` verifying prebuilt voice availability on empty `DATA_DIR` and verified directly in fresh Docker container.
+4. **VoiceStudioPanel Select Styling, State Reset & Toggle Sync:** Changed `<select>` elements to `className="select-tactile"`, added `useEffect` keyed on `story.id` to stop audition and reset transient banners/casting defaults, synced `versionLabel` ('Bedtime Solo' <-> 'Bedtime Cast') on mode toggle, and normalized saved `casting` in `synthesizeFullStory`.
+5. **Preserve Active Audio Version in Reader:** In `App.tsx` `onStoryUpdated`, preserved currently playing `activeAudioVersion` if its `version_id` still exists in the updated story, falling back to default/null only when deleted. Verified via component test in `tests/ui.test.tsx`.
+6. **Cloud Run Production Environment Variable Documentation:** Documented required environment variables (`SESSION_SECRET` >= 32 chars, `GEMINI_API_KEY`, `GCS_BUCKET_NAME`, `ADMIN_GOOGLE_EMAIL`, `GOOGLE_CLIENT_ID`) in `deploy.sh` comments and pre-flight output (never echoing secrets).
 
 ---
 

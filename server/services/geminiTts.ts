@@ -179,6 +179,39 @@ export interface SynthesizeStoryInput {
 const DEFAULT_BEDTIME_SAMPLE =
   'The sleepy little moon smiled down on the quiet valley, whispering a gentle goodnight to all the dreaming trees.';
 
+export const DEFAULT_PREBUILT_VOICES: VoiceEntry[] = [
+  {
+    id: 'prebuilt-kore',
+    label: 'Kore (Warm Prebuilt)',
+    source: 'prebuilt',
+    gemini_voice_name: 'Kore',
+    description: 'Warm, calm, soothing female bedtime voice',
+    language_code: 'en-US',
+    tags: ['warm', 'bedtime', 'female'],
+    created_at: '2026-11-04T00:00:00.000Z',
+  },
+  {
+    id: 'prebuilt-puck',
+    label: 'Puck (Playful Prebuilt)',
+    source: 'prebuilt',
+    gemini_voice_name: 'Puck',
+    description: 'Gentle, curious, melodic voice',
+    language_code: 'en-US',
+    tags: ['curious', 'gentle'],
+    created_at: '2026-11-04T00:00:00.000Z',
+  },
+  {
+    id: 'prebuilt-aoede',
+    label: 'Aoede (Breezy Prebuilt)',
+    source: 'prebuilt',
+    gemini_voice_name: 'Aoede',
+    description: 'Soft whispery bedtime timbre',
+    language_code: 'en-US',
+    tags: ['soft', 'whisper'],
+    created_at: '2026-11-04T00:00:00.000Z',
+  },
+];
+
 export class GeminiTtsService {
   private readonly ttsProvider: TtsProvider;
 
@@ -189,6 +222,29 @@ export class GeminiTtsService {
   ) {
     this.ttsProvider =
       ttsProvider || new GoogleGenAITtsProvider(this.config.geminiApiKey);
+  }
+
+  /**
+   * Returns all available voices, merging DEFAULT_PREBUILT_VOICES with stored voices.json.
+   * Stored voices take precedence on matching ID so user customizations are respected.
+   */
+  async listVoices(): Promise<VoiceEntry[]> {
+    let storedVoices: VoiceEntry[] = [];
+    try {
+      storedVoices = await this.storage.getVoices();
+    } catch {
+      storedVoices = [];
+    }
+
+    const voiceMap = new Map<string, VoiceEntry>();
+    for (const def of DEFAULT_PREBUILT_VOICES) {
+      voiceMap.set(def.id, def);
+    }
+    for (const v of storedVoices) {
+      voiceMap.set(v.id, v);
+    }
+
+    return Array.from(voiceMap.values());
   }
 
   /**
@@ -205,7 +261,7 @@ export class GeminiTtsService {
     let parts: TtsTurnPart[];
 
     if (input.voiceId && input.voiceId.trim()) {
-      const voices = await this.storage.getVoices();
+      const voices = await this.listVoices();
       const voice = voices.find((v) => v.id === input.voiceId!.trim());
       if (!voice) {
         throw new ValidationError(`Voice not found: "${input.voiceId}"`);
@@ -276,7 +332,7 @@ export class GeminiTtsService {
       languageCode: input.languageCode,
     });
 
-    const existingVoices = await this.storage.getVoices();
+    const existingVoices = await this.listVoices();
     const existingIds = new Set(existingVoices.map((v) => v.id));
 
     const kebab = label
@@ -312,7 +368,7 @@ export class GeminiTtsService {
     await this.storage.updateJsonAtomic<VoiceEntry[]>(
       'voices.json',
       (current) => {
-        const list = current ? [...current] : [];
+        const list = current && current.length > 0 ? [...current] : [...DEFAULT_PREBUILT_VOICES];
         list.push(newVoice);
         return list;
       },
@@ -338,7 +394,7 @@ export class GeminiTtsService {
       throw new ValidationError('Story has no script turns to synthesize');
     }
 
-    const voices = await this.storage.getVoices();
+    const voices = await this.listVoices();
     const voiceMap = new Map<string, VoiceEntry>(voices.map((v) => [v.id, v]));
 
     const { casting, label, makeDefault } = input;
@@ -606,10 +662,17 @@ export class GeminiTtsService {
       }
     }
 
+    const normalizedCasting: VoiceCasting = {
+      mode: casting.mode,
+      narrator_voice_id: casting.narrator_voice_id.trim(),
+      character_voices:
+        casting.mode === 'cast' ? { ...(casting.character_voices || {}) } : {},
+    };
+
     const newVersion: AudioVersion = {
       version_id: versionId,
       label: baseLabel,
-      casting,
+      casting: normalizedCasting,
       is_default: shouldBeDefault,
       duration_sec: durationSec,
       audio_url: `/api/stories/${story.id}/audios/${versionId}.wav`,

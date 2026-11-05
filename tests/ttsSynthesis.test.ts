@@ -521,4 +521,80 @@ describe('Phase 4: Gemini 3.8 TTS Engine, Voice Studio & Version Management', ()
     const unauthDeleteVersion = await request(app).delete('/api/admin/stories/custom-voice-story/versions/v1');
     expect(unauthDeleteVersion.status).toBe(401);
   });
+
+  it('guarantees built-in prebuilt voices exist on empty DATA_DIR without calling saveVoices', async () => {
+    const emptyTmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'story-empty-data-'));
+    try {
+      const emptyConfig = loadConfig({
+        DATA_DIR: emptyTmpDir,
+        NODE_ENV: 'test',
+        DEV_ADMIN_BYPASS: 'true',
+        ADMIN_GOOGLE_EMAIL: 'curator@storyteller.studio',
+        GEMINI_API_KEY: 'test-key',
+      });
+      const emptyStorage = new LocalStorageAdapter(emptyTmpDir);
+      const emptyMockTts = new MockTtsProvider();
+      const emptyApp = createApp({
+        config: emptyConfig,
+        storage: emptyStorage,
+        ttsProvider: emptyMockTts,
+      });
+
+      // Log in as admin
+      const loginRes = await request(emptyApp)
+        .post('/api/admin/login')
+        .send({ devBypass: true });
+      const cookie = loginRes.headers['set-cookie']?.[0] || '';
+
+      // GET /api/admin/voices on fresh empty data dir returns 3 built-in voices
+      const voicesRes = await request(emptyApp)
+        .get('/api/admin/voices')
+        .set('Cookie', cookie);
+      expect(voicesRes.status).toBe(200);
+      expect(voicesRes.body).toHaveLength(3);
+      const voiceIds = voicesRes.body.map((v: VoiceEntry) => v.id);
+      expect(voiceIds).toContain('prebuilt-kore');
+      expect(voiceIds).toContain('prebuilt-puck');
+      expect(voiceIds).toContain('prebuilt-aoede');
+
+      // Create a draft story
+      const story: Story = {
+        id: 'fresh-data-story',
+        status: 'draft',
+        title: 'Fresh Story',
+        summary: 'Testing empty data dir synthesis.',
+        tags: ['test'],
+        series_context: null,
+        characters: [],
+        script_turns: [
+          { turn_id: 1, speaker: 'Narrator', style: 'Warm', text: 'Goodnight little cloud.' },
+        ],
+        voice_candidates: [],
+        audio_versions: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      await emptyStorage.saveStory(story);
+
+      // Synthesize using prebuilt-kore without voices.json ever seeded
+      const synthRes = await request(emptyApp)
+        .post('/api/admin/stories/fresh-data-story/synthesize')
+        .set('Cookie', cookie)
+        .send({
+          casting: {
+            mode: 'solo',
+            narrator_voice_id: 'prebuilt-kore',
+          },
+          label: 'Bedtime Solo',
+        });
+
+      expect(synthRes.status).toBe(201);
+      const updatedStory: Story = synthRes.body;
+      expect(updatedStory.audio_versions).toHaveLength(1);
+      expect(updatedStory.audio_versions[0].casting.narrator_voice_id).toBe('prebuilt-kore');
+      expect(updatedStory.audio_versions[0].casting.character_voices).toEqual({});
+    } finally {
+      await fs.promises.rm(emptyTmpDir, { recursive: true, force: true });
+    }
+  });
 });

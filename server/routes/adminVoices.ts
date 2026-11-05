@@ -8,7 +8,7 @@ import { GeminiTtsService } from '../services/geminiTts.js';
 
 export function createAdminVoicesRouter(
   config: AppConfig,
-  storage: StorageAdapter,
+  _storage: StorageAdapter,
   ttsService: GeminiTtsService
 ): Router {
   const router = Router();
@@ -21,7 +21,7 @@ export function createAdminVoicesRouter(
   router.get(
     '/voices',
     asyncHandler(async (_req: Request, res: Response) => {
-      const voices = await storage.getVoices();
+      const voices = await ttsService.listVoices();
       res.json(voices);
     })
   );

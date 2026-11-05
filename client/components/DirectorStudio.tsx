@@ -196,26 +196,40 @@ export function DirectorStudio({
     }
   };
 
+  // Helper to persist pending workbench edits, syncing state and rethrowing on failure
+  const persistWorkbenchEdits = async (): Promise<Story> => {
+    if (!activeStory) {
+      throw new Error('No active story to save');
+    }
+    const parsedTags = editedTags
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean);
+
+    const updated = await saveStoryEdits(activeStory.id, {
+      title: editedTitle,
+      summary: editedSummary,
+      tags: parsedTags,
+      characters: editedCharacters,
+      script_turns: editedTurns,
+      voice_candidates: activeStory.voice_candidates,
+    });
+
+    setActiveStory(updated);
+    setEditedTurns(JSON.parse(JSON.stringify(updated.script_turns)));
+    await loadStories();
+    onCatalogChanged?.();
+    return updated;
+  };
+
   // Step 2: Auto-Direct Voices & Pacing
   const handleAutoDirect = async () => {
     if (!activeStory) return;
     setIsDirecting(true);
     setDirectError(null);
     try {
-      const parsedTags = editedTags
-        .split(',')
-        .map((t) => t.trim())
-        .filter(Boolean);
-
       // Persist pending workbench edits first so auto-direct acts on latest user prose/characters
-      await saveStoryEdits(activeStory.id, {
-        title: editedTitle,
-        summary: editedSummary,
-        tags: parsedTags,
-        characters: editedCharacters,
-        script_turns: editedTurns,
-        voice_candidates: activeStory.voice_candidates,
-      });
+      await persistWorkbenchEdits();
 
       const directed = await directStory(activeStory.id);
       setActiveStory(directed);
@@ -353,25 +367,8 @@ export function DirectorStudio({
     setSaveSuccess(false);
 
     try {
-      const parsedTags = editedTags
-        .split(',')
-        .map((t) => t.trim())
-        .filter(Boolean);
-
-      const updated = await saveStoryEdits(activeStory.id, {
-        title: editedTitle,
-        summary: editedSummary,
-        tags: parsedTags,
-        characters: editedCharacters,
-        script_turns: editedTurns,
-        voice_candidates: activeStory.voice_candidates,
-      });
-
-      setActiveStory(updated);
-      setEditedTurns(JSON.parse(JSON.stringify(updated.script_turns)));
+      await persistWorkbenchEdits();
       setSaveSuccess(true);
-      await loadStories();
-      onCatalogChanged?.();
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Save failed');
     } finally {
@@ -853,9 +850,11 @@ export function DirectorStudio({
 
             {/* Step 3: Voice Audition, Synthesis & Audio Versions */}
             <VoiceStudioPanel
-              story={activeStory}
+              story={{ ...activeStory, characters: editedCharacters }}
               onStoryUpdated={handleStoryUpdated}
-              onBeforeSynthesize={handleSaveScript}
+              onBeforeSynthesize={async () => {
+                await persistWorkbenchEdits();
+              }}
             />
 
             {/* Metadata Section */}

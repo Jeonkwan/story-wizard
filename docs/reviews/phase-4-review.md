@@ -20,11 +20,11 @@ However, independent verification uncovered **1 `tsc --noEmit` build failure** a
 
 ## Actionable Review Checklist
 
-- [ ] **1. [CRITICAL] Fix TypeScript Strictness Failure in `scripts/smokePhase3Live.ts` (`npm run typecheck`):**
+- [x] **1. [CRITICAL] Fix TypeScript Strictness Failure in `scripts/smokePhase3Live.ts` (`npm run typecheck`):**
   - **Issue:** `npm run typecheck` (`tsc --noEmit`) currently fails with `TS7006` at `scripts/smokePhase3Live.ts:75` and `:82` (`Parameter 't' implicitly has an 'any' type`, `Parameter 'v' implicitly has an 'any' type`) introduced when retry loops typed `draft` and `directed` as `any`.
   - **Fix:** Import `type { Story } from '../shared/types.js'`, declare `let draft: Story | null = null;` and `let directed: Story | null = null;`, and add `if (!draft) throw new Error(...)` / `if (!directed) throw new Error(...)` guards after each retry loop. Always run `npm run typecheck` as part of final verification before committing.
 
-- [ ] **2. [HIGH] Prevent `DirectorStudio` + `VoiceStudioPanel` from Swallowing Save Failures or Missing Unsaved Characters Before Synthesis:**
+- [x] **2. [HIGH] Prevent `DirectorStudio` + `VoiceStudioPanel` from Swallowing Save Failures or Missing Unsaved Characters Before Synthesis:**
   - **Issue A (Error Swallowing -> Stale Disk Synthesis & Data Loss):** `DirectorStudio.tsx` passes `onBeforeSynthesize={handleSaveScript}`, but `handleSaveScript` catches `saveStoryEdits` errors internally without rethrowing. If saving pending script/metadata edits fails validation (`400`), `VoiceStudioPanel.handleSynthesize` proceeds anyway—synthesizing **stale disk data** and then overwriting the user's unsaved workbench state via `onStoryUpdated(updatedStory)`.
   - **Issue B (Unsaved Characters Invisible in Cast Mode):** `DirectorStudio.tsx` passes `story={activeStory}` rather than live `editedCharacters` to `VoiceStudioPanel`. If an admin adds or renames a character in the Characters Bible and switches to **Multi-Speaker Cast** before clicking *"Save Script"*, the character is missing from `VoiceStudioPanel`'s character voice selectors, causing Cast synthesis to fail with `400 Missing or invalid voice for character`.
   - **Fix:**
@@ -32,14 +32,14 @@ However, independent verification uncovered **1 `tsc --noEmit` build failure** a
     2. Pass `{ ...activeStory, characters: editedCharacters }` (or an explicit `characters={editedCharacters}` prop) to `VoiceStudioPanel` so live character additions/renames immediately appear in **Multi-Speaker Cast** selectors.
     3. Add a component regression test in `tests/ui.test.tsx` asserting that when `saveStoryEdits` rejects, clicking *"3. Synthesize & Publish Audio"* aborts without calling `synthesizeStoryAudio` and surfaces the error message.
 
-- [ ] **3. [HIGH] Guarantee Built-In Prebuilt Voices Exist Out-of-the-Box on Fresh Cloud Run / Empty GCS or Docker `/app/data` (`server/services/geminiTts.ts`):**
+- [x] **3. [HIGH] Guarantee Built-In Prebuilt Voices Exist Out-of-the-Box on Fresh Cloud Run / Empty GCS or Docker `/app/data` (`server/services/geminiTts.ts`):**
   - **Issue:** On a fresh Cloud Run deployment (empty GCS bucket) or fresh Docker container (`/app/data` without running `npm run seed`), `voices.json` does not exist yet, causing `GET /api/admin/voices` to return `[]` and leaving `VoiceStudioPanel` with zero selectable prebuilt voices (`Kore`, `Puck`, `Aoede`).
   - **Fix:**
     1. Export `DEFAULT_PREBUILT_VOICES: VoiceEntry[]` (`prebuilt-kore`, `prebuilt-puck`, `prebuilt-aoede`) in `server/services/geminiTts.ts` and implement `async listVoices(): Promise<VoiceEntry[]>` on `GeminiTtsService` that merges `DEFAULT_PREBUILT_VOICES` with stored `voices.json` entries (deduplicating by `id` so stored entries take precedence and all 3 starter prebuilt voices are always present even when `voices.json` is missing/empty).
     2. Use `listVoices()` in `GET /api/admin/voices`, `previewVoice`, and `synthesizeFullStory`, and seed `DEFAULT_PREBUILT_VOICES` when `createAndSaveVoice` initializes `voices.json` from empty/missing state so prebuilt voices are never lost.
     3. Add an integration test in `tests/ttsSynthesis.test.ts` verifying that on a brand-new empty `DATA_DIR` (without calling `storage.saveVoices`), `GET /api/admin/voices` returns the 3 prebuilt voices and `POST /api/admin/stories/:id/synthesize` with `prebuilt-kore` succeeds.
 
-- [ ] **4. [MEDIUM] Fix `VoiceStudioPanel.tsx` `<select>` Dark-Mode Class, Story-Switch State Reset & Default Label Sync:**
+- [x] **4. [MEDIUM] Fix `VoiceStudioPanel.tsx` `<select>` Dark-Mode Class, Story-Switch State Reset & Default Label Sync:**
   - **Issue:**
     1. `VoiceStudioPanel.tsx` lines 514 and 563 apply `className="input-tactile"` instead of `className="select-tactile"` on `<select>` dropdowns (missing `.select-tactile option` dark-mode styling in `kinetic.css`).
     2. When switching between stories in `DirectorStudio` (`story.id` changes while `VoiceStudioPanel` stays mounted), transient banners (`synthSuccess`, `synthError`, `voiceCreateSuccess`, `voiceCreateError`, `auditionError`, `versionActionError`, `confirmDeleteId`) and `narratorVoiceId` persist from the previous story instead of resetting to the newly selected story's `series_context?.preferred_voice_id`.
@@ -50,10 +50,10 @@ However, independent verification uncovered **1 `tsc --noEmit` build failure** a
     3. When switching `castingMode`, if `versionLabel` is `'Bedtime Solo'` (switching to `'cast'`) update it to `'Bedtime Cast'`, and if `'Bedtime Cast'` (switching to `'solo'`) update it to `'Bedtime Solo'`.
     4. In `GeminiTtsService.synthesizeFullStory`, normalize the saved `AudioVersion.casting` object (`character_voices: casting.mode === 'cast' ? { ...filteredCharacterVoices } : {}`).
 
-- [ ] **5. [MEDIUM] Preserve Currently Playing Audio Version in `App.tsx` When Admin Manages Other Versions in `StoryReader`:**
+- [x] **5. [MEDIUM] Preserve Currently Playing Audio Version in `App.tsx` When Admin Manages Other Versions in `StoryReader`:**
   - **Issue:** In `client/App.tsx` lines 155–163, `StoryReader`'s `onStoryUpdated` callback unconditionally sets `setActiveAudioVersion(defaultVer)`. If an admin is actively listening to `v1` and deletes unused `v2` (or promotes `v2` to default), `AudioPlayerBar` abruptly switches away from `v1` and resets playback to `00:00`.
   - **Fix:** In `App.tsx` `onStoryUpdated`, check if the current `activeAudioVersion?.version_id` still exists in `updatedStory.audio_versions`: if so, update `activeAudioVersion` to that matching `AudioVersion` entry (preserving `version_id` and playback position); only fall back to `defaultVer` (or `null` when `0` versions remain) if the active version was deleted. Add a regression test in `tests/ui.test.tsx`.
 
-- [ ] **6. [LOW] Document Required Cloud Run Production Environment Variables in `deploy.sh`:**
+- [x] **6. [LOW] Document Required Cloud Run Production Environment Variables in `deploy.sh`:**
   - **Issue:** `server/config.ts` fails closed on Cloud Run (`K_SERVICE` / `NODE_ENV=production`) if `SESSION_SECRET` (`>= 32` chars) is unset, and production usage requires `GEMINI_API_KEY`, `ADMIN_GOOGLE_EMAIL`, `GOOGLE_CLIENT_ID`, and `GCS_BUCKET_NAME`. `deploy.sh` currently invokes `gcloud run deploy` without documenting these required env vars / Secret Manager flags.
   - **Fix:** Document all required Cloud Run env vars / `--set-secrets` / `--set-env-vars` examples clearly in `deploy.sh` (and print a clear reminder before/after `gcloud run deploy` without ever echoing secret values).

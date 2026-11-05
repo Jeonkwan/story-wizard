@@ -154,11 +154,16 @@ export function App(): React.JSX.Element {
               onVersionChange={(ver) => setActiveAudioVersion(ver)}
               onStoryUpdated={(updatedStory) => {
                 setActiveStory(updatedStory);
-                const defaultVer =
-                  updatedStory.audio_versions.find((v) => v.is_default) ||
-                  updatedStory.audio_versions[0] ||
-                  null;
-                setActiveAudioVersion(defaultVer);
+                setActiveAudioVersion((prev) => {
+                  if (prev && updatedStory.audio_versions.some((v) => v.version_id === prev.version_id)) {
+                    return updatedStory.audio_versions.find((v) => v.version_id === prev.version_id)!;
+                  }
+                  return (
+                    updatedStory.audio_versions.find((v) => v.is_default) ||
+                    updatedStory.audio_versions[0] ||
+                    null
+                  );
+                });
                 refreshCatalog();
               }}
             />

@@ -101,7 +101,29 @@ export function VoiceStudioPanel({
     loadVoices();
   }, [loadVoices]);
 
-  // Initialize casting defaults once voices are loaded or story changes
+  // Reset transient banners and casting defaults when switching stories
+  useEffect(() => {
+    stopAudition();
+    setSynthSuccess(false);
+    setSynthError(null);
+    setVoiceCreateSuccess(null);
+    setVoiceCreateError(null);
+    setAuditionError(null);
+    setVersionActionError(null);
+    setConfirmDeleteId(null);
+
+    if (voices.length > 0) {
+      const preferredId = story.series_context?.preferred_voice_id;
+      const hasPreferred = preferredId && voices.some((v) => v.id === preferredId);
+      const defaultVoice = hasPreferred
+        ? preferredId!
+        : voices.find((v) => v.id === 'prebuilt-kore')?.id || voices[0].id;
+      setNarratorVoiceId(defaultVoice);
+    }
+    setVersionLabel(castingMode === 'solo' ? 'Bedtime Solo' : 'Bedtime Cast');
+  }, [story.id, stopAudition]);
+
+  // Initialize casting defaults once voices are loaded or characters change
   useEffect(() => {
     if (voices.length === 0) return;
 
@@ -215,6 +237,16 @@ export function VoiceStudioPanel({
       setVoiceCreateError(err instanceof Error ? err.message : 'Failed to create custom voice');
     } finally {
       setIsCreatingVoice(false);
+    }
+  };
+
+  // Mode toggle with default label sync
+  const handleToggleCastingMode = (newMode: 'solo' | 'cast') => {
+    setCastingMode(newMode);
+    if (newMode === 'cast' && versionLabel === 'Bedtime Solo') {
+      setVersionLabel('Bedtime Cast');
+    } else if (newMode === 'solo' && versionLabel === 'Bedtime Cast') {
+      setVersionLabel('Bedtime Solo');
     }
   };
 
@@ -487,14 +519,14 @@ export function VoiceStudioPanel({
           <button
             type="button"
             className={`btn-tactile ${castingMode === 'solo' ? 'btn-tactile-primary' : ''}`}
-            onClick={() => setCastingMode('solo')}
+            onClick={() => handleToggleCastingMode('solo')}
           >
             🎙️ Solo Storyteller
           </button>
           <button
             type="button"
             className={`btn-tactile ${castingMode === 'cast' ? 'btn-tactile-primary' : ''}`}
-            onClick={() => setCastingMode('cast')}
+            onClick={() => handleToggleCastingMode('cast')}
           >
             🎭 Multi-Speaker Cast ({story.characters.length + 1} Speakers)
           </button>
@@ -511,7 +543,7 @@ export function VoiceStudioPanel({
                 Narrator Voice:
               </label>
               <select
-                className="input-tactile"
+                className="select-tactile"
                 style={{ flex: '1', minWidth: '220px' }}
                 value={narratorVoiceId}
                 onChange={(e) => setNarratorVoiceId(e.target.value)}
@@ -560,7 +592,7 @@ export function VoiceStudioPanel({
                           )}
                         </div>
                         <select
-                          className="input-tactile"
+                          className="select-tactile"
                           style={{ flex: '1', minWidth: '220px' }}
                           value={charVoiceId}
                           onChange={(e) =>
