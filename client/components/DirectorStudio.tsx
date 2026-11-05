@@ -201,9 +201,29 @@ export function DirectorStudio({
     setIsDirecting(true);
     setDirectError(null);
     try {
+      const parsedTags = editedTags
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean);
+
+      // Persist pending workbench edits first so auto-direct acts on latest user prose/characters
+      await saveStoryEdits(activeStory.id, {
+        title: editedTitle,
+        summary: editedSummary,
+        tags: parsedTags,
+        characters: editedCharacters,
+        script_turns: editedTurns,
+        voice_candidates: activeStory.voice_candidates,
+      });
+
       const directed = await directStory(activeStory.id);
       setActiveStory(directed);
+      setEditedTitle(directed.title);
+      setEditedSummary(directed.summary);
+      setEditedTags(directed.tags.join(', '));
+      setEditedCharacters(JSON.parse(JSON.stringify(directed.characters)));
       setEditedTurns(JSON.parse(JSON.stringify(directed.script_turns)));
+      setSaveSuccess(false);
       await loadStories();
       onCatalogChanged?.();
     } catch (err) {
@@ -283,11 +303,23 @@ export function DirectorStudio({
 
   // Characters Bible helpers
   const handleCharacterChange = (index: number, field: keyof CharacterProfile, value: string) => {
+    const prevChar = editedCharacters[index];
+    const prevName = prevChar?.name?.trim();
+
     setEditedCharacters((prev) => {
       const next = [...prev];
       next[index] = { ...next[index], [field]: value };
       return next;
     });
+
+    if (field === 'name' && prevName && value.trim() !== prevName) {
+      const newName = value.trim();
+      setEditedTurns((prevTurns) =>
+        prevTurns.map((turn) =>
+          turn.speaker === prevName ? { ...turn, speaker: newName || 'Narrator' } : turn
+        )
+      );
+    }
     setSaveSuccess(false);
   };
 
@@ -297,7 +329,18 @@ export function DirectorStudio({
   };
 
   const handleDeleteCharacter = (index: number) => {
+    const deletedChar = editedCharacters[index];
+    const deletedName = deletedChar?.name?.trim();
+
     setEditedCharacters((prev) => prev.filter((_, idx) => idx !== index));
+
+    if (deletedName) {
+      setEditedTurns((prevTurns) =>
+        prevTurns.map((turn) =>
+          turn.speaker === deletedName ? { ...turn, speaker: 'Narrator' } : turn
+        )
+      );
+    }
     setSaveSuccess(false);
   };
 

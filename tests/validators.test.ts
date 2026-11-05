@@ -441,5 +441,62 @@ describe('Manual Admin Story Edit Validator (server/lib/validators.ts)', () => {
       });
     }).toThrow(ValidationError);
   });
+
+  it('preserves multi-word vocal tags atomically without tearing during whitespace split fallback', () => {
+    // Unpunctuated text with <short pause> positioned around character 595
+    const prefix = 'peaceful rolling hills '.repeat(25); // ~575 chars
+    const unpunctuatedText = `${prefix} <short pause> and starry skies beyond`; // > 600 chars, no sentence punctuation
+
+    const chunks = splitTextAtSentenceBoundaries(unpunctuatedText, 600);
+    expect(chunks.length).toBeGreaterThan(1);
+
+    // Verify neither chunk has torn "<short" or "pause>"
+    for (const chunk of chunks) {
+      expect(chunk).not.toMatch(/<short(?!\s+pause>)/);
+      expect(chunk).not.toMatch(/(?<!<short\s+)pause>/);
+    }
+    // Verify intact tag exists
+    const fullRejoined = chunks.join(' ');
+    expect(fullRejoined).toContain('<short pause>');
+  });
+
+  it('merges tag-only trailing chunks into the adjacent sentence so validateManualStoryEdit never produces an orphan empty turn', () => {
+    // A sentence of exactly ~595 chars followed by <short pause>
+    const sentence = 'The little blue train gently chugged through the misty valley under the watchful stars. '.repeat(6);
+    expect(sentence.length).toBeGreaterThan(520);
+    const textWithTrailingTag = `${sentence.trim()} <short pause>`;
+    expect(textWithTrailingTag.length).toBeGreaterThan(530);
+
+    // When maxLen is small enough that the tag lands past boundary
+    const boundary = sentence.trim().length + 5;
+    const chunks = splitTextAtSentenceBoundaries(textWithTrailingTag, boundary);
+
+    // Should merge trailing tag into the sentence rather than emitting a standalone ["<short pause>"]
+    for (const chunk of chunks) {
+      expect(cleanTextForReader(chunk).length).toBeGreaterThan(0);
+    }
+
+    // Pass through validateManualStoryEdit
+    const output = validateManualStoryEdit({
+      title: 'Boundary Story',
+      summary: 'Summary',
+      tags: ['train'],
+      characters: [{ name: 'Bibi', traits: 'Locomotive' }],
+      script_turns: [
+        { turn_id: 1, speaker: 'Narrator', text: textWithTrailingTag },
+        { turn_id: 2, speaker: 'Bibi', text: 'Goodnight track!' },
+      ],
+    });
+
+    // Verify every turn has readable text
+    for (const turn of output.script_turns) {
+      expect(cleanTextForReader(turn.text).length).toBeGreaterThan(0);
+    }
+
+    // Re-saving the output must succeed without throwing "has empty text"
+    expect(() => {
+      validateManualStoryEdit(output);
+    }).not.toThrow();
+  });
 });
 

@@ -99,6 +99,25 @@ export function storyToCatalogItem(story: Story): CatalogItem {
 }
 
 /**
+ * Safely parses LLM JSON responses, stripping optional markdown fences and throwing ValidationError.
+ */
+export function parseLLMJson<T>(rawText: string | undefined, stage: string): T {
+  if (!rawText || !rawText.trim()) {
+    throw new ValidationError(`Model returned empty output for ${stage}`);
+  }
+  let cleaned = rawText.trim();
+  if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  }
+  try {
+    return JSON.parse(cleaned) as T;
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new ValidationError(`Failed to parse model JSON output for ${stage}: ${msg}`);
+  }
+}
+
+/**
  * Production StoryLLMProvider backed by @google/genai and gemini-3.8-flash.
  */
 export class GoogleGenAIStoryLLMProvider implements StoryLLMProvider {
@@ -189,8 +208,7 @@ export class GoogleGenAIStoryLLMProvider implements StoryLLMProvider {
       },
     });
 
-    const parsed = JSON.parse(response.text ?? '{}');
-    return parsed as WriterOutputInput;
+    return parseLLMJson<WriterOutputInput>(response.text, 'Writer draft');
   }
 
   async directScript(input: DirectScriptInput): Promise<DirectorOutputInput> {
@@ -248,8 +266,7 @@ export class GoogleGenAIStoryLLMProvider implements StoryLLMProvider {
       },
     });
 
-    const parsed = JSON.parse(response.text ?? '{}');
-    return parsed as DirectorOutputInput;
+    return parseLLMJson<DirectorOutputInput>(response.text, 'Director script');
   }
 }
 
@@ -300,7 +317,9 @@ export class GeminiStoryService {
         const sanitizedSeriesId = input.seriesId
           .trim()
           .toLowerCase()
-          .replace(/[^a-z0-9-_]/g, '-');
+          .replace(/[^a-z0-9-_]+/g, '-')
+          .replace(/-{2,}/g, '-')
+          .replace(/^[-_]+|[-_]+$/g, '');
         validateSlug(sanitizedSeriesId, 'seriesId');
         seriesContext = {
           series_id: sanitizedSeriesId,

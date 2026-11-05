@@ -44,9 +44,32 @@ export interface ValidatedDirectorOutput {
   voice_candidates: VoiceDesignCandidate[];
 }
 
+function mergeTagOnlyChunks(chunks: string[]): string[] {
+  if (chunks.length <= 1) return chunks;
+  const merged: string[] = [];
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i].trim();
+    if (!chunk) continue;
+    if (!cleanTextForReader(chunk)) {
+      // Chunk contains only vocal tags; merge into previous or next chunk
+      if (merged.length > 0) {
+        merged[merged.length - 1] = `${merged[merged.length - 1]} ${chunk}`.trim();
+      } else if (i + 1 < chunks.length) {
+        chunks[i + 1] = `${chunk} ${chunks[i + 1]}`.trim();
+      } else {
+        merged.push(chunk);
+      }
+    } else {
+      merged.push(chunk);
+    }
+  }
+  return merged;
+}
+
 /**
  * Splits long turn text (> 600 chars) at sentence boundaries (. ! ?) into chunks <= 600 chars.
- * Ensures any unbroken token > maxLen is hard-sliced so no chunk exceeds maxLen.
+ * Keeps vocal tags (<...>) atomic so <short pause> is never split across words.
+ * Merges any tag-only chunks into adjacent chunks so turns with readable text are preserved.
  */
 export function splitTextAtSentenceBoundaries(text: string, maxLen = 600): string[] {
   const trimmed = text.trim();
@@ -55,11 +78,11 @@ export function splitTextAtSentenceBoundaries(text: string, maxLen = 600): strin
   const sentenceRegex = /[^.!?]+[.!?]+(?:\s+|$)|[^.!?]+$/g;
   const sentences = trimmed.match(sentenceRegex);
   if (!sentences || sentences.length <= 1) {
-    // Fall back to word boundaries if no sentence punctuation
-    const rawWords = trimmed.split(/\s+/).filter(Boolean);
+    // Fall back to word boundaries if no sentence punctuation; preserve <...> tags atomically
+    const rawWords = trimmed.match(/<[^>]+>|\S+/g) || [];
     const words: string[] = [];
     for (const word of rawWords) {
-      if (word.length > maxLen) {
+      if (word.length > maxLen && !word.startsWith('<')) {
         for (let i = 0; i < word.length; i += maxLen) {
           words.push(word.slice(i, i + maxLen));
         }
@@ -67,7 +90,7 @@ export function splitTextAtSentenceBoundaries(text: string, maxLen = 600): strin
         words.push(word);
       }
     }
-    const chunks: string[] = [];
+    const rawChunks: string[] = [];
     let current = '';
     for (const word of words) {
       if (!current) {
@@ -75,15 +98,15 @@ export function splitTextAtSentenceBoundaries(text: string, maxLen = 600): strin
       } else if ((current + ' ' + word).length <= maxLen) {
         current += ' ' + word;
       } else {
-        chunks.push(current.trim());
+        rawChunks.push(current.trim());
         current = word;
       }
     }
-    if (current.trim()) chunks.push(current.trim());
-    return chunks;
+    if (current.trim()) rawChunks.push(current.trim());
+    return mergeTagOnlyChunks(rawChunks);
   }
 
-  const chunks: string[] = [];
+  const rawChunks: string[] = [];
   let current = '';
   for (const sentence of sentences) {
     const s = sentence.trim();
@@ -91,7 +114,7 @@ export function splitTextAtSentenceBoundaries(text: string, maxLen = 600): strin
     if (!current) {
       if (s.length > maxLen) {
         const subChunks = splitTextAtSentenceBoundaries(s, maxLen);
-        chunks.push(...subChunks.slice(0, -1));
+        rawChunks.push(...subChunks.slice(0, -1));
         current = subChunks[subChunks.length - 1];
       } else {
         current = s;
@@ -99,18 +122,18 @@ export function splitTextAtSentenceBoundaries(text: string, maxLen = 600): strin
     } else if ((current + ' ' + s).length <= maxLen) {
       current += ' ' + s;
     } else {
-      chunks.push(current.trim());
+      rawChunks.push(current.trim());
       if (s.length > maxLen) {
         const subChunks = splitTextAtSentenceBoundaries(s, maxLen);
-        chunks.push(...subChunks.slice(0, -1));
+        rawChunks.push(...subChunks.slice(0, -1));
         current = subChunks[subChunks.length - 1];
       } else {
         current = s;
       }
     }
   }
-  if (current.trim()) chunks.push(current.trim());
-  return chunks;
+  if (current.trim()) rawChunks.push(current.trim());
+  return mergeTagOnlyChunks(rawChunks);
 }
 
 /**

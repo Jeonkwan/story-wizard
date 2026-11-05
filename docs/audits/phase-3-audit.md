@@ -3,7 +3,7 @@
 > **Target Audience:** Lead Architect / Senior Reviewing Agent  
 > **Milestone:** Phase 3 (Admin Director Studio & Pipeline Builder)  
 > **Repository:** `/home/ubuntu/story-wizard`  
-> **Status:** All Phase 3 Requirements Implemented & Verified (100% Green, 68/68 Vitest Unit/Integration Tests + Live Gemini 3.8 Smoke Test + Playwright Headless Chromium E2E)
+> **Status:** All Phase 3 Requirements Implemented & Code Review Findings Remediated (100% Green, 74/74 Vitest Unit/Integration Tests + Live Gemini 3.8 Smoke Test + Playwright Headless Chromium E2E)
 
 ---
 
@@ -11,10 +11,13 @@
 
 Phase 3 delivers the full admin creation and direction pipeline for **Storyteller Studio**, enabling creators to write bedtime stories with Gemini 3.8 Flash, direct voice acting, propose custom voice candidates, edit scripts turn-by-turn with quick vocal tags, produce episodic sequels with character continuity, and manage library drafts with atomic storage synchronization.
 
-All requirements outlined in `HANDOFF_PLAN.md` (Sections 4, 5.1–5.2, 6, 7, 8 **PHASE 3**, and 11) have been strictly implemented with zero over-engineering:
-- **No external databases or queues:** Atomic JSON and WAV persistence via `StorageAdapter` (`updateJsonAtomic`).
-- **Native Node ESM compliance:** Explicit `.js` extensions on all relative imports across `server/**` and `shared/**`.
-- **Offline-first test isolation:** Injected `StoryLLMProvider` mocks for all CI tests, plus a live smoke test script confirming real `@google/genai` wire compatibility against `gemini-3.8-flash`.
+Following the Lead Architect's Code & Visual Review (`docs/reviews/phase-3-review.md`), all 6 actionable review findings have been resolved:
+1. **`splitTextAtSentenceBoundaries` Tag Integrity & Tag-Only Chunk Merge:** Tokenizes whitespace-fallback keeping `<[^>]+>` atomic, and merges tag-only trailing/split chunks into adjacent chunks so orphan empty turns are never generated.
+2. **Preserve Unsaved Workbench Edits Before Auto-Direct:** Persists current workbench state via `saveStoryEdits` before triggering `directStory` so unsaved prose/character edits are never wiped.
+3. **Turn `speaker` Sync on Character Rename / Delete:** Renaming a character in Characters Bible updates all matching turns in React state; deleting a character resets matching turns to `'Narrator'`.
+4. **Async GSI Script Load Listener in `AdminLoginGate`:** Attaches a `load` listener to the async Google Identity Services `<script>` if not yet loaded when `GET /api/admin/me` resolves.
+5. **`seriesId` Hyphen Normalization & Safe `parseLLMJson`:** Collapses repeated hyphens and strips punctuation/leading/trailing dashes on `seriesId`, and adds `parseLLMJson` helper stripping markdown fences and wrapping parse errors in `ValidationError`.
+6. **E2E Reload Persistence & Idempotent Cleanup:** Asserts the reloaded `textarea` contains the inserted edit + `<short pause>` and restores original seed text on save.
 
 ---
 
@@ -102,25 +105,27 @@ All endpoints are secured by `createRequireAdminMiddleware` and wrapped with `as
 
 ### 4.1 Vitest Unit & Integration Suites (`npm test`)
 ```text
- ✓ tests/wav.test.ts (6 tests) 16ms
- ✓ tests/validators.test.ts (17 tests) 30ms
- ✓ tests/pipelineApi.test.ts (6 tests) 263ms
- ✓ tests/storageAndAuth.test.ts (30 tests) 381ms
- ✓ tests/ui.test.tsx (8 tests) 707ms
- ✓ tests/esm-build.test.ts (1 test) 3581ms
+ ✓ tests/wav.test.ts (6 tests) 17ms
+ ✓ tests/validators.test.ts (19 tests) 28ms
+ ✓ tests/pipelineApi.test.ts (8 tests) 278ms
+ ✓ tests/storageAndAuth.test.ts (30 tests) 433ms
+ ✓ tests/ui.test.tsx (10 tests) 859ms
+ ✓ tests/esm-build.test.ts (1 test) 3566ms
 
  Test Files  6 passed (6)
-      Tests  68 passed (68)
-   Duration  4.26s
+      Tests  74 passed (74)
+   Duration  4.22s
 ```
 
-All 6 Phase 3 validation gates in `tests/pipelineApi.test.ts` passed:
+All 6 Phase 3 validation gates plus review regression tests in `tests/pipelineApi.test.ts` passed:
 1. **Gate 1: Mode A & Draft Isolation:** `POST /api/admin/stories/write` creates a draft story; public `GET /api/catalog` excludes it; `POST .../direct` populates `style`, approved tags, and voice candidates.
 2. **Gate 2: Mode B Sequel Continuity:** Creating a sequel from episode 1 sets `series_context.episode_number === 2`, carries `series_id`, and passes prior characters bible to Writer LLM.
 3. **Gate 3: Publish Guardrail:** `PATCH .../status` with `status: 'published'` on a story with 0 audio versions returns `400 Bad Request`; succeeds with `200` once audio exists, and reverts to draft with `200`.
 4. **Gate 4: Manual Edit Sanitization:** `PUT .../stories/:id` strips unauthorized `<cough_loudly>` tag while preserving `<short pause>` and prose parentheses, updating `catalog.json`.
 5. **Gate 5: Delete Story Cleanup:** `DELETE .../stories/:id` deletes `.wav` audio files, `story.json`, and removes entry from `catalog.json`.
 6. **Gate 6: Unauthenticated 401 Enforcement:** Rejects unauthenticated requests with `401` across all admin story routes.
+7. **Series ID Normalization:** Normalizes `seriesId` by collapsing repeated hyphens and stripping punctuation/leading/trailing dashes (`"Sleepy Train!"` -> `"sleepy-train"`).
+8. **Safe LLM JSON Parsing:** `parseLLMJson` strips optional markdown fences and wraps JSON errors in `ValidationError`.
 
 ### 4.2 Native Node ESM Verification (`tests/esm-build.test.ts`)
 - `tsconfig.server.json` compiled with `"module": "NodeNext"` and `"moduleResolution": "NodeNext"`.

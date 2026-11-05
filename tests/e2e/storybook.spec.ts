@@ -221,9 +221,16 @@ test.describe('Phase 3 Admin Director Studio E2E', () => {
     const turnTextarea = firstTurnCard.locator('textarea');
     await expect(turnTextarea).toBeVisible();
 
-    const shortPausePill = firstTurnCard.getByRole('button', { name: '<short pause>' });
+    // Record original text for idempotent restoration
+    const originalTurnText = await turnTextarea.inputValue();
+
+    const testTag = '<short pause>';
+    const shortPausePill = firstTurnCard.getByRole('button', { name: testTag });
     await expect(shortPausePill).toBeVisible();
     await shortPausePill.click();
+
+    const expectedEditedText = await turnTextarea.inputValue();
+    expect(expectedEditedText).toContain(testTag);
 
     // Click "Save Script"
     await saveScriptBtn.click();
@@ -231,10 +238,18 @@ test.describe('Phase 3 Admin Director Studio E2E', () => {
     // Verify "✓ Saved successfully" banner
     await expect(page.getByText('✓ Saved successfully')).toBeVisible();
 
-    // 6. Reload page and verify persistence
+    // 6. Reload page and assert persisted value
     await page.reload();
     await seededStoryItem.click();
-    await expect(page.locator('.turn-card').first().locator('textarea')).toBeVisible();
+    const reloadedTextarea = page.locator('.turn-card').first().locator('textarea');
+    await expect(reloadedTextarea).toBeVisible();
+    await expect(reloadedTextarea).toHaveValue(expectedEditedText);
+
+    // Idempotent cleanup: restore original turn text and save
+    await reloadedTextarea.fill(originalTurnText);
+    const reloadedSaveBtn = page.getByRole('button', { name: /Save Script/i });
+    await reloadedSaveBtn.click();
+    await expect(page.getByText('✓ Saved successfully')).toBeVisible();
 
     // 7. Verify Dark Mode contrast on /admin
     const themeBtn = page.getByRole('button', { name: /Dark Mode|Light Mode/i });

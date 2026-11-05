@@ -16,10 +16,12 @@ import type {
   GenerateWriterDraftInput,
   DirectScriptInput,
 } from '../server/services/geminiStory.js';
+import { parseLLMJson } from '../server/services/geminiStory.js';
 import type {
   WriterOutputInput,
   DirectorOutputInput,
 } from '../server/lib/validators.js';
+import { ValidationError } from '../server/lib/validators.js';
 import { StorageNotFoundError } from '../server/storage/storageAdapter.js';
 
 describe('Phase 3: Admin Studio & Writer-Director Pipeline Integration Tests', () => {
@@ -467,5 +469,41 @@ describe('Phase 3: Admin Studio & Writer-Director Pipeline Integration Tests', (
 
     const resDelete = await request(app).delete('/api/admin/stories/some-story');
     expect(resDelete.status).toBe(401);
+  });
+
+  /* -------------------------------------------------------------------------
+   * Review Findings: seriesId Hyphen Normalization & parseLLMJson
+   * ----------------------------------------------------------------------- */
+  it('normalizes seriesId by collapsing repeated hyphens and stripping punctuation/leading/trailing dashes', async () => {
+    const app = createTestApp();
+    const adminCookie = getAdminCookie();
+
+    const res = await request(app)
+      .post('/api/admin/stories/write')
+      .set('Cookie', [adminCookie])
+      .send({
+        mode: 'fresh',
+        prompt: 'A gentle bedtime journey',
+        seriesId: '  --Sleepy Train!! Adventures--  ',
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.series_context?.series_id).toBe('sleepy-train-adventures');
+    expect(res.body.series_context?.episode_number).toBe(1);
+  });
+
+  it('parseLLMJson strips optional markdown code fences and wraps parse errors in ValidationError', () => {
+    // Strips ```json ... ```
+    const fencedJson = '```json\n{"title": "Fenced Story", "tags": ["calm"]}\n```';
+    const parsed = parseLLMJson<{ title: string; tags: string[] }>(fencedJson, 'test');
+    expect(parsed.title).toBe('Fenced Story');
+    expect(parsed.tags).toEqual(['calm']);
+
+    // Throws ValidationError on empty output
+    expect(() => parseLLMJson('', 'test')).toThrow(ValidationError);
+    expect(() => parseLLMJson(undefined, 'test')).toThrow(ValidationError);
+
+    // Throws ValidationError on malformed JSON
+    expect(() => parseLLMJson('{"incomplete": true,', 'test')).toThrow(ValidationError);
   });
 });

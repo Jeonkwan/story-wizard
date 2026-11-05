@@ -69,32 +69,46 @@ export function AdminLoginGate({
       return;
     }
 
-    const btnContainer = document.getElementById('google-signin-btn');
-    if (btnContainer && window.google?.accounts?.id) {
-      window.google.accounts.id.initialize({
-        client_id: session.googleClientId,
-        callback: async (resp: { credential: string }) => {
-          if (!resp.credential) return;
-          setLoggingIn(true);
-          setLoginError(null);
-          try {
-            await loginWithGoogle(resp.credential);
-            const updated = await fetchAdminSession();
-            setSession(updated);
-            onCatalogChanged?.();
-          } catch (err) {
-            setLoginError(err instanceof Error ? err.message : 'Google sign-in failed');
-          } finally {
-            setLoggingIn(false);
-          }
-        },
-      });
+    const renderGoogleBtn = () => {
+      const btnContainer = document.getElementById('google-signin-btn');
+      if (btnContainer && window.google?.accounts?.id) {
+        window.google.accounts.id.initialize({
+          client_id: session.googleClientId!,
+          callback: async (resp: { credential: string }) => {
+            if (!resp.credential) return;
+            setLoggingIn(true);
+            setLoginError(null);
+            try {
+              await loginWithGoogle(resp.credential);
+              const updated = await fetchAdminSession();
+              setSession(updated);
+              onCatalogChanged?.();
+            } catch (err) {
+              setLoginError(err instanceof Error ? err.message : 'Google sign-in failed');
+            } finally {
+              setLoggingIn(false);
+            }
+          },
+        });
 
-      window.google.accounts.id.renderButton(btnContainer, {
-        theme: 'outline',
-        size: 'large',
-        text: 'signin_with',
-      });
+        window.google.accounts.id.renderButton(btnContainer, {
+          theme: 'outline',
+          size: 'large',
+          text: 'signin_with',
+        });
+      }
+    };
+
+    if (window.google?.accounts?.id) {
+      renderGoogleBtn();
+    } else {
+      const scriptEl = document.querySelector('script[src*="accounts.google.com/gsi/client"]');
+      if (scriptEl) {
+        scriptEl.addEventListener('load', renderGoogleBtn);
+        return () => {
+          scriptEl.removeEventListener('load', renderGoogleBtn);
+        };
+      }
     }
   }, [session, onCatalogChanged]);
 

@@ -454,5 +454,181 @@ describe('Phase 3 Admin Studio & UI Components', () => {
     // Verify turn text updated to include <short pause>
     expect(screen.getByDisplayValue('Hello world. <short pause>')).toBeInTheDocument();
   });
+
+  it('DirectorStudio saves pending workbench edits before calling auto-direct to prevent data loss', async () => {
+    const mockSession = {
+      authenticated: true,
+      email: 'curator@storyteller.studio',
+      devBypassEnabled: true,
+    };
+
+    const mockStory: Story = {
+      id: 'test-story',
+      status: 'draft',
+      title: 'Initial Title',
+      summary: 'Initial Summary',
+      tags: ['initial'],
+      series_context: null,
+      characters: [{ name: 'Bibi', traits: 'Gentle bell' }],
+      script_turns: [
+        { turn_id: 1, speaker: 'Narrator', style: '', text: 'Original line 1.' },
+        { turn_id: 2, speaker: 'Bibi', style: '', text: 'Original line 2.' },
+      ],
+      voice_candidates: [],
+      audio_versions: [],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    vi.spyOn(clientApi, 'fetchAdminStories').mockResolvedValue([
+      {
+        id: 'test-story',
+        status: 'draft',
+        title: 'Initial Title',
+        summary: 'Initial Summary',
+        tags: ['initial'],
+        series_id: null,
+        episode_number: null,
+        created_at: mockStory.created_at,
+        updated_at: mockStory.updated_at,
+        default_audio_url: null,
+        audio_versions_count: 0,
+      },
+    ]);
+
+    vi.spyOn(clientApi, 'fetchStory').mockResolvedValue(mockStory);
+
+    const saveSpy = vi.spyOn(clientApi, 'saveStoryEdits').mockResolvedValue({
+      ...mockStory,
+      title: 'Edited Title',
+    });
+
+    const directSpy = vi.spyOn(clientApi, 'directStory').mockResolvedValue({
+      ...mockStory,
+      title: 'Edited Title',
+      script_turns: [
+        { turn_id: 1, speaker: 'Narrator', style: 'Calm tone', text: 'Original line 1. <short pause>' },
+        { turn_id: 2, speaker: 'Bibi', style: 'Soft chime', text: 'Original line 2.' },
+      ],
+      voice_candidates: [
+        { label: 'Owl', description: 'Deep voice', suggested_for: 'Narrator' },
+      ],
+    });
+
+    render(
+      <DirectorStudio
+        session={mockSession}
+        onLogout={() => {}}
+        onNavigateHome={() => {}}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Initial Title')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('Initial Title'));
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('Initial Title')).toBeInTheDocument();
+    });
+
+    // Modify title without clicking Save Script
+    fireEvent.change(screen.getByDisplayValue('Initial Title'), {
+      target: { value: 'Edited Title' },
+    });
+
+    // Click "2. Auto-Direct Voices & Pacing"
+    const directBtn = screen.getByRole('button', { name: /2\. Auto-Direct Voices & Pacing/i });
+    fireEvent.click(directBtn);
+
+    // Assert saveStoryEdits was called BEFORE directStory with the modified title!
+    await waitFor(() => {
+      expect(saveSpy).toHaveBeenCalledTimes(1);
+      expect(directSpy).toHaveBeenCalledTimes(1);
+    });
+
+    expect(saveSpy).toHaveBeenCalledWith('test-story', expect.objectContaining({
+      title: 'Edited Title',
+    }));
+  });
+
+  it('DirectorStudio syncs turn speaker references when character is renamed or deleted', async () => {
+    const mockSession = {
+      authenticated: true,
+      email: 'curator@storyteller.studio',
+      devBypassEnabled: true,
+    };
+
+    const mockStory: Story = {
+      id: 'char-sync-story',
+      status: 'draft',
+      title: 'Character Sync Story',
+      summary: 'Testing speaker sync.',
+      tags: ['test'],
+      series_context: null,
+      characters: [{ name: 'Bibi', traits: 'Gentle bell' }],
+      script_turns: [
+        { turn_id: 1, speaker: 'Narrator', style: '', text: 'Hello.' },
+        { turn_id: 2, speaker: 'Bibi', style: '', text: 'I am Bibi.' },
+      ],
+      voice_candidates: [],
+      audio_versions: [],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    vi.spyOn(clientApi, 'fetchAdminStories').mockResolvedValue([
+      {
+        id: 'char-sync-story',
+        status: 'draft',
+        title: 'Character Sync Story',
+        summary: 'Testing speaker sync.',
+        tags: ['test'],
+        series_id: null,
+        episode_number: null,
+        created_at: mockStory.created_at,
+        updated_at: mockStory.updated_at,
+        default_audio_url: null,
+        audio_versions_count: 0,
+      },
+    ]);
+
+    vi.spyOn(clientApi, 'fetchStory').mockResolvedValue(mockStory);
+
+    render(
+      <DirectorStudio
+        session={mockSession}
+        onLogout={() => {}}
+        onNavigateHome={() => {}}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Character Sync Story')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('Character Sync Story'));
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('Character Name')).toHaveValue('Bibi');
+    });
+
+    // 1. Rename character from "Bibi" to "Bobo"
+    const charNameInput = screen.getByPlaceholderText('Character Name');
+    fireEvent.change(charNameInput, { target: { value: 'Bobo' } });
+
+    // Turn #2 speaker select should now have value "Bobo"
+    const selects = screen.getAllByRole('combobox');
+    const turn2SpeakerSelect = selects.find((s) => (s as HTMLSelectElement).value === 'Bobo');
+    expect(turn2SpeakerSelect).toBeDefined();
+
+    // 2. Delete character "Bobo"
+    const deleteCharBtn = screen.getByTitle('Remove character');
+    fireEvent.click(deleteCharBtn);
+
+    // Turn #2 speaker select should automatically reset to "Narrator"
+    expect((turn2SpeakerSelect as HTMLSelectElement).value).toBe('Narrator');
+  });
 });
 
