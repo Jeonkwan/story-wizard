@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import type { AudioVersion, CatalogItem, Story } from '../shared/types';
-import { fetchCatalog, fetchStory } from './api/client';
+import { fetchCatalog, fetchStory, fetchAdminSession, type AdminSession } from './api/client';
 import { Masthead } from './components/Masthead';
 import { StoryCatalog } from './components/StoryCatalog';
 import { StoryReader } from './components/StoryReader';
@@ -21,6 +21,14 @@ export function App(): React.JSX.Element {
   const [storyError, setStoryError] = useState<string | null>(null);
 
   const [activeAudioVersion, setActiveAudioVersion] = useState<AudioVersion | null>(null);
+  const [adminSession, setAdminSession] = useState<AdminSession | null>(null);
+
+  // Sync admin session on route changes
+  useEffect(() => {
+    fetchAdminSession()
+      .then(setAdminSession)
+      .catch(() => setAdminSession(null));
+  }, [currentPath]);
 
   // Centralized navigation helper
   const navigate = useCallback((nextPath: string, replace = false) => {
@@ -138,7 +146,22 @@ export function App(): React.JSX.Element {
           />
         ) : activeStory ? (
           <div>
-            <StoryReader story={activeStory} onBack={handleBackToLibrary} />
+            <StoryReader
+              story={activeStory}
+              onBack={handleBackToLibrary}
+              isAdmin={Boolean(adminSession?.authenticated)}
+              activeAudioVersion={activeAudioVersion}
+              onVersionChange={(ver) => setActiveAudioVersion(ver)}
+              onStoryUpdated={(updatedStory) => {
+                setActiveStory(updatedStory);
+                const defaultVer =
+                  updatedStory.audio_versions.find((v) => v.is_default) ||
+                  updatedStory.audio_versions[0] ||
+                  null;
+                setActiveAudioVersion(defaultVer);
+                refreshCatalog();
+              }}
+            />
             {activeAudioVersion && activeStory.audio_versions.length > 0 && (
               <AudioPlayerBar
                 story={activeStory}

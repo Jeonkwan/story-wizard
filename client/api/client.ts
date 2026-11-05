@@ -3,7 +3,9 @@ import type {
   CharacterProfile,
   ScriptTurn,
   Story,
+  VoiceCasting,
   VoiceDesignCandidate,
+  VoiceEntry,
 } from '../../shared/types';
 
 export class ApiError extends Error {
@@ -145,3 +147,94 @@ export async function deleteStory(storyId: string): Promise<{ ok: boolean; delet
   });
   return handleResponse<{ ok: boolean; deletedId: string }>(res);
 }
+
+export async function fetchVoices(): Promise<VoiceEntry[]> {
+  const res = await fetch('/api/admin/voices');
+  return handleResponse<VoiceEntry[]>(res);
+}
+
+export async function previewVoiceAudio(params: {
+  voiceId?: string;
+  description?: string;
+  sampleText?: string;
+}): Promise<Blob> {
+  const res = await fetch('/api/admin/voices/preview', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) {
+    let errorMessage = `HTTP ${res.status} ${res.statusText}`;
+    try {
+      const data = await res.json();
+      if (data && typeof data.error === 'string') {
+        errorMessage = data.error;
+      }
+    } catch {
+      // Body not JSON
+    }
+    throw new ApiError(res.status, errorMessage);
+  }
+  return res.blob();
+}
+
+export interface CreateCustomVoicePayload {
+  label: string;
+  description: string;
+  languageCode?: string;
+  tags?: string[];
+}
+
+export async function createCustomVoice(payload: CreateCustomVoicePayload): Promise<VoiceEntry> {
+  const res = await fetch('/api/admin/voices', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return handleResponse<VoiceEntry>(res);
+}
+
+export interface SynthesizeStoryAudioPayload {
+  casting: VoiceCasting;
+  label?: string;
+  makeDefault?: boolean;
+}
+
+export async function synthesizeStoryAudio(
+  storyId: string,
+  payload: SynthesizeStoryAudioPayload
+): Promise<Story> {
+  const res = await fetch(`/api/admin/stories/${encodeURIComponent(storyId)}/synthesize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return handleResponse<Story>(res);
+}
+
+export async function setDefaultAudioVersion(
+  storyId: string,
+  versionId: string
+): Promise<Story> {
+  const res = await fetch(
+    `/api/admin/stories/${encodeURIComponent(storyId)}/versions/${encodeURIComponent(versionId)}/default`,
+    {
+      method: 'PATCH',
+    }
+  );
+  return handleResponse<Story>(res);
+}
+
+export async function deleteAudioVersion(
+  storyId: string,
+  versionId: string
+): Promise<Story> {
+  const res = await fetch(
+    `/api/admin/stories/${encodeURIComponent(storyId)}/versions/${encodeURIComponent(versionId)}`,
+    {
+      method: 'DELETE',
+    }
+  );
+  return handleResponse<Story>(res);
+}
+

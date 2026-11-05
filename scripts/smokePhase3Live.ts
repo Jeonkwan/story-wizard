@@ -24,11 +24,25 @@ async function runLiveSmoke() {
     const storage = new LocalStorageAdapter(tmpDir);
     const storyService = new GeminiStoryService(config, storage);
 
-    console.log('[smoke:live] Calling Gemini 3.8 Flash (generateStoryDraft)...');
-    const draft = await storyService.generateStoryDraft({
-      mode: 'fresh',
-      prompt: 'A tiny gentle hedgehog named Bibi settles into a mossy den for sleep as stars appear.',
-    });
+    let draft: any = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        console.log(`[smoke:live] Calling Gemini 3.8 Flash (generateStoryDraft, attempt ${attempt}/3)...`);
+        draft = await storyService.generateStoryDraft({
+          mode: 'fresh',
+          prompt: 'A tiny gentle hedgehog named Bibi settles into a mossy den for sleep as stars appear.',
+        });
+        break;
+      } catch (err) {
+        console.log(`[smoke:live] Draft attempt ${attempt} error: ${err instanceof Error ? err.message : err}`);
+        if (attempt < 3) {
+          console.log('[smoke:live] Retrying after 2s pause...');
+          await new Promise((r) => setTimeout(r, 2000));
+        } else {
+          throw err;
+        }
+      }
+    }
 
     if (draft.status !== 'draft') {
       throw new Error(`Expected draft status "draft", got "${draft.status}"`);
@@ -38,8 +52,22 @@ async function runLiveSmoke() {
     }
     console.log(`[smoke:live] Draft generated successfully! Title: "${draft.title}", turns: ${draft.script_turns.length}`);
 
-    console.log('[smoke:live] Calling Gemini 3.8 Flash (directStoryScript)...');
-    const directed = await storyService.directStoryScript(draft.id);
+    let directed: any = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        console.log(`[smoke:live] Calling Gemini 3.8 Flash (directStoryScript, attempt ${attempt}/3)...`);
+        directed = await storyService.directStoryScript(draft.id);
+        break;
+      } catch (err) {
+        console.log(`[smoke:live] Direct attempt ${attempt} error: ${err instanceof Error ? err.message : err}`);
+        if (attempt < 3) {
+          console.log('[smoke:live] Retrying after 2s pause...');
+          await new Promise((r) => setTimeout(r, 2000));
+        } else {
+          throw err;
+        }
+      }
+    }
 
     if (!directed.voice_candidates || directed.voice_candidates.length < 1) {
       throw new Error('Expected at least 1 voice candidate from director');
@@ -65,5 +93,8 @@ async function runLiveSmoke() {
 
 runLiveSmoke().catch((err) => {
   console.error('[smoke:live] FAILED:', err instanceof Error ? err.message : err);
+  if (err instanceof Error && (err as any).cause) {
+    console.error('[smoke:live] CAUSE:', (err as any).cause);
+  }
   process.exit(1);
 });

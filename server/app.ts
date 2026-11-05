@@ -15,11 +15,16 @@ import {
 } from './middleware/auth.js';
 import { createAuthRouter } from './routes/auth.js';
 import { createAdminStoriesRouter } from './routes/adminStories.js';
+import { createAdminVoicesRouter } from './routes/adminVoices.js';
 import { createPublicRouter } from './routes/public.js';
 import {
   GeminiStoryService,
   type StoryLLMProvider,
 } from './services/geminiStory.js';
+import {
+  GeminiTtsService,
+  type TtsProvider,
+} from './services/geminiTts.js';
 import { ValidationError } from './lib/validators.js';
 
 export interface CreateAppOptions {
@@ -28,6 +33,8 @@ export interface CreateAppOptions {
   verifyGoogleIdToken?: GoogleTokenVerifier;
   storyLLMProvider?: StoryLLMProvider;
   storyService?: GeminiStoryService;
+  ttsProvider?: TtsProvider;
+  ttsService?: GeminiTtsService;
 }
 
 export function createApp(options: CreateAppOptions = {}): express.Express {
@@ -41,6 +48,10 @@ export function createApp(options: CreateAppOptions = {}): express.Express {
     options.storyService ||
     new GeminiStoryService(config, storage, options.storyLLMProvider);
 
+  const ttsService =
+    options.ttsService ||
+    new GeminiTtsService(config, storage, options.ttsProvider);
+
   const app = express();
 
   app.use(express.json({ limit: '1mb' }));
@@ -49,7 +60,8 @@ export function createApp(options: CreateAppOptions = {}): express.Express {
   // Mount API routers
   app.use('/api', createPublicRouter(config, storage));
   app.use('/api/admin', createAuthRouter(config, storage, verifyGoogleIdToken));
-  app.use('/api/admin', createAdminStoriesRouter(config, storage, storyService));
+  app.use('/api/admin', createAdminVoicesRouter(config, storage, ttsService));
+  app.use('/api/admin', createAdminStoriesRouter(config, storage, storyService, ttsService));
 
   // Serve client static assets + SPA fallback ONLY if dist/client/index.html exists
   const clientDist = path.resolve('dist/client');

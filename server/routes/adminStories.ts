@@ -2,7 +2,7 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import type { AppConfig } from '../config.js';
 import type { StorageAdapter } from '../storage/storageAdapter.js';
-import { validateSlug } from '../storage/storageAdapter.js';
+import { validateSlug, StorageNotFoundError } from '../storage/storageAdapter.js';
 import { createRequireAdminMiddleware } from '../middleware/auth.js';
 import { asyncHandler } from '../lib/asyncHandler.js';
 import { validateManualStoryEdit } from '../lib/validators.js';
@@ -10,15 +10,18 @@ import {
   GeminiStoryService,
   storyToCatalogItem,
 } from '../services/geminiStory.js';
+import { GeminiTtsService } from '../services/geminiTts.js';
 import type { CatalogItem, VoiceDesignCandidate } from '../../shared/types.js';
 
 export function createAdminStoriesRouter(
   config: AppConfig,
   storage: StorageAdapter,
-  storyService: GeminiStoryService
+  storyService: GeminiStoryService,
+  ttsService?: GeminiTtsService
 ): Router {
   const router = Router();
   const requireAdmin = createRequireAdminMiddleware(config);
+  const tts = ttsService || new GeminiTtsService(config, storage);
 
   // All admin story routes require admin authentication
   router.use(requireAdmin);
@@ -183,6 +186,8 @@ export function createAdminStoriesRouter(
           const idx = list.findIndex((c) => c.id === story.id);
           if (idx >= 0) {
             list[idx] = catalogItem;
+          } else {
+            list.unshift(catalogItem);
           }
           return list;
         },
@@ -227,6 +232,139 @@ export function createAdminStoriesRouter(
       );
 
       res.json({ ok: true, deletedId: story.id });
+    })
+  );
+
+  // POST /api/admin/stories/:id/synthesize — TTS Synthesis & Publishing
+  router.post(
+    '/stories/:id/synthesize',
+    asyncHandler(async (req: Request, res: Response) => {
+      const { id } = req.params;
+      validateSlug(id, 'id');
+
+      const { casting, label, makeDefault } = req.body || {};
+      if (!casting || typeof casting !== 'object') {
+        res.status(400).json({ error: 'Casting configuration is required' });
+        return;
+      }
+
+      const updatedStory = await tts.synthesizeFullStory(id, {
+        casting,
+        label: typeof label === 'string' ? label : undefined,
+        makeDefault: typeof makeDefault === 'boolean' ? makeDefault : undefined,
+      });
+
+      res.status(201).json(updatedStory);
+    })
+  );
+
+  // PATCH /api/admin/stories/:id/versions/:versionId/default — Set default audio version
+  router.patch(
+    '/stories/:id/versions/:versionId/default',
+    asyncHandler(async (req: Request, res: Response) => {
+      const { id, versionId } = req.params;
+      validateSlug(id, 'id');
+      validateSlug(versionId, 'versionId');
+
+      const story = await storage.getStory(id);
+      const targetVer = story.audio_versions?.find((v) => v.version_id === versionId);
+      if (!targetVer) {
+        res.status(404).json({ error: `Audio version not found: "${versionId}"` });
+        return;
+      }
+
+      for (const v of story.audio_versions) {
+        v.is_default = v.version_id === versionId;
+      }
+
+      story.updated_at = new Date().toISOString();
+      await storage.saveStory(story);
+
+      // Atomically sync catalog.json
+      const catalogItem = storyToCatalogItem(story);
+      await storage.updateJsonAtomic<CatalogItem[]>(
+        'catalog.json',
+        (current) => {
+          const list = current ? [...current] : [];
+          const idx = list.findIndex((c) => c.id === story.id);
+          if (idx >= 0) {
+            list[idx] = catalogItem;
+          } else {
+            list.unshift(catalogItem);
+          }
+          return list;
+        },
+        []
+      );
+
+      res.json(story);
+    })
+  );
+
+  // DELETE /api/admin/stories/:id/versions/:versionId — Delete audio version
+  router.delete(
+    '/stories/:id/versions/:versionId',
+    asyncHandler(async (req: Request, res: Response) => {
+      const { id, versionId } = req.params;
+      validateSlug(id, 'id');
+      validateSlug(versionId, 'versionId');
+
+      const story = await storage.getStory(id);
+      const idx = (story.audio_versions || []).findIndex((v) => v.version_id === versionId);
+      if (idx < 0) {
+        res.status(404).json({ error: `Audio version not found: "${versionId}"` });
+        return;
+      }
+
+      try {
+        await storage.deleteAudio(story.id, versionId);
+      } catch (err) {
+        if (!(err instanceof StorageNotFoundError)) {
+          // Ignore if audio file is already missing
+        }
+      }
+
+      const wasDefault = story.audio_versions[idx].is_default;
+      story.audio_versions.splice(idx, 1);
+
+      if (story.audio_versions.length > 0) {
+        const hasDefault = story.audio_versions.some((v) => v.is_default);
+        if (wasDefault || !hasDefault) {
+          const sorted = [...story.audio_versions].sort((a, b) => {
+            const diff = new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+            if (diff !== 0) return diff;
+            return story.audio_versions.indexOf(b) - story.audio_versions.indexOf(a);
+          });
+          const newest = sorted[0];
+          for (const v of story.audio_versions) {
+            v.is_default = v.version_id === newest.version_id;
+          }
+        }
+      } else {
+        story.status = 'draft';
+      }
+
+      story.updated_at = new Date().toISOString();
+      await storage.saveStory(story);
+
+      // Atomically sync catalog.json
+      const catalogItem = storyToCatalogItem(story);
+      await storage.updateJsonAtomic<CatalogItem[]>(
+        'catalog.json',
+        (current) => {
+          const list = current ? [...current] : [];
+          const cIdx = list.findIndex((c) => c.id === story.id);
+          if (cIdx >= 0) {
+            list[cIdx] = catalogItem;
+          } else {
+            list.unshift(catalogItem);
+          }
+          return list;
+        },
+        []
+      );
+
+      res.json(story);
     })
   );
 

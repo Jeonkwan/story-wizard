@@ -10,6 +10,7 @@ import { AudioPlayerBar } from '../client/components/AudioPlayerBar';
 import { Masthead } from '../client/components/Masthead';
 import { AdminLoginGate } from '../client/components/AdminLoginGate';
 import { DirectorStudio } from '../client/components/DirectorStudio';
+import { VoiceStudioPanel } from '../client/components/VoiceStudioPanel';
 import * as clientApi from '../client/api/client';
 
 // Standard clean Storage mock for jsdom environment under Node 22
@@ -629,6 +630,213 @@ describe('Phase 3 Admin Studio & UI Components', () => {
 
     // Turn #2 speaker select should automatically reset to "Narrator"
     expect((turn2SpeakerSelect as HTMLSelectElement).value).toBe('Narrator');
+  });
+
+  describe('Phase 4 VoiceStudioPanel & Reader Admin Controls', () => {
+    const mockVoices = [
+      {
+        id: 'prebuilt-kore',
+        label: 'Kore (Warm Prebuilt)',
+        source: 'prebuilt' as const,
+        gemini_voice_name: 'Kore',
+        description: 'Warm soothing female bedtime voice',
+        language_code: 'en-US',
+        tags: ['warm'],
+        created_at: new Date().toISOString(),
+      },
+      {
+        id: 'prebuilt-puck',
+        label: 'Puck (Playful Prebuilt)',
+        source: 'prebuilt' as const,
+        gemini_voice_name: 'Puck',
+        description: 'Playful voice',
+        language_code: 'en-US',
+        tags: ['playful'],
+        created_at: new Date().toISOString(),
+      },
+    ];
+
+    const phase4StoryFixture: Story = {
+      id: 'phase4-test-story',
+      status: 'published',
+      title: 'Sleepy Starship',
+      summary: 'A starship drifting through twilight.',
+      tags: ['space', 'bedtime'],
+      series_context: {
+        series_id: 'space-tales',
+        episode_number: 1,
+        preferred_voice_id: 'prebuilt-kore',
+      },
+      characters: [{ name: 'Bibi', traits: 'Gentle bell chime' }],
+      script_turns: [
+        { turn_id: 1, speaker: 'Narrator', style: '', text: 'Drifting softly into the velvet cosmos.' },
+        { turn_id: 2, speaker: 'Bibi', style: '', text: 'Engines humming a gentle bedtime song.' },
+      ],
+      voice_candidates: [
+        {
+          label: 'Gentle Nebula',
+          description: 'Soothing cosmic whisper voice',
+          suggested_for: 'Narrator (Solo)',
+        },
+      ],
+      audio_versions: [
+        {
+          version_id: 'v1-solo-test',
+          label: 'Bedtime Solo',
+          casting: {
+            mode: 'solo',
+            narrator_voice_id: 'prebuilt-kore',
+            character_voices: {},
+          },
+          is_default: true,
+          duration_sec: 120,
+          audio_url: '/api/stories/phase4-test-story/audios/v1-solo-test.wav',
+          created_at: new Date().toISOString(),
+        },
+        {
+          version_id: 'v2-cast-test',
+          label: 'Bedtime Cast',
+          casting: {
+            mode: 'cast',
+            narrator_voice_id: 'prebuilt-kore',
+            character_voices: { Bibi: 'prebuilt-puck' },
+          },
+          is_default: false,
+          duration_sec: 135,
+          audio_url: '/api/stories/phase4-test-story/audios/v2-cast-test.wav',
+          created_at: new Date().toISOString(),
+        },
+      ],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    it('VoiceStudioPanel toggles between Solo and Cast modes, revealing character voice selectors', async () => {
+      vi.spyOn(clientApi, 'fetchVoices').mockResolvedValue(mockVoices);
+
+      render(
+        <VoiceStudioPanel
+          story={phase4StoryFixture}
+          onStoryUpdated={() => {}}
+        />
+      );
+
+      // Verify header and proposed candidates
+      await waitFor(() => {
+        expect(screen.getByText('Gentle Nebula')).toBeInTheDocument();
+      });
+
+      // Initially in Solo mode -> Narrator voice select visible, Bibi voice assignments heading not visible
+      expect(screen.getByText(/Solo Storyteller/i)).toBeInTheDocument();
+      expect(screen.queryByText(/CHARACTER VOICE ASSIGNMENTS/i)).not.toBeInTheDocument();
+
+      // Click Multi-Speaker Cast toggle
+      const castBtn = screen.getByText(/Multi-Speaker Cast/i);
+      fireEvent.click(castBtn);
+
+      // Character voice assignment header should appear
+      expect(screen.getByText(/CHARACTER VOICE ASSIGNMENTS/i)).toBeInTheDocument();
+      expect(screen.getByText('Bibi')).toBeInTheDocument();
+    });
+
+    it('VoiceStudioPanel invokes onBeforeSynthesize before calling synthesizeStoryAudio', async () => {
+      vi.spyOn(clientApi, 'fetchVoices').mockResolvedValue(mockVoices);
+      const synthSpy = vi.spyOn(clientApi, 'synthesizeStoryAudio').mockResolvedValue(phase4StoryFixture);
+      const beforeSynthMock = vi.fn().mockResolvedValue(undefined);
+      const onStoryUpdatedMock = vi.fn();
+
+      render(
+        <VoiceStudioPanel
+          story={phase4StoryFixture}
+          onStoryUpdated={onStoryUpdatedMock}
+          onBeforeSynthesize={beforeSynthMock}
+        />
+      );
+
+      const synthBtn = await screen.findByRole('button', { name: /3\. Synthesize & Publish Audio/i });
+      await waitFor(() => {
+        expect(synthBtn).not.toBeDisabled();
+      });
+
+      fireEvent.click(synthBtn);
+
+      await waitFor(() => {
+        expect(beforeSynthMock).toHaveBeenCalledTimes(1);
+        expect(synthSpy).toHaveBeenCalledWith(
+          'phase4-test-story',
+          expect.objectContaining({
+            casting: expect.objectContaining({ mode: 'solo' }),
+          })
+        );
+        expect(onStoryUpdatedMock).toHaveBeenCalledWith(phase4StoryFixture);
+      });
+    });
+
+    it('VoiceStudioPanel triggers setDefaultAudioVersion and deleteAudioVersion on user actions', async () => {
+      vi.spyOn(clientApi, 'fetchVoices').mockResolvedValue(mockVoices);
+      const setDefaultSpy = vi.spyOn(clientApi, 'setDefaultAudioVersion').mockResolvedValue(phase4StoryFixture);
+      const deleteSpy = vi.spyOn(clientApi, 'deleteAudioVersion').mockResolvedValue(phase4StoryFixture);
+      const onStoryUpdatedMock = vi.fn();
+
+      render(
+        <VoiceStudioPanel
+          story={phase4StoryFixture}
+          onStoryUpdated={onStoryUpdatedMock}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText('Bedtime Cast')).toBeInTheDocument();
+      });
+
+      // 1. Click "★ Set Default" on v2
+      const setDefaultBtn = screen.getByRole('button', { name: /★ Set Default/i });
+      fireEvent.click(setDefaultBtn);
+
+      await waitFor(() => {
+        expect(setDefaultSpy).toHaveBeenCalledWith('phase4-test-story', 'v2-cast-test');
+      });
+
+      // 2. Click "🗑 Delete" on v2 -> reveals confirmation
+      const deleteBtns = screen.getAllByRole('button', { name: /🗑 Delete/i });
+      fireEvent.click(deleteBtns[1]); // delete on v2
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Confirm/i })).toBeInTheDocument();
+      });
+
+      const confirmBtn = screen.getByRole('button', { name: /Confirm/i });
+      fireEvent.click(confirmBtn);
+
+      await waitFor(() => {
+        expect(deleteSpy).toHaveBeenCalledWith('phase4-test-story', 'v2-cast-test');
+      });
+    });
+
+    it('StoryReader displays Admin Audio Versions panel only when isAdmin is true', async () => {
+      const { rerender } = render(
+        <StoryReader
+          story={phase4StoryFixture}
+          onBack={() => {}}
+          isAdmin={false}
+        />
+      );
+
+      // When isAdmin is false, Admin Audio Versions panel should NOT be in document
+      expect(screen.queryByLabelText('Admin Audio Versions')).not.toBeInTheDocument();
+
+      // Rerender with isAdmin={true}
+      rerender(
+        <StoryReader
+          story={phase4StoryFixture}
+          onBack={() => {}}
+          isAdmin={true}
+        />
+      );
+
+      expect(screen.getByLabelText('Admin Audio Versions')).toBeInTheDocument();
+      expect(screen.getByText(/Admin Audio Versions \(2\)/i)).toBeInTheDocument();
+    });
   });
 });
 

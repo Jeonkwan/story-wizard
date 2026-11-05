@@ -8,7 +8,7 @@
     "start": "node --env-file-if-exists=.env dist/server/index.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:live": "tsx --env-file-if-exists=.env scripts/smokePhase3Live.ts",
+    "test:live": "tsx --env-file-if-exists=.env scripts/smokePhase3Live.ts && tsx --env-file-if-exists=.env scripts/smokePhase4Live.ts",
     "test:e2e": "npm run seed && npm run build && playwright test",
     "seed": "tsx scripts/seedLocalData.ts"
   },

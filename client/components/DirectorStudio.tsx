@@ -10,6 +10,7 @@ import {
   deleteStory,
   type AdminSession,
 } from '../api/client';
+import { VoiceStudioPanel } from './VoiceStudioPanel';
 
 const APPROVED_TAGS = [
   '<short pause>',
@@ -395,6 +396,17 @@ export function DirectorStudio({
     } finally {
       setIsPublishing(false);
     }
+  };
+
+  const handleStoryUpdated = (updated: Story) => {
+    setActiveStory(updated);
+    setEditedTitle(updated.title);
+    setEditedSummary(updated.summary);
+    setEditedTags(updated.tags.join(', '));
+    setEditedCharacters(JSON.parse(JSON.stringify(updated.characters || [])));
+    setEditedTurns(JSON.parse(JSON.stringify(updated.script_turns || [])));
+    loadStories();
+    onCatalogChanged?.();
   };
 
   // Delete story
@@ -837,29 +849,14 @@ export function DirectorStudio({
                   ⚠️ {directError}
                 </p>
               )}
-
-              {/* Voice Candidates Display */}
-              {activeStory.voice_candidates && activeStory.voice_candidates.length > 0 && (
-                <div style={{ marginTop: '1rem', borderTop: '1px dashed var(--ink-muted)', paddingTop: '0.75rem' }}>
-                  <h4 style={{ margin: '0 0 0.5rem 0', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: 'var(--ink-muted)' }}>
-                    PROPOSED VOICE DESIGNS ({activeStory.voice_candidates.length})
-                  </h4>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.75rem' }}>
-                    {activeStory.voice_candidates.map((vc, idx) => (
-                      <div key={idx} className="card-tactile" style={{ padding: '0.75rem', fontSize: '0.85rem' }}>
-                        <div style={{ fontWeight: 600 }}>{vc.label}</div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--accent-module)', marginBottom: '0.25rem' }}>
-                          Role: {vc.suggested_for}
-                        </div>
-                        <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--ink-muted)' }}>
-                          {vc.description}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
+
+            {/* Step 3: Voice Audition, Synthesis & Audio Versions */}
+            <VoiceStudioPanel
+              story={activeStory}
+              onStoryUpdated={handleStoryUpdated}
+              onBeforeSynthesize={handleSaveScript}
+            />
 
             {/* Metadata Section */}
             <div className="card-tactile" style={{ padding: '1.25rem', marginBottom: '1.5rem' }}>

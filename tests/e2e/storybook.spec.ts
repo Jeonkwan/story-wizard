@@ -287,3 +287,120 @@ test.describe('Phase 3 Admin Director Studio E2E', () => {
   });
 });
 
+test.describe('Phase 4 Voice Audition Studio & Versions E2E', () => {
+  test('verifies VoiceStudioPanel in admin workbench (Solo vs Cast toggle, Bibi character voice selector, existing version controls, Dark Mode, mobile layout) and captures screenshot', async ({
+    page,
+  }) => {
+    const pageErrors: Error[] = [];
+    const consoleErrors: string[] = [];
+
+    await page.route('https://accounts.google.com/**', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/javascript',
+        body: 'window.google = { accounts: { id: { initialize() {}, renderButton() {}, prompt() {} } } };',
+      });
+    });
+
+    page.on('pageerror', (err) => {
+      pageErrors.push(err);
+    });
+
+    page.on('console', (msg) => {
+      if (msg.type() === 'error') {
+        consoleErrors.push(msg.text());
+      }
+    });
+
+    // 1. Initial Desktop viewport
+    await page.setViewportSize({ width: 1440, height: 900 });
+
+    // 2. Navigate to /admin and log in via Dev Sandbox
+    await page.goto('/admin');
+    await expect(page.locator('h2', { hasText: 'Director Studio' })).toBeVisible();
+
+    const devLoginBtn = page.getByRole('button', { name: /Dev Sandbox Login/i });
+    await expect(devLoginBtn).toBeVisible();
+    await devLoginBtn.click();
+
+    // 3. Load seeded story into workbench
+    const seededStoryItem = page.locator('.studio-story-item', { hasText: 'The Sleepy Little Train' });
+    await expect(seededStoryItem).toBeVisible();
+    await seededStoryItem.click();
+
+    // 4. Verify VoiceStudioPanel rendered
+    const voicePanel = page.locator('.voice-studio-panel');
+    await expect(voicePanel).toBeVisible();
+    await expect(voicePanel.getByText(/Step 3: Voice Audition, Synthesis & Versions/i)).toBeVisible();
+
+    // Verify existing seeded version controls
+    const versionCard = voicePanel.locator('.card-tactile', { hasText: 'Grandpa Owl (Bedtime Solo)' });
+    await expect(versionCard).toBeVisible();
+    await expect(versionCard.getByText('★ DEFAULT')).toBeVisible();
+    await expect(versionCard.locator('audio')).toBeVisible();
+
+    // 5. Test Solo vs Cast toggle
+    const soloBtn = voicePanel.getByRole('button', { name: /Solo Storyteller/i });
+    const castBtn = voicePanel.getByRole('button', { name: /Multi-Speaker Cast/i });
+    await expect(soloBtn).toBeVisible();
+    await expect(castBtn).toBeVisible();
+
+    // Click Multi-Speaker Cast toggle
+    await castBtn.click();
+
+    // Assert character voice assignment for Bibi appears
+    await expect(voicePanel.getByText('CHARACTER VOICE ASSIGNMENTS')).toBeVisible();
+    await expect(voicePanel.locator('div', { hasText: 'Bibi' }).first()).toBeVisible();
+
+    // Toggle back to Solo Storyteller
+    await soloBtn.click();
+    await expect(voicePanel.getByText('CHARACTER VOICE ASSIGNMENTS')).toHaveCount(0);
+
+    // 6. Test Design Custom Voice expandable form
+    const designVoiceBtn = voicePanel.getByRole('button', { name: /Design Custom Voice/i });
+    await expect(designVoiceBtn).toBeVisible();
+    await designVoiceBtn.click();
+
+    await expect(page.getByPlaceholder('e.g. Grandma Willow')).toBeVisible();
+    await expect(page.getByPlaceholder(/Warm, elderly grandmother/i)).toBeVisible();
+
+    // Collapse design form
+    await voicePanel.getByRole('button', { name: /Cancel Voice Design/i }).click();
+    await expect(page.getByPlaceholder('e.g. Grandma Willow')).toHaveCount(0);
+
+    // 7. Verify Dark Mode contrast on Voice Studio Panel
+    const themeBtn = page.getByRole('button', { name: /Dark Mode|Light Mode/i });
+    const isDark = await page.evaluate(() => document.body.getAttribute('data-theme') === 'dark');
+    if (!isDark) {
+      await themeBtn.click();
+      await expect(page.locator('body')).toHaveAttribute('data-theme', 'dark');
+    }
+
+    // Move mouse away to test resting colors
+    await page.mouse.move(0, 0);
+
+    const darkPanelStyles = await voicePanel.evaluate((el) => {
+      const s = window.getComputedStyle(el);
+      return { bg: s.backgroundColor, color: s.color };
+    });
+    expect(darkPanelStyles.bg).toBe('rgb(22, 31, 44)'); // #161F2C
+
+    // 8. Capture Phase 4 Voice Studio Screenshot (1440x900)
+    await page.screenshot({ path: 'qa-screenshots/phase4-voice-studio.png', fullPage: false });
+
+    // 9. Mobile Responsiveness check at 375x812 (zero horizontal overflow)
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.waitForTimeout(200);
+
+    const hasNoHorizontalOverflow = await page.evaluate(() => {
+      return document.documentElement.scrollWidth <= window.innerWidth;
+    });
+    expect(hasNoHorizontalOverflow).toBe(true);
+
+    // 10. Assert zero pageerror and zero console.error
+    expect(pageErrors).toEqual([]);
+    expect(consoleErrors).toEqual([]);
+  });
+});
+
+

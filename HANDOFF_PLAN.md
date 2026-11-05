@@ -699,20 +699,20 @@ Use these exact visual tokens in `client/styles/kinetic.css` (from the approved 
    - `deploy.sh` documenting exact `gcloud run deploy storyteller-studio --source . --allow-unauthenticated --timeout=300 --memory=512Mi --cpu=1` command + required env vars.
 
 #### Phase 4 Tests & Final Release Gate (`tests/ttsSynthesis.test.ts` + Full E2E Smoke)
-- [ ] **Long-Story Batching & RIFF De-duplication Test:** Feed a 28-turn story in `solo` mode with a mock `TtsProvider` that returns valid WAV buffers (complete with 44-byte RIFF headers) for each batch. Assert:
+- [x] **Long-Story Batching & RIFF De-duplication Test:** Feed a 28-turn story in `solo` mode with a mock `TtsProvider` that returns valid WAV buffers (complete with 44-byte RIFF headers) for each batch. Assert:
   1. Provider was called `3` times (`12 + 12 + 4` turns) with `speechMetadata.speaker === "Narrator"` and character traits folded into `speechMetadata.style`.
   2. Saved `.wav` file has `"RIFF"` ONLY at byte `0` (no mid-stream RIFF header pops) and exact expected total byte size (`44 + sum(pcm) + 2 * silence150ms`).
-- [ ] **3-Character Cast Mode Sub-Batching Test:** Feed a story with `"Narrator"`, `"Bibi"`, and `"Owl"` (`3` distinct speakers) in `cast` mode. Assert `TtsProvider` never receives a `multiSpeakerVoiceConfig` with `> 2` `speakerVoiceConfigs` in any single call, and every turn's `speechMetadata.speaker` matches one of that call's configured speakers.
-- [ ] **Version Promotion & Last-Version Deletion Test:**
+- [x] **3-Character Cast Mode Sub-Batching Test:** Feed a story with `"Narrator"`, `"Bibi"`, and `"Owl"` (`3` distinct speakers) in `cast` mode. Assert `TtsProvider` never receives a `multiSpeakerVoiceConfig` with `> 2` `speakerVoiceConfigs` in any single call, and every turn's `speechMetadata.speaker` matches one of that call's configured speakers.
+- [x] **Version Promotion & Last-Version Deletion Test:**
   - Synthesize `v1` (becomes default, `status === "published"`), then `v2` (`makeDefault: false`).
   - `PATCH .../v2/default` -> updates `catalog.json.default_audio_url` to `v2`.
   - `DELETE .../v2` -> automatically promotes `v1` back to `is_default: true` and updates `catalog.json.default_audio_url` to `v1`.
   - `DELETE .../v1` -> `0` versions left; story automatically reverts to `status: "draft"` and disappears from public `GET /api/catalog`!
-- [ ] **Full Build, Headless Chromium E2E & Container Smoke Test:**
+- [x] **Full Build, Headless Chromium E2E & Container Smoke Test:**
   - Extend `tests/e2e/storybook.spec.ts` to verify Voice Studio panel rendering (`Solo` vs `Cast` toggle, version default/delete controls) and capture `qa-screenshots/phase4-voice-studio.png`.
   - `npm run typecheck && npm test && npm run build && npm run test:e2e` -> all exit `0`.
   - Run `docker build -t storyteller-studio .` and verify container starts cleanly on `PORT=8080` and responds `200` on `/` and `/api/catalog`.
-- [ ] Commit (`feat(phase-4): voice audition studio, chunked gemini 3.8 tts, and cloud run dockerfile`) and tag `phase-4-verified`.
+- [x] Commit (`feat(phase-4): voice audition studio, chunked gemini 3.8 tts, and cloud run dockerfile`) and tag `phase-4-verified`.
 
 ---
 
@@ -778,5 +778,5 @@ Use your interactive browser capabilities (`/browser`) on `http://localhost:8080
 - [x] **Phase 1:** Dual-Mode Storage (`./data` + GCS `ifGenerationMatch`), Audio `Range` Streaming, Seed Data & Single-Admin Auth + Integration Tests (`phase-1-verified`)
 - [x] **Phase 2:** Public Storybook UI (Kinetic Construct Theme, Instant Filter, Formatted Reader, Docked Audio Player) + Component & Headless E2E Tests (`phase-2-verified`)
 - [x] **Phase 3:** Admin Director Studio (Mode A/B Writer -> Val 1 -> Director -> Val 2, Sequels, Draft Editor) + Pipeline & Headless E2E Tests (`phase-3-verified`)
-- [ ] **Phase 4:** Voice Audition Studio (`voices.json`), Chunked Gemini 3.8 TTS (`solo` & `cast`), Version Manager & Cloud Run `Dockerfile` + Release Gate (`phase-4-verified`)
+- [x] **Phase 4:** Voice Audition Studio (`voices.json`), Chunked Gemini 3.8 TTS (`solo` & `cast`), Version Manager & Cloud Run `Dockerfile` + Release Gate (`phase-4-verified`)
 - [ ] **Phase 5:** Interactive Windows Antigravity `/browser` Visual, Mobile, & Audio Scrubbing QA Pass (`phase-5-qa-complete`)
