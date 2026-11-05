@@ -547,16 +547,16 @@ Use these exact visual tokens in `client/styles/kinetic.css` (from the approved 
 4. Implement `shared/types.ts`, `shared/textClean.ts`, `server/lib/wav.ts`, and `server/lib/validators.ts`.
 
 #### Phase 0 Tests & Validation Gate (`tests/wav.test.ts`, `tests/validators.test.ts`)
-- [ ] **WAV Unit Tests:**
+- [x] **WAV Unit Tests:**
   - `wrapPcmAsWav` outputs a buffer of length `44 + pcm.length` starting with `RIFF....WAVEfmt ` and `24000` sample rate at byte offset `24`.
   - `extractPcmFromWavOrRaw` cleanly strips the header from a wrapped WAV **and** from a WAV containing an extra `LIST` metadata chunk before `data`, returning byte-identical original PCM.
   - Concatenating two WAV buffers via `extractPcmFromWavOrRaw` + `createSilencePcm(150)` + `wrapPcmAsWav` yields exact expected byte length and `durationSec` with **no** embedded `"RIFF"` bytes after byte `0`.
-- [ ] **Validator & Cleaner Unit Tests:**
+- [x] **Validator & Cleaner Unit Tests:**
   - `cleanTextForReader('Hello <short pause> world (painted blue)! <sigh>')` returns `'Hello world (painted blue)!'` (parentheses intact!).
   - `validateWriterOutput` rejects unknown speakers, re-indexes turn IDs, strips premature `<sigh>` tags, and splits a `950`-char multi-sentence turn into `< 600`-char turns.
   - `validateDirectorOutput` normalizes `<Short Pause>` -> `<short pause>`, strips unauthorized `<explosion>`, relocates `(whispering)` to `style`, and restores Writer prose if Director mutated words.
-- [ ] **Playwright Binary Smoke Check:** `npx playwright --version` succeeds and headless Chromium launches cleanly in a 3-line smoke test (`browser.newPage()`).
-- [ ] Run `npm run typecheck && npm test`, update Progress Tracker, commit (`feat(phase-0): scaffold workspace, skills, wav and validator core`), and tag `phase-0-verified`.
+- [x] **Playwright Binary Smoke Check:** `npx playwright --version` succeeds and headless Chromium launches cleanly in a 3-line smoke test (`browser.newPage()`).
+- [x] Run `npm run typecheck && npm test`, update Progress Tracker, commit (`feat(phase-0): scaffold workspace, skills, wav and validator core`), and tag `phase-0-verified`.
 
 ---
 
@@ -772,7 +772,7 @@ Use your interactive browser capabilities (`/browser`) on `http://localhost:8080
 
 ## 11. Progress Tracker (Update as Phases Complete)
 
-- [ ] **Phase 0:** Scaffolding, `.agents/skills/`, Playwright Headless Chromium Setup, Shared Types, WAV & Validator Core + Unit Tests (`phase-0-verified`)
+- [x] **Phase 0:** Scaffolding, `.agents/skills/`, Playwright Headless Chromium Setup, Shared Types, WAV & Validator Core + Unit Tests (`phase-0-verified`)
 - [ ] **Phase 1:** Dual-Mode Storage (`./data` + GCS `ifGenerationMatch`), Audio `Range` Streaming, Seed Data & Single-Admin Auth + Integration Tests (`phase-1-verified`)
 - [ ] **Phase 2:** Public Storybook UI (Kinetic Construct Theme, Instant Filter, Formatted Reader, Docked Audio Player) + Component & Headless E2E Tests (`phase-2-verified`)
 - [ ] **Phase 3:** Admin Director Studio (Mode A/B Writer -> Val 1 -> Director -> Val 2, Sequels, Draft Editor) + Pipeline & Headless E2E Tests (`phase-3-verified`)
