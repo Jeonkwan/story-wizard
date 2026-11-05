@@ -16,12 +16,15 @@ export function extractPcmFromWavOrRaw(input: Buffer): Buffer {
       const chunkSize = input.readUInt32LE(offset + 4);
       const dataStart = offset + 8;
       if (chunkId === 'data') {
-        return input.subarray(dataStart, Math.min(dataStart + chunkSize, input.length));
+        const raw = input.subarray(dataStart, Math.min(dataStart + chunkSize, input.length));
+        const evenLen = raw.length - (raw.length % 2);
+        return raw.subarray(0, evenLen);
       }
       offset = dataStart + chunkSize + (chunkSize % 2); // word-aligned
     }
   }
-  return input; // Already raw PCM
+  const evenLen = input.length - (input.length % 2);
+  return input.subarray(0, evenLen); // Already raw PCM (enforce 2-byte sample alignment)
 }
 
 export function createSilencePcm(durationMs: number): Buffer {
@@ -30,8 +33,11 @@ export function createSilencePcm(durationMs: number): Buffer {
 }
 
 export function wrapPcmAsWav(pcm: Buffer): { wav: Buffer; durationSec: number } {
+  // Enforce 2-byte sample alignment so odd-length buffers never shift 16-bit sample alignment
+  const evenLen = pcm.length - (pcm.length % 2);
+  const alignedPcm = evenLen === pcm.length ? pcm : pcm.subarray(0, evenLen);
   const header = Buffer.alloc(44);
-  const dataSize = pcm.length;
+  const dataSize = alignedPcm.length;
   header.write('RIFF', 0, 'ascii');
   header.writeUInt32LE(36 + dataSize, 4);
   header.write('WAVE', 8, 'ascii');
@@ -46,7 +52,7 @@ export function wrapPcmAsWav(pcm: Buffer): { wav: Buffer; durationSec: number } 
   header.write('data', 36, 'ascii');
   header.writeUInt32LE(dataSize, 40);
   return {
-    wav: Buffer.concat([header, pcm]),
+    wav: Buffer.concat([header, alignedPcm]),
     durationSec: Math.max(1, Math.round(dataSize / BYTES_PER_SECOND)),
   };
 }

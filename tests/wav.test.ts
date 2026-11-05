@@ -7,7 +7,7 @@ import {
   wrapPcmAsWav,
   extractPcmFromWavOrRaw,
   createSilencePcm,
-} from '../server/lib/wav';
+} from '../server/lib/wav.js';
 
 describe('WAV and PCM Utilities (server/lib/wav.ts)', () => {
   it('wrapPcmAsWav outputs a 44-byte RIFF header with 24000 sample rate and exact pcm length', () => {
@@ -108,5 +108,27 @@ describe('WAV and PCM Utilities (server/lib/wav.ts)', () => {
 
     // Duration: 103,200 / 48,000 = 2.15 seconds -> Math.round is 2
     expect(result.durationSec).toBe(2);
+  });
+
+  it('enforces 2-byte sample alignment on odd-length buffers for both wrapPcmAsWav and extractPcmFromWavOrRaw', () => {
+    // 9 bytes of raw PCM (odd length)
+    const oddPcm = Buffer.from([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+
+    // 1. extractPcmFromWavOrRaw aligns raw PCM to 8 bytes
+    const alignedRaw = extractPcmFromWavOrRaw(oddPcm);
+    expect(alignedRaw.length).toBe(8);
+    expect(Buffer.compare(alignedRaw, oddPcm.subarray(0, 8))).toBe(0);
+
+    // 2. wrapPcmAsWav aligns 9-byte PCM to 8 bytes in WAV data chunk
+    const { wav } = wrapPcmAsWav(oddPcm);
+    expect(wav.length).toBe(44 + 8);
+    expect(wav.readUInt32LE(40)).toBe(8); // data chunk size is 8, not 9
+    expect(wav.readUInt32LE(4)).toBe(36 + 8); // RIFF size is 44
+
+    // 3. extractPcmFromWavOrRaw on a WAV with odd data chunk length aligns to even
+    const oddWav = Buffer.concat([wav.subarray(0, 44), oddPcm]);
+    const extractedFromWav = extractPcmFromWavOrRaw(oddWav);
+    expect(extractedFromWav.length).toBe(8);
+    expect(Buffer.compare(extractedFromWav, oddPcm.subarray(0, 8))).toBe(0);
   });
 });

@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { cleanTextForReader, APPROVED_VOCAL_TAGS } from '../shared/textClean';
+import { cleanTextForReader, APPROVED_VOCAL_TAGS } from '../shared/textClean.js';
 import {
   validateWriterOutput,
   validateDirectorOutput,
   ValidationError,
   splitTextAtSentenceBoundaries,
-} from '../server/lib/validators';
-import type { ScriptTurn } from '../shared/types';
+} from '../server/lib/validators.js';
+import type { ScriptTurn } from '../shared/types.js';
 
 describe('Text Cleaner & Reader Formatting (shared/textClean.ts)', () => {
   it('cleanTextForReader removes inline vocal tags while preserving prose parentheses', () => {
@@ -141,6 +141,34 @@ describe('Validator 1: Post-Writer Check (server/lib/validators.ts)', () => {
     const lastTurn = output.script_turns[output.script_turns.length - 1];
     expect(lastTurn.speaker).toBe('Owl');
     expect(lastTurn.text).toBe('Hoo, goodnight forest.');
+  });
+
+  it('splits a 750-char unbroken token with zero spaces into chunks <= 600 chars', () => {
+    // 750 characters unbroken string with zero spaces or punctuation
+    const longToken = 'A'.repeat(750);
+    expect(longToken.length).toBe(750);
+
+    const chunks = splitTextAtSentenceBoundaries(longToken, 600);
+    expect(chunks.length).toBe(2);
+    expect(chunks[0].length).toBe(600);
+    expect(chunks[1].length).toBe(150);
+    expect(chunks.every((c) => c.length <= 600)).toBe(true);
+
+    const output = validateWriterOutput({
+      title: 'Unbroken Word Story',
+      summary: 'Story with oversized token.',
+      tags: ['edgecase'],
+      characters: [{ name: 'Bibi', traits: 'Sleepy hedgehog' }],
+      script_turns: [
+        { turn_id: 1, speaker: 'Narrator', text: 'Listen to this sound.' },
+        { turn_id: 2, speaker: 'Bibi', text: longToken },
+      ],
+    });
+
+    expect(output.script_turns.length).toBe(3);
+    expect(output.script_turns[1].text.length).toBe(600);
+    expect(output.script_turns[2].text.length).toBe(150);
+    expect(output.script_turns.every((t) => t.text.length <= 600)).toBe(true);
   });
 });
 

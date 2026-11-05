@@ -1,5 +1,5 @@
-import { APPROVED_VOCAL_TAGS } from '../../shared/textClean';
-import type { CharacterProfile, ScriptTurn, VoiceDesignCandidate } from '../../shared/types';
+import { APPROVED_VOCAL_TAGS } from '../../shared/textClean.js';
+import type { CharacterProfile, ScriptTurn, VoiceDesignCandidate } from '../../shared/types.js';
 
 export class ValidationError extends Error {
   constructor(message: string) {
@@ -46,6 +46,7 @@ export interface ValidatedDirectorOutput {
 
 /**
  * Splits long turn text (> 600 chars) at sentence boundaries (. ! ?) into chunks <= 600 chars.
+ * Ensures any unbroken token > maxLen is hard-sliced so no chunk exceeds maxLen.
  */
 export function splitTextAtSentenceBoundaries(text: string, maxLen = 600): string[] {
   const trimmed = text.trim();
@@ -55,7 +56,17 @@ export function splitTextAtSentenceBoundaries(text: string, maxLen = 600): strin
   const sentences = trimmed.match(sentenceRegex);
   if (!sentences || sentences.length <= 1) {
     // Fall back to word boundaries if no sentence punctuation
-    const words = trimmed.split(/\s+/);
+    const rawWords = trimmed.split(/\s+/).filter(Boolean);
+    const words: string[] = [];
+    for (const word of rawWords) {
+      if (word.length > maxLen) {
+        for (let i = 0; i < word.length; i += maxLen) {
+          words.push(word.slice(i, i + maxLen));
+        }
+      } else {
+        words.push(word);
+      }
+    }
     const chunks: string[] = [];
     let current = '';
     for (const word of words) {
@@ -78,7 +89,13 @@ export function splitTextAtSentenceBoundaries(text: string, maxLen = 600): strin
     const s = sentence.trim();
     if (!s) continue;
     if (!current) {
-      current = s;
+      if (s.length > maxLen) {
+        const subChunks = splitTextAtSentenceBoundaries(s, maxLen);
+        chunks.push(...subChunks.slice(0, -1));
+        current = subChunks[subChunks.length - 1];
+      } else {
+        current = s;
+      }
     } else if ((current + ' ' + s).length <= maxLen) {
       current += ' ' + s;
     } else {
