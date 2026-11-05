@@ -1,13 +1,16 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { useState } from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { AudioVersion, CatalogItem, Story } from '../shared/types';
 import { StoryReader } from '../client/components/StoryReader';
 import { StoryCatalog } from '../client/components/StoryCatalog';
 import { AudioPlayerBar } from '../client/components/AudioPlayerBar';
 import { Masthead } from '../client/components/Masthead';
+import { AdminLoginGate } from '../client/components/AdminLoginGate';
+import { DirectorStudio } from '../client/components/DirectorStudio';
+import * as clientApi from '../client/api/client';
 
 // Standard clean Storage mock for jsdom environment under Node 22
 const memoryStore = new Map<string, string>();
@@ -344,3 +347,112 @@ describe('Phase 2 UI Component Tests', () => {
     expect(turn2Element?.textContent).toBe('The moon rose quietly over the tranquil lake.');
   });
 });
+
+describe('Phase 3 Admin Studio & UI Components', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('AdminLoginGate displays Dev Sandbox Login button ONLY when devBypassEnabled is true', async () => {
+    // 1. When devBypassEnabled is true
+    vi.spyOn(clientApi, 'fetchAdminSession').mockResolvedValueOnce({
+      authenticated: false,
+      devBypassEnabled: true,
+      googleClientId: '',
+    });
+
+    const { unmount } = render(<AdminLoginGate onNavigateHome={() => {}} />);
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Dev Sandbox Login/i })).toBeInTheDocument();
+    });
+
+    unmount();
+
+    // 2. When devBypassEnabled is false
+    vi.spyOn(clientApi, 'fetchAdminSession').mockResolvedValueOnce({
+      authenticated: false,
+      devBypassEnabled: false,
+      googleClientId: '',
+    });
+
+    render(<AdminLoginGate onNavigateHome={() => {}} />);
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /Dev Sandbox Login/i })).not.toBeInTheDocument();
+    });
+  });
+
+  it('DirectorStudio quick-inserts <short pause> tag into script turn text', async () => {
+    const mockSession = {
+      authenticated: true,
+      email: 'curator@storyteller.studio',
+      devBypassEnabled: true,
+    };
+
+    const mockStory: Story = {
+      id: 'test-story',
+      status: 'draft',
+      title: 'Test Story',
+      summary: 'Summary of test story.',
+      tags: ['bedtime'],
+      series_context: null,
+      characters: [{ name: 'Bibi', traits: 'Gentle bell' }],
+      script_turns: [
+        { turn_id: 1, speaker: 'Narrator', style: '', text: 'Hello world.' },
+        { turn_id: 2, speaker: 'Bibi', style: '', text: 'Goodnight stars.' },
+      ],
+      voice_candidates: [],
+      audio_versions: [],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    vi.spyOn(clientApi, 'fetchAdminStories').mockResolvedValue([
+      {
+        id: 'test-story',
+        status: 'draft',
+        title: 'Test Story',
+        summary: 'Summary of test story.',
+        tags: ['bedtime'],
+        series_id: null,
+        episode_number: null,
+        created_at: mockStory.created_at,
+        updated_at: mockStory.updated_at,
+        default_audio_url: null,
+        audio_versions_count: 0,
+      },
+    ]);
+
+    vi.spyOn(clientApi, 'fetchStory').mockResolvedValue(mockStory);
+
+    render(
+      <DirectorStudio
+        session={mockSession}
+        onLogout={() => {}}
+        onNavigateHome={() => {}}
+      />
+    );
+
+    // Wait for story in list and click it
+    await waitFor(() => {
+      expect(screen.getByText('Test Story')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('Test Story'));
+
+    // Wait for turns to load in workbench
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('Hello world.')).toBeInTheDocument();
+    });
+
+    // Find the first turn's <short pause> tag pill button
+    const insertButtons = screen.getAllByRole('button', { name: '<short pause>' });
+    expect(insertButtons.length).toBeGreaterThan(0);
+
+    // Click quick-insert
+    fireEvent.click(insertButtons[0]);
+
+    // Verify turn text updated to include <short pause>
+    expect(screen.getByDisplayValue('Hello world. <short pause>')).toBeInTheDocument();
+  });
+});
+

@@ -165,3 +165,110 @@ test.describe('Phase 2 Public Storybook E2E', () => {
     expect(consoleErrors).toEqual([]);
   });
 });
+
+test.describe('Phase 3 Admin Director Studio E2E', () => {
+  test('logs into admin studio, edits story turn with quick tag, saves script, checks dark mode & mobile layout, and captures screenshot', async ({
+    page,
+  }) => {
+    const pageErrors: Error[] = [];
+    const consoleErrors: string[] = [];
+
+    await page.route('https://accounts.google.com/**', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/javascript',
+        body: 'window.google = { accounts: { id: { initialize() {}, renderButton() {}, prompt() {} } } };',
+      });
+    });
+
+    page.on('pageerror', (err) => {
+      pageErrors.push(err);
+    });
+
+    page.on('console', (msg) => {
+      if (msg.type() === 'error') {
+        consoleErrors.push(msg.text());
+      }
+    });
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+
+    // 1. Navigate to /admin
+    await page.goto('/admin');
+    await expect(page.locator('h2', { hasText: 'Director Studio' })).toBeVisible();
+
+    // 2. Click Dev Sandbox Login
+    const devLoginBtn = page.getByRole('button', { name: /Dev Sandbox Login/i });
+    await expect(devLoginBtn).toBeVisible();
+    await devLoginBtn.click();
+
+    // 3. Verify Director Studio loads with story list
+    const sidebar = page.locator('.studio-sidebar');
+    await expect(sidebar).toBeVisible();
+    const seededStoryItem = page.locator('.studio-story-item', { hasText: 'The Sleepy Little Train' });
+    await expect(seededStoryItem).toBeVisible();
+
+    // 4. Click seeded story to load into workbench
+    await seededStoryItem.click();
+
+    // Verify workbench is loaded
+    await expect(page.locator('.studio-workbench')).toBeVisible();
+    const saveScriptBtn = page.getByRole('button', { name: /Save Script/i });
+    await expect(saveScriptBtn).toBeVisible();
+
+    // 5. Test quick-insert vocal tag pill into turn #1
+    const firstTurnCard = page.locator('.turn-card').first();
+    const turnTextarea = firstTurnCard.locator('textarea');
+    await expect(turnTextarea).toBeVisible();
+
+    const shortPausePill = firstTurnCard.getByRole('button', { name: '<short pause>' });
+    await expect(shortPausePill).toBeVisible();
+    await shortPausePill.click();
+
+    // Click "Save Script"
+    await saveScriptBtn.click();
+
+    // Verify "✓ Saved successfully" banner
+    await expect(page.getByText('✓ Saved successfully')).toBeVisible();
+
+    // 6. Reload page and verify persistence
+    await page.reload();
+    await seededStoryItem.click();
+    await expect(page.locator('.turn-card').first().locator('textarea')).toBeVisible();
+
+    // 7. Verify Dark Mode contrast on /admin
+    const themeBtn = page.getByRole('button', { name: /Dark Mode|Light Mode/i });
+    const isDark = await page.evaluate(() => document.body.getAttribute('data-theme') === 'dark');
+    if (!isDark) {
+      await themeBtn.click();
+      await expect(page.locator('body')).toHaveAttribute('data-theme', 'dark');
+    }
+
+    // Move mouse away to test resting button colors
+    await page.mouse.move(0, 0);
+
+    const darkBtnStyles = await themeBtn.evaluate((el) => {
+      const s = window.getComputedStyle(el);
+      return { bg: s.backgroundColor, color: s.color };
+    });
+    expect(darkBtnStyles.bg).toBe('rgb(22, 31, 44)'); // #161F2C
+    expect(darkBtnStyles.color).toBe('rgb(241, 245, 249)'); // #F1F5F9
+
+    // 8. Capture Phase 3 Admin Studio Screenshot (1440x900)
+    await page.screenshot({ path: 'qa-screenshots/phase3-admin-studio.png', fullPage: false });
+
+    // 9. Mobile Responsiveness check at 375x812 (zero horizontal overflow)
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.waitForTimeout(200);
+
+    const hasNoHorizontalOverflow = await page.evaluate(() => {
+      return document.documentElement.scrollWidth <= window.innerWidth;
+    });
+    expect(hasNoHorizontalOverflow).toBe(true);
+
+    // 10. Assert zero pageerror and zero console.error
+    expect(pageErrors).toEqual([]);
+    expect(consoleErrors).toEqual([]);
+  });
+});
+

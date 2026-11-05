@@ -1,4 +1,4 @@
-import { APPROVED_VOCAL_TAGS } from '../../shared/textClean.js';
+import { APPROVED_VOCAL_TAGS, cleanTextForReader } from '../../shared/textClean.js';
 import type { CharacterProfile, ScriptTurn, VoiceDesignCandidate } from '../../shared/types.js';
 
 export class ValidationError extends Error {
@@ -399,5 +399,147 @@ export function validateDirectorOutput(
   return {
     script_turns: finalTurns,
     voice_candidates: validatedCandidates,
+  };
+}
+
+/**
+ * Validator for manual admin edits (PUT /api/admin/stories/:id).
+ * Enforces all Validator 1 invariants while:
+ * - Normalizing case inside <...> tags.
+ * - Preserving approved vocal tags (APPROVED_VOCAL_TAGS).
+ * - Stripping ONLY unauthorized <...> tags (e.g. <cough_loudly>).
+ * - Verifying cleanTextForReader(turn.text) is non-empty.
+ * - Preserving/trimming turn.style (max 200 chars).
+ */
+export function validateManualStoryEdit(raw: WriterOutputInput): ValidatedWriterOutput {
+  if (!raw || typeof raw !== 'object') {
+    throw new ValidationError('Story edit payload must be an object');
+  }
+
+  // 1. Title & summary
+  const title = typeof raw.title === 'string' ? raw.title.trim() : '';
+  if (!title) {
+    throw new ValidationError('Story title must be a non-empty string');
+  }
+
+  const summary = typeof raw.summary === 'string' ? raw.summary.trim() : '';
+  if (!summary) {
+    throw new ValidationError('Story summary must be a non-empty string');
+  }
+
+  // Tags: non-empty string array, lowercased, deduplicated
+  if (!Array.isArray(raw.tags) || raw.tags.length === 0) {
+    throw new ValidationError('Story tags must be a non-empty array of strings');
+  }
+  const tagsSet = new Set<string>();
+  for (const tag of raw.tags) {
+    if (typeof tag === 'string' && tag.trim()) {
+      tagsSet.add(tag.trim().toLowerCase());
+    }
+  }
+  if (tagsSet.size === 0) {
+    throw new ValidationError('Story tags must contain at least one valid tag');
+  }
+  const tags = Array.from(tagsSet);
+
+  // 2. Characters
+  if (!Array.isArray(raw.characters)) {
+    throw new ValidationError('Story characters must be an array');
+  }
+
+  const characters: CharacterProfile[] = [];
+  const charMap = new Map<string, string>(); // lowercase -> canonical name
+
+  for (const char of raw.characters) {
+    if (!char || typeof char !== 'object') {
+      throw new ValidationError('Each character must be an object with name and traits');
+    }
+    const name = typeof char.name === 'string' ? char.name.trim() : '';
+    const traits = typeof char.traits === 'string' ? char.traits.trim() : '';
+    if (!name || !traits) {
+      throw new ValidationError('Character name and traits must be non-empty strings');
+    }
+    if (name.toLowerCase() === 'narrator') {
+      throw new ValidationError('Character name cannot be "Narrator"');
+    }
+    if (charMap.has(name.toLowerCase())) {
+      throw new ValidationError(`Duplicate character name: "${name}"`);
+    }
+    charMap.set(name.toLowerCase(), name);
+    characters.push({ name, traits });
+  }
+
+  // 3. Script turns
+  if (!Array.isArray(raw.script_turns) || raw.script_turns.length < 2) {
+    throw new ValidationError('script_turns must contain at least 2 turns');
+  }
+
+  const finalTurns: ScriptTurn[] = [];
+
+  for (const turn of raw.script_turns) {
+    if (!turn || typeof turn !== 'object') {
+      throw new ValidationError('Each script turn must be an object');
+    }
+
+    const rawSpeaker = typeof turn.speaker === 'string' ? turn.speaker.trim() : '';
+    if (!rawSpeaker) {
+      throw new ValidationError('Turn speaker must be specified');
+    }
+
+    let canonicalSpeaker: string;
+    if (rawSpeaker.toLowerCase() === 'narrator') {
+      canonicalSpeaker = 'Narrator';
+    } else if (charMap.has(rawSpeaker.toLowerCase())) {
+      canonicalSpeaker = charMap.get(rawSpeaker.toLowerCase())!;
+    } else {
+      throw new ValidationError(`Unknown speaker: "${rawSpeaker}"`);
+    }
+
+    // Process text: normalize case in <...>, preserve approved vocal tags, strip unauthorized tags
+    const rawText = typeof turn.text === 'string' ? turn.text : '';
+    let sanitizedText = rawText.replace(/<([^>]+)>/g, (_match, inner) => {
+      const normalizedTag = `<${inner.trim().toLowerCase()}>`;
+      if (APPROVED_VOCAL_TAGS.has(normalizedTag)) {
+        return normalizedTag;
+      }
+      return '';
+    });
+    sanitizedText = sanitizedText.replace(/\s{2,}/g, ' ').trim();
+
+    // Verify cleanTextForReader(sanitizedText) is non-empty
+    const readableText = cleanTextForReader(sanitizedText);
+    if (!readableText) {
+      throw new ValidationError(`Turn for speaker "${canonicalSpeaker}" has empty text`);
+    }
+
+    // Process style: trim and limit to 200 chars
+    let style = typeof turn.style === 'string' ? turn.style.trim() : '';
+    if (style.length > 200) {
+      style = style.slice(0, 200).trim();
+    }
+
+    // Auto-split if length > 600 chars at sentence boundaries
+    const splitTexts = splitTextAtSentenceBoundaries(sanitizedText, 600);
+    for (const splitText of splitTexts) {
+      finalTurns.push({
+        turn_id: 0, // renumbered below
+        speaker: canonicalSpeaker,
+        style,
+        text: splitText,
+      });
+    }
+  }
+
+  // Re-index turn_id contiguous 1..N
+  finalTurns.forEach((turn, idx) => {
+    turn.turn_id = idx + 1;
+  });
+
+  return {
+    title,
+    summary,
+    tags,
+    characters,
+    script_turns: finalTurns,
   };
 }

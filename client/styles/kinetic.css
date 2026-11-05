@@ -154,6 +154,9 @@ body {
   box-shadow: var(--shadow-tactile);
   padding: 0.55rem 0.85rem;
   outline: none;
+  max-width: 100%;
+  box-sizing: border-box;
+  color-scheme: inherit;
   transition: box-shadow 0.15s ease, border-color 0.15s ease;
 }
 
@@ -595,3 +598,108 @@ body {
     justify-content: space-between;
   }
 }
+
+/* Tactile Badges */
+.badge-tactile {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.2rem 0.55rem;
+  border-radius: var(--radius-tactile);
+  border: 1px solid var(--ink-primary);
+  background-color: var(--bg-well);
+  color: var(--ink-primary);
+  white-space: nowrap;
+}
+
+.badge-tactile-published {
+  background-color: var(--accent-root-bg);
+  color: var(--accent-root);
+  border-color: var(--accent-root);
+}
+
+.badge-tactile-draft {
+  background-color: var(--accent-state-bg);
+  color: var(--accent-state);
+  border-color: var(--accent-state);
+}
+
+.btn-tactile-published {
+  background-color: var(--accent-root-bg);
+  color: var(--accent-root);
+  border-color: var(--ink-primary);
+}
+
+.btn-tactile-published:hover:not(:disabled) {
+  background-color: var(--accent-root);
+  color: #FFFFFF;
+}
+
+/* Director Studio Two-Column Layout */
+.studio-layout {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.studio-sidebar {
+  padding: 1.25rem;
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  position: sticky;
+  top: 1rem;
+}
+
+.studio-sidebar-header {
+  border-bottom: 1px solid var(--ink-primary);
+  padding-bottom: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.studio-stories-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.studio-story-item {
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.studio-story-item:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: var(--shadow-tactile-hover);
+}
+
+.studio-story-item-active {
+  border-color: var(--accent-module);
+  box-shadow: 0 0 0 2px var(--accent-module);
+}
+
+.studio-main {
+  min-width: 0;
+}
+
+.turn-card {
+  transition: border-color 0.1s ease;
+}
+
+.turn-card:focus-within {
+  border-color: var(--accent-module);
+}
+
+@media (max-width: 900px) {
+  .studio-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .studio-sidebar {
+    position: static;
+    max-height: none;
+  }
+}
+

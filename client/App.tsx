@@ -5,6 +5,7 @@ import { Masthead } from './components/Masthead';
 import { StoryCatalog } from './components/StoryCatalog';
 import { StoryReader } from './components/StoryReader';
 import { AudioPlayerBar } from './components/AudioPlayerBar';
+import { AdminLoginGate } from './components/AdminLoginGate';
 
 export function App(): React.JSX.Element {
   const [currentPath, setCurrentPath] = useState<string>(() =>
@@ -81,30 +82,24 @@ export function App(): React.JSX.Element {
     }
   }, [currentPath, activeStory, loadStory]);
 
-  // Fetch catalog on mount
-  useEffect(() => {
-    let mounted = true;
+  // Fetch catalog helper
+  const refreshCatalog = useCallback(() => {
     setLoadingCatalog(true);
-    setCatalogError(null);
-
     fetchCatalog()
       .then((items) => {
-        if (mounted) {
-          setCatalog(items);
-          setLoadingCatalog(false);
-        }
+        setCatalog(items);
+        setLoadingCatalog(false);
       })
       .catch((err) => {
-        if (mounted) {
-          setCatalogError(err instanceof Error ? err.message : 'Failed to load catalog');
-          setLoadingCatalog(false);
-        }
+        setCatalogError(err instanceof Error ? err.message : 'Failed to load catalog');
+        setLoadingCatalog(false);
       });
-
-    return () => {
-      mounted = false;
-    };
   }, []);
+
+  // Fetch catalog on mount
+  useEffect(() => {
+    refreshCatalog();
+  }, [refreshCatalog]);
 
   const handleSelectStory = (storyId: string) => {
     navigate(`/stories/${encodeURIComponent(storyId)}`);
@@ -115,6 +110,7 @@ export function App(): React.JSX.Element {
     setActiveStory(null);
     setActiveAudioVersion(null);
     setStoryError(null);
+    refreshCatalog();
   };
 
   const handleNavigate = (path: string) => {
@@ -122,6 +118,9 @@ export function App(): React.JSX.Element {
     if (!path.startsWith('/stories/')) {
       setActiveStory(null);
       setActiveAudioVersion(null);
+    }
+    if (path === '/') {
+      refreshCatalog();
     }
   };
 
@@ -133,30 +132,10 @@ export function App(): React.JSX.Element {
 
       <main role="main">
         {isAdmin ? (
-          <section className="card-tactile" style={{ textAlign: 'center', padding: '3.5rem 1.5rem' }}>
-            <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: '2rem', marginTop: 0 }}>
-              🎙️ Director Studio
-            </h2>
-            <p
-              style={{
-                fontFamily: 'var(--font-prose)',
-                fontSize: '1.1rem',
-                color: 'var(--ink-muted)',
-                maxWidth: '600px',
-                margin: '1rem auto 2rem auto',
-              }}
-            >
-              The admin workflow (Google OAuth, Gemini 3.8 Writer &amp; Director pipeline, and Custom
-              Voice Studio) arrives in Phase 3 &amp; 4.
-            </p>
-            <button
-              type="button"
-              className="btn-tactile btn-tactile-primary"
-              onClick={() => handleNavigate('/')}
-            >
-              ← Return to Storybook Library
-            </button>
-          </section>
+          <AdminLoginGate
+            onNavigateHome={() => handleNavigate('/')}
+            onCatalogChanged={refreshCatalog}
+          />
         ) : activeStory ? (
           <div>
             <StoryReader story={activeStory} onBack={handleBackToLibrary} />

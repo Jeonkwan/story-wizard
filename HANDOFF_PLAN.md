@@ -662,13 +662,13 @@ Use these exact visual tokens in `client/styles/kinetic.css` (from the approved 
    - **Editable Script Workbench:** Editable table/cards for every `ScriptTurn` (`speaker` dropdown, `style` input, `text` textarea with quick-insert buttons for `<short pause>`, `<sigh>`, `<chuckle>`, `<breath>`, plus Add/Delete Turn buttons and *"Save Script"*).
 
 #### Phase 3 Tests & Validation Gate (`tests/pipelineApi.test.ts`)
-- [ ] **Mode A & Draft Isolation Test:** `POST /api/admin/stories/write` creates a `"draft"` story; public `GET /api/catalog` still excludes it; `POST /api/admin/stories/:id/direct` populates `style`, approved `<...>` tags, and 3 `voice_candidates`.
-- [ ] **Mode B Sequel Continuity Test:** Creating a sequel from seeded episode `1` automatically sets `series_context.episode_number === 2`, carries `series_id`, and passes prior `characters` into the Writer prompt.
-- [ ] **Publish Guardrail Test:** `PATCH /api/admin/stories/:id/status` with `{ status: "published" }` on a story with `0` audio versions returns `400 Bad Request`.
-- [ ] **Manual Edit Sanitization Test:** `PUT /api/admin/stories/:id` with an invalid `<cough_loudly>` tag strips the invalid tag while saving edited prose and styles.
-- [ ] **Delete Story Cleanup Test:** `DELETE /api/admin/stories/:id` removes story from `catalog.json` and deletes `story.json` + audio files.
-- [ ] **Headless Chromium E2E (`tests/e2e/storybook.spec.ts`):** Logs into `/admin` via Dev Sandbox button, edits a draft story's turn inline, inserts `<short pause>` via quick-tag button, saves cleanly with zero console errors, and captures `qa-screenshots/phase3-admin-studio.png`.
-- [ ] Run `npm run typecheck && npm test && npm run build && npm run test:e2e` -> **100% green**, commit (`feat(phase-3): admin director studio, writer-director pipeline, and sequel mode`), and tag `phase-3-verified`.
+- [x] **Mode A & Draft Isolation Test:** `POST /api/admin/stories/write` creates a `"draft"` story; public `GET /api/catalog` still excludes it; `POST /api/admin/stories/:id/direct` populates `style`, approved `<...>` tags, and 3 `voice_candidates`.
+- [x] **Mode B Sequel Continuity Test:** Creating a sequel from seeded episode `1` automatically sets `series_context.episode_number === 2`, carries `series_id`, and passes prior `characters` into the Writer prompt.
+- [x] **Publish Guardrail Test:** `PATCH /api/admin/stories/:id/status` with `{ status: "published" }` on a story with `0` audio versions returns `400 Bad Request`.
+- [x] **Manual Edit Sanitization Test:** `PUT /api/admin/stories/:id` with an invalid `<cough_loudly>` tag strips the invalid tag while saving edited prose and styles.
+- [x] **Delete Story Cleanup Test:** `DELETE /api/admin/stories/:id` removes story from `catalog.json` and deletes `story.json` + audio files.
+- [x] **Headless Chromium E2E (`tests/e2e/storybook.spec.ts`):** Logs into `/admin` via Dev Sandbox button, edits a draft story's turn inline, inserts `<short pause>` via quick-tag button, saves cleanly with zero console errors, and captures `qa-screenshots/phase3-admin-studio.png`.
+- [x] Run `npm run typecheck && npm test && npm run build && npm run test:e2e` -> **100% green**, commit (`feat(phase-3): admin director studio, writer-director pipeline, and sequel mode`), and tag `phase-3-verified`.
 
 ---
 
@@ -777,6 +777,6 @@ Use your interactive browser capabilities (`/browser`) on `http://localhost:8080
 - [x] **Phase 0:** Scaffolding, `.agents/skills/`, Playwright Headless Chromium Setup, Shared Types, WAV & Validator Core + Unit Tests (`phase-0-verified`)
 - [x] **Phase 1:** Dual-Mode Storage (`./data` + GCS `ifGenerationMatch`), Audio `Range` Streaming, Seed Data & Single-Admin Auth + Integration Tests (`phase-1-verified`)
 - [x] **Phase 2:** Public Storybook UI (Kinetic Construct Theme, Instant Filter, Formatted Reader, Docked Audio Player) + Component & Headless E2E Tests (`phase-2-verified`)
-- [ ] **Phase 3:** Admin Director Studio (Mode A/B Writer -> Val 1 -> Director -> Val 2, Sequels, Draft Editor) + Pipeline & Headless E2E Tests (`phase-3-verified`)
+- [x] **Phase 3:** Admin Director Studio (Mode A/B Writer -> Val 1 -> Director -> Val 2, Sequels, Draft Editor) + Pipeline & Headless E2E Tests (`phase-3-verified`)
 - [ ] **Phase 4:** Voice Audition Studio (`voices.json`), Chunked Gemini 3.8 TTS (`solo` & `cast`), Version Manager & Cloud Run `Dockerfile` + Release Gate (`phase-4-verified`)
 - [ ] **Phase 5:** Interactive Windows Antigravity `/browser` Visual, Mobile, & Audio Scrubbing QA Pass (`phase-5-qa-complete`)

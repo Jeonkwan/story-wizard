@@ -1,4 +1,10 @@
-import type { CatalogItem, Story } from '../../shared/types';
+import type {
+  CatalogItem,
+  CharacterProfile,
+  ScriptTurn,
+  Story,
+  VoiceDesignCandidate,
+} from '../../shared/types';
 
 export class ApiError extends Error {
   constructor(
@@ -26,6 +32,13 @@ async function handleResponse<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export interface AdminSession {
+  authenticated: boolean;
+  email?: string;
+  devBypassEnabled: boolean;
+  googleClientId?: string;
+}
+
 export async function fetchCatalog(includeDrafts = false): Promise<CatalogItem[]> {
   const url = includeDrafts ? '/api/catalog?includeDrafts=true' : '/api/catalog';
   const res = await fetch(url);
@@ -35,4 +48,100 @@ export async function fetchCatalog(includeDrafts = false): Promise<CatalogItem[]
 export async function fetchStory(id: string): Promise<Story> {
   const res = await fetch(`/api/stories/${encodeURIComponent(id)}`);
   return handleResponse<Story>(res);
+}
+
+export async function fetchAdminSession(): Promise<AdminSession> {
+  const res = await fetch('/api/admin/me');
+  return handleResponse<AdminSession>(res);
+}
+
+export async function loginWithGoogle(idToken: string): Promise<{ ok: boolean; email: string }> {
+  const res = await fetch('/api/admin/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ idToken }),
+  });
+  return handleResponse<{ ok: boolean; email: string }>(res);
+}
+
+export async function loginWithDevBypass(): Promise<{ ok: boolean; email: string }> {
+  const res = await fetch('/api/admin/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ devBypass: true }),
+  });
+  return handleResponse<{ ok: boolean; email: string }>(res);
+}
+
+export async function logoutAdmin(): Promise<{ ok: boolean }> {
+  const res = await fetch('/api/admin/logout', {
+    method: 'POST',
+  });
+  return handleResponse<{ ok: boolean }>(res);
+}
+
+export async function fetchAdminStories(): Promise<CatalogItem[]> {
+  const res = await fetch('/api/admin/stories');
+  return handleResponse<CatalogItem[]>(res);
+}
+
+export interface WriteStoryDraftPayload {
+  mode: 'fresh' | 'sequel';
+  prompt: string;
+  referenceText?: string;
+  seriesId?: string;
+  previousStoryId?: string;
+}
+
+export async function writeStoryDraft(payload: WriteStoryDraftPayload): Promise<Story> {
+  const res = await fetch('/api/admin/stories/write', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return handleResponse<Story>(res);
+}
+
+export async function directStory(storyId: string): Promise<Story> {
+  const res = await fetch(`/api/admin/stories/${encodeURIComponent(storyId)}/direct`, {
+    method: 'POST',
+  });
+  return handleResponse<Story>(res);
+}
+
+export interface StoryEditsPayload {
+  title: string;
+  summary: string;
+  tags: string[];
+  characters: CharacterProfile[];
+  script_turns: ScriptTurn[];
+  voice_candidates?: VoiceDesignCandidate[];
+}
+
+export async function saveStoryEdits(storyId: string, edits: StoryEditsPayload): Promise<Story> {
+  const res = await fetch(`/api/admin/stories/${encodeURIComponent(storyId)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(edits),
+  });
+  return handleResponse<Story>(res);
+}
+
+export async function patchStoryStatus(
+  storyId: string,
+  status: 'draft' | 'published'
+): Promise<Story> {
+  const res = await fetch(`/api/admin/stories/${encodeURIComponent(storyId)}/status`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  });
+  return handleResponse<Story>(res);
+}
+
+export async function deleteStory(storyId: string): Promise<{ ok: boolean; deletedId: string }> {
+  const res = await fetch(`/api/admin/stories/${encodeURIComponent(storyId)}`, {
+    method: 'DELETE',
+  });
+  return handleResponse<{ ok: boolean; deletedId: string }>(res);
 }

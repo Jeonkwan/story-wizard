@@ -14,12 +14,20 @@ import {
   type GoogleTokenVerifier,
 } from './middleware/auth.js';
 import { createAuthRouter } from './routes/auth.js';
+import { createAdminStoriesRouter } from './routes/adminStories.js';
 import { createPublicRouter } from './routes/public.js';
+import {
+  GeminiStoryService,
+  type StoryLLMProvider,
+} from './services/geminiStory.js';
+import { ValidationError } from './lib/validators.js';
 
 export interface CreateAppOptions {
   config?: AppConfig;
   storage?: StorageAdapter;
   verifyGoogleIdToken?: GoogleTokenVerifier;
+  storyLLMProvider?: StoryLLMProvider;
+  storyService?: GeminiStoryService;
 }
 
 export function createApp(options: CreateAppOptions = {}): express.Express {
@@ -29,14 +37,19 @@ export function createApp(options: CreateAppOptions = {}): express.Express {
     options.verifyGoogleIdToken ||
     createDefaultGoogleTokenVerifier(config.googleClientId);
 
+  const storyService =
+    options.storyService ||
+    new GeminiStoryService(config, storage, options.storyLLMProvider);
+
   const app = express();
 
-  app.use(express.json());
+  app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());
 
   // Mount API routers
   app.use('/api', createPublicRouter(config, storage));
   app.use('/api/admin', createAuthRouter(config, storage, verifyGoogleIdToken));
+  app.use('/api/admin', createAdminStoriesRouter(config, storage, storyService));
 
   // Serve client static assets + SPA fallback ONLY if dist/client/index.html exists
   const clientDist = path.resolve('dist/client');
@@ -62,6 +75,10 @@ export function createApp(options: CreateAppOptions = {}): express.Express {
     ) => {
       if (res.headersSent) {
         next(err);
+        return;
+      }
+      if (err instanceof ValidationError) {
+        res.status(400).json({ error: err.message });
         return;
       }
       if (err instanceof InvalidSlugError) {

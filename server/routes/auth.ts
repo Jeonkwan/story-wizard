@@ -8,17 +8,15 @@ import {
   signAdminSession,
   verifyAdminSession,
   getAdminCookieOptions,
-  createRequireAdminMiddleware,
   type GoogleTokenVerifier,
 } from '../middleware/auth.js';
 
 export function createAuthRouter(
   config: AppConfig,
-  storage: StorageAdapter,
+  _storage: StorageAdapter,
   verifyGoogleIdToken: GoogleTokenVerifier
 ): Router {
   const router = Router();
-  const requireAdmin = createRequireAdminMiddleware(config);
 
   router.post(
     '/login',
@@ -86,18 +84,9 @@ export function createAuthRouter(
       authenticated: Boolean(session),
       email: session?.email,
       devBypassEnabled: config.allowDevBypass,
+      googleClientId: config.googleClientId,
     });
   });
-
-  // Admin probe route for Phase 1 verification: returns all stories in catalog including drafts
-  router.get(
-    '/stories',
-    requireAdmin,
-    asyncHandler(async (_req: Request, res: Response) => {
-      const catalog = await storage.getCatalog();
-      res.json(catalog);
-    })
-  );
 
   return router;
 }

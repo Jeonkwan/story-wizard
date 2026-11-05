@@ -3,6 +3,7 @@ import { cleanTextForReader, APPROVED_VOCAL_TAGS } from '../shared/textClean.js'
 import {
   validateWriterOutput,
   validateDirectorOutput,
+  validateManualStoryEdit,
   ValidationError,
   splitTextAtSentenceBoundaries,
 } from '../server/lib/validators.js';
@@ -325,3 +326,120 @@ describe('Validator 2: Post-Director Check (server/lib/validators.ts)', () => {
     }).toThrow(ValidationError);
   });
 });
+
+describe('Manual Admin Story Edit Validator (server/lib/validators.ts)', () => {
+  it('preserves approved vocal tags and normalizes case while stripping unauthorized tags', () => {
+    const output = validateManualStoryEdit({
+      title: '  Edited Sleepy Forest  ',
+      summary: '  Forest night edition.  ',
+      tags: ['BEDTIME', 'forest', 'bedtime'],
+      characters: [{ name: 'Bibi', traits: 'Sleepy hedgehog' }],
+      script_turns: [
+        {
+          turn_id: 1,
+          speaker: 'Narrator',
+          style: 'Gentle cadence',
+          text: 'The moon rose high. <Short Pause> The wind blew softly. <cough_loudly> <sigh>',
+        },
+        {
+          turn_id: 2,
+          speaker: 'Bibi',
+          style: 'Sleepy murmur',
+          text: 'Goodnight (whispered gently) to all the stars! <CHUCKLE>',
+        },
+      ],
+    });
+
+    expect(output.title).toBe('Edited Sleepy Forest');
+    expect(output.summary).toBe('Forest night edition.');
+    expect(output.tags).toEqual(['bedtime', 'forest']);
+    expect(output.script_turns[0].text).toBe(
+      'The moon rose high. <short pause> The wind blew softly. <sigh>'
+    );
+    expect(output.script_turns[0].style).toBe('Gentle cadence');
+    expect(output.script_turns[1].text).toBe(
+      'Goodnight (whispered gently) to all the stars! <chuckle>'
+    );
+  });
+
+  it('rejects a turn if cleanTextForReader returns empty (only vocal tags or unauthorized tags)', () => {
+    expect(() => {
+      validateManualStoryEdit({
+        title: 'Title',
+        summary: 'Summary',
+        tags: ['tag'],
+        characters: [{ name: 'Bibi', traits: 'Traits' }],
+        script_turns: [
+          { turn_id: 1, speaker: 'Narrator', text: '<short pause>' },
+          { turn_id: 2, speaker: 'Bibi', text: 'Hello!' },
+        ],
+      });
+    }).toThrow(ValidationError);
+
+    expect(() => {
+      validateManualStoryEdit({
+        title: 'Title',
+        summary: 'Summary',
+        tags: ['tag'],
+        characters: [{ name: 'Bibi', traits: 'Traits' }],
+        script_turns: [
+          { turn_id: 1, speaker: 'Narrator', text: '<cough_loudly>' },
+          { turn_id: 2, speaker: 'Bibi', text: 'Hello!' },
+        ],
+      });
+    }).toThrow(ValidationError);
+  });
+
+  it('truncates style to 200 characters and auto-splits turns longer than 600 characters', () => {
+    const longStyle = 'Warm tone. '.repeat(30); // > 200 chars
+    const sentence = 'The little blue engine puffed up the mountain with quiet calm. ';
+    const longText = sentence.repeat(15); // > 600 chars
+
+    const output = validateManualStoryEdit({
+      title: 'Long Story',
+      summary: 'Summary',
+      tags: ['test'],
+      characters: [{ name: 'Bibi', traits: 'Traits' }],
+      script_turns: [
+        { turn_id: 1, speaker: 'Narrator', style: longStyle, text: longText },
+        { turn_id: 2, speaker: 'Bibi', style: 'Short', text: 'Goodnight!' },
+      ],
+    });
+
+    expect(output.script_turns[0].style.length).toBeLessThanOrEqual(200);
+    expect(output.script_turns.length).toBeGreaterThan(2);
+    // contiguous turn IDs
+    output.script_turns.forEach((turn, idx) => {
+      expect(turn.turn_id).toBe(idx + 1);
+    });
+  });
+
+  it('enforces character invariants and speaker canonicalization', () => {
+    expect(() => {
+      validateManualStoryEdit({
+        title: 'Story',
+        summary: 'Summary',
+        tags: ['tag'],
+        characters: [{ name: 'Narrator', traits: 'Invalid' }],
+        script_turns: [
+          { turn_id: 1, speaker: 'Narrator', text: 'Hi' },
+          { turn_id: 2, speaker: 'Narrator', text: 'Bye' },
+        ],
+      });
+    }).toThrow(ValidationError);
+
+    expect(() => {
+      validateManualStoryEdit({
+        title: 'Story',
+        summary: 'Summary',
+        tags: ['tag'],
+        characters: [{ name: 'Bibi', traits: 'Traits' }],
+        script_turns: [
+          { turn_id: 1, speaker: 'Narrator', text: 'Hi' },
+          { turn_id: 2, speaker: 'UnknownGhost', text: 'Boo' },
+        ],
+      });
+    }).toThrow(ValidationError);
+  });
+});
+
