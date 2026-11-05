@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import type { AudioVersion, CatalogItem, Story } from '../shared/types';
 import { fetchCatalog, fetchStory } from './api/client';
 import { Masthead } from './components/Masthead';
@@ -21,7 +21,42 @@ export function App(): React.JSX.Element {
 
   const [activeAudioVersion, setActiveAudioVersion] = useState<AudioVersion | null>(null);
 
-  // Sync route with window.location on mount and popstate
+  // Centralized navigation helper
+  const navigate = useCallback((nextPath: string, replace = false) => {
+    if (typeof window !== 'undefined') {
+      if (window.location.pathname !== nextPath) {
+        if (replace) {
+          window.history.replaceState(null, '', nextPath);
+        } else {
+          window.history.pushState(null, '', nextPath);
+        }
+      }
+    }
+    setCurrentPath(nextPath);
+  }, []);
+
+  // Fetch story details helper
+  const loadStory = useCallback(async (storyId: string) => {
+    setLoadingStory(true);
+    setStoryError(null);
+
+    try {
+      const story = await fetchStory(storyId);
+      setActiveStory(story);
+
+      // Determine default audio version
+      const defaultVer =
+        story.audio_versions.find((v) => v.is_default) || story.audio_versions[0] || null;
+      setActiveAudioVersion(defaultVer);
+    } catch (err) {
+      setStoryError(err instanceof Error ? err.message : 'Failed to load story details');
+      setActiveStory(null);
+    } finally {
+      setLoadingStory(false);
+    }
+  }, []);
+
+  // Sync route with window.location on mount and popstate (Browser Back/Forward)
   useEffect(() => {
     const handlePopState = () => {
       setCurrentPath(window.location.pathname);
@@ -29,6 +64,22 @@ export function App(): React.JSX.Element {
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
+
+  // Route effect: inspect currentPath and sync activeStory (/stories/:id vs /)
+  useEffect(() => {
+    const storyMatch = currentPath.match(/^\/stories\/([^/]+)$/);
+    if (storyMatch) {
+      const storyId = decodeURIComponent(storyMatch[1]);
+      if (!activeStory || activeStory.id !== storyId) {
+        loadStory(storyId);
+      }
+    } else {
+      if (activeStory) {
+        setActiveStory(null);
+        setActiveAudioVersion(null);
+      }
+    }
+  }, [currentPath, activeStory, loadStory]);
 
   // Fetch catalog on mount
   useEffect(() => {
@@ -55,34 +106,20 @@ export function App(): React.JSX.Element {
     };
   }, []);
 
-  const handleSelectStory = async (storyId: string) => {
-    setLoadingStory(true);
-    setStoryError(null);
-
-    try {
-      const story = await fetchStory(storyId);
-      setActiveStory(story);
-
-      // Determine default audio version
-      const defaultVer =
-        story.audio_versions.find((v) => v.is_default) || story.audio_versions[0] || null;
-      setActiveAudioVersion(defaultVer);
-    } catch (err) {
-      setStoryError(err instanceof Error ? err.message : 'Failed to load story details');
-    } finally {
-      setLoadingStory(false);
-    }
+  const handleSelectStory = (storyId: string) => {
+    navigate(`/stories/${encodeURIComponent(storyId)}`);
   };
 
   const handleBackToLibrary = () => {
+    navigate('/');
     setActiveStory(null);
     setActiveAudioVersion(null);
     setStoryError(null);
   };
 
   const handleNavigate = (path: string) => {
-    setCurrentPath(path);
-    if (!path.startsWith('/admin')) {
+    navigate(path);
+    if (!path.startsWith('/stories/')) {
       setActiveStory(null);
       setActiveAudioVersion(null);
     }
@@ -115,12 +152,7 @@ export function App(): React.JSX.Element {
             <button
               type="button"
               className="btn-tactile btn-tactile-primary"
-              onClick={() => {
-                if (typeof window !== 'undefined') {
-                  window.history.pushState(null, '', '/');
-                }
-                handleNavigate('/');
-              }}
+              onClick={() => handleNavigate('/')}
             >
               ← Return to Storybook Library
             </button>

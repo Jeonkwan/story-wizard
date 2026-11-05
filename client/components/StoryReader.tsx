@@ -11,7 +11,7 @@ export function StoryReader({ story, onBack }: StoryReaderProps): React.JSX.Elem
   let hasRenderedFirstNarrator = false;
 
   return (
-    <article className="reader-wrapper" style={{ paddingBottom: '110px' }}>
+    <article className="reader-wrapper">
       <header className="reader-header">
         <button
           type="button"
@@ -46,8 +46,12 @@ export function StoryReader({ story, onBack }: StoryReaderProps): React.JSX.Elem
 
       <section className="reader-prose-body">
         {story.script_turns.map((turn) => {
-          const isNarrator = turn.speaker.toLowerCase() === 'narrator';
           const cleanedText = cleanTextForReader(turn.text);
+          if (!cleanedText) {
+            return null;
+          }
+
+          const isNarrator = turn.speaker.toLowerCase() === 'narrator';
 
           if (isNarrator) {
             const isFirst = !hasRenderedFirstNarrator;

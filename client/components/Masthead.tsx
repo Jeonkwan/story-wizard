@@ -45,11 +45,10 @@ export function Masthead({ currentPath = '/', onNavigate }: MastheadProps): Reac
   };
 
   const handleNav = (targetPath: string) => {
-    if (typeof window !== 'undefined') {
-      window.history.pushState(null, '', targetPath);
-    }
     if (onNavigate) {
       onNavigate(targetPath);
+    } else if (typeof window !== 'undefined') {
+      window.history.pushState(null, '', targetPath);
     }
   };
 

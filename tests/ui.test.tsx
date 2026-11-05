@@ -33,6 +33,12 @@ if (typeof window !== 'undefined') {
     configurable: true,
     writable: true,
   });
+
+  // Provide mock implementations for HTMLMediaElement play/pause in jsdom
+  if (window.HTMLMediaElement) {
+    window.HTMLMediaElement.prototype.play = async () => {};
+    window.HTMLMediaElement.prototype.pause = () => {};
+  }
 }
 
 describe('Phase 2 UI Component Tests', () => {
@@ -261,5 +267,74 @@ describe('Phase 2 UI Component Tests', () => {
     fireEvent.click(toggleButton);
     expect(document.body.getAttribute('data-theme')).not.toBe('dark');
     expect(localStorage.getItem('story_theme')).toBe('light');
+  });
+
+  // Review Regression Test 1: AudioPlayerBar preserves 0.9x playbackRate on version switch
+  it('AudioPlayerBar preserves 0.9x playbackRate and resets currentTime on version switch', () => {
+    function AudioPlayerHarness() {
+      const [activeVer, setActiveVer] = useState<AudioVersion>(baseStoryFixture.audio_versions[0]);
+      return (
+        <AudioPlayerBar
+          story={baseStoryFixture}
+          activeVersion={activeVer}
+          onVersionChange={(ver) => setActiveVer(ver)}
+        />
+      );
+    }
+
+    const { container } = render(<AudioPlayerHarness />);
+    const audioElement = container.querySelector('audio')!;
+    expect(audioElement.playbackRate).toBe(1.0);
+
+    // Toggle playback rate to 0.9x
+    const speedButton = screen.getByRole('button', { name: /playback speed/i });
+    fireEvent.click(speedButton);
+    expect(screen.getByText('0.9x')).toBeInTheDocument();
+    expect(audioElement.playbackRate).toBe(0.9);
+
+    // Switch version to v2-aoede-solo
+    const versionSelect = screen.getByLabelText(/Audio Version/i);
+    fireEvent.change(versionSelect, { target: { value: 'v2-aoede-solo' } });
+
+    // Audio src updated AND 0.9x playback rate preserved
+    expect(audioElement.getAttribute('src')).toBe(
+      '/api/stories/2026-11-04-sleepy-little-train/audios/v2-aoede-solo.wav'
+    );
+    expect(audioElement.playbackRate).toBe(0.9);
+    expect(audioElement.currentTime).toBe(0);
+  });
+
+  // Review Regression Test 2: StoryReader omits tag-only turns and awards drop-cap to first readable turn
+  it('StoryReader omits tag-only turns (<long pause>) and awards opening-narration to the first turn with readable text', () => {
+    const storyWithLeadingTagOnlyTurn: Story = {
+      ...baseStoryFixture,
+      script_turns: [
+        {
+          turn_id: 1,
+          speaker: 'Narrator',
+          style: 'Silent atmospheric breath',
+          text: '<long pause>',
+        },
+        {
+          turn_id: 2,
+          speaker: 'Narrator',
+          style: 'Warm bedtime tone',
+          text: 'The moon rose quietly over the tranquil lake.',
+        },
+      ],
+    };
+
+    const { container } = render(
+      <StoryReader story={storyWithLeadingTagOnlyTurn} onBack={() => {}} />
+    );
+
+    // Turn 1 should not produce any DOM paragraph
+    expect(container.querySelector('[data-turn-id="1"]')).toBeNull();
+
+    // Turn 2 should receive .opening-narration drop-cap class
+    const turn2Element = container.querySelector('[data-turn-id="2"]');
+    expect(turn2Element).not.toBeNull();
+    expect(turn2Element).toHaveClass('opening-narration');
+    expect(turn2Element?.textContent).toBe('The moon rose quietly over the tranquil lake.');
   });
 });

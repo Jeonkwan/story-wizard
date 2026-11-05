@@ -4,6 +4,8 @@
    ========================================================================== */
 
 :root {
+  color-scheme: light;
+
   /* Warm Alabaster Palette */
   --bg-canvas: #F4F0E6;
   --bg-surface: #FAF7F0;
@@ -36,6 +38,8 @@
 /* Dark Slate Palette — applied when [data-theme="dark"] is on <html> or <body> */
 :root[data-theme="dark"],
 body[data-theme="dark"] {
+  color-scheme: dark;
+
   --bg-canvas: #0E131B;
   --bg-surface: #161F2C;
   --bg-well: #1E293B;
@@ -109,7 +113,7 @@ body {
   cursor: pointer;
   text-decoration: none;
   user-select: none;
-  transition: transform 0.1s ease, box-shadow 0.1s ease, background-color 0.15s ease;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
 }
 
 .btn-tactile:hover:not(:disabled) {
@@ -157,6 +161,11 @@ body {
 .select-tactile:focus {
   border-color: var(--accent-module);
   box-shadow: var(--shadow-tactile-hover);
+}
+
+.select-tactile option {
+  background-color: var(--bg-surface);
+  color: var(--ink-primary);
 }
 
 .card-tactile {
@@ -217,7 +226,7 @@ body {
   color: var(--ink-muted);
   cursor: pointer;
   user-select: none;
-  transition: all 0.15s ease;
+  transition: border-color 0.1s ease;
 }
 
 .tag-pill:hover {
@@ -542,6 +551,10 @@ body {
 @media (max-width: 768px) {
   .app-container {
     padding: 1rem 0.75rem 2.5rem 0.75rem;
+  }
+
+  .reader-wrapper {
+    padding-bottom: 195px;
   }
 
   .masthead {

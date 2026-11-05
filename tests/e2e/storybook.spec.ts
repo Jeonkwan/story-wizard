@@ -30,6 +30,12 @@ test.describe('Phase 2 Public Storybook E2E', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/');
 
+    // Verify initial light color-scheme
+    const initialColorScheme = await page.evaluate(
+      () => window.getComputedStyle(document.documentElement).colorScheme
+    );
+    expect(initialColorScheme).toBe('light');
+
     // 2. Verify seeded story card is present
     const storyTitle = page.locator('.story-card-title', { hasText: 'The Sleepy Little Train' });
     await expect(storyTitle).toBeVisible();
@@ -47,9 +53,12 @@ test.describe('Phase 2 Public Storybook E2E', () => {
     await searchInput.fill('');
     await expect(storyCard).toBeVisible();
 
-    // 4. Click "Read & Listen" to open formatted StoryReader
+    // 4. Click "Read & Listen" to open formatted StoryReader and assert URL update
     const readBtn = storyCard.getByRole('button', { name: /Read & Listen/i });
     await readBtn.click();
+
+    // Verify URL synced to /stories/:id
+    await expect(page).toHaveURL(/\/stories\/2026-11-04-sleepy-little-train/);
 
     // Verify Reader view is loaded
     const readerTitle = page.locator('.reader-title');
@@ -101,14 +110,48 @@ test.describe('Phase 2 Public Storybook E2E', () => {
     // 6. Capture Light Theme Screenshot (1440x900)
     await page.screenshot({ path: 'qa-screenshots/phase2-reader-light.png', fullPage: false });
 
-    // 7. Toggle Dark Mode and Capture Dark Theme Screenshot (1440x900)
+    // 7. Toggle Dark Mode and verify immediate contrast and color-scheme
     const themeBtn = page.getByRole('button', { name: /Dark Mode|Light Mode/i });
     await themeBtn.click();
     await expect(page.locator('body')).toHaveAttribute('data-theme', 'dark');
 
+    // Move mouse away to test resting (non-hover) button colors
+    await page.mouse.move(0, 0);
+
+    // Verify dark color-scheme on root
+    const darkColorScheme = await page.evaluate(
+      () => window.getComputedStyle(document.documentElement).colorScheme
+    );
+    expect(darkColorScheme).toBe('dark');
+
+    // Explicitly verify button styles under Dark Mode (instant, zero white-on-white flash)
+    const themeBtnStyles = await themeBtn.evaluate((el) => {
+      const s = window.getComputedStyle(el);
+      return { bg: s.backgroundColor, color: s.color };
+    });
+    expect(themeBtnStyles.bg).toBe('rgb(22, 31, 44)'); // #161F2C (var(--bg-surface))
+    expect(themeBtnStyles.color).toBe('rgb(241, 245, 249)'); // #F1F5F9 (var(--ink-primary))
+
+    const playBtn = page.locator('.btn-tactile-primary', { hasText: /Play|Pause/i });
+    const playBtnStyles = await playBtn.evaluate((el) => {
+      const s = window.getComputedStyle(el);
+      return { bg: s.backgroundColor, color: s.color };
+    });
+    expect(playBtnStyles.bg).toBe('rgb(30, 27, 75)'); // #1E1B4B (var(--accent-module-bg))
+
+    // Capture Dark Theme Screenshot (1440x900)
     await page.screenshot({ path: 'qa-screenshots/phase2-reader-dark.png', fullPage: false });
 
-    // 8. Mobile Responsiveness check at 375x812 (zero horizontal overflow)
+    // 8. Test Browser Back/Forward navigation with URL synchronization
+    await page.goBack();
+    await expect(page).toHaveURL(/\/$/);
+    await expect(storyCard).toBeVisible();
+
+    await page.goForward();
+    await expect(page).toHaveURL(/\/stories\/2026-11-04-sleepy-little-train/);
+    await expect(readerTitle).toHaveText('The Sleepy Little Train');
+
+    // 9. Mobile Responsiveness check at 375x812 (zero horizontal overflow & clearance)
     await page.setViewportSize({ width: 375, height: 812 });
     await page.waitForTimeout(200);
 
@@ -117,7 +160,7 @@ test.describe('Phase 2 Public Storybook E2E', () => {
     });
     expect(hasNoHorizontalOverflow).toBe(true);
 
-    // 9. Assert zero uncaught page errors and zero console.error messages
+    // 10. Assert zero uncaught page errors and zero console.error messages
     expect(pageErrors).toEqual([]);
     expect(consoleErrors).toEqual([]);
   });

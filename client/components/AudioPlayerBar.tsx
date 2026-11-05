@@ -29,10 +29,16 @@ export function AudioPlayerBar({
 
   // Sync duration with activeVersion initial value when version changes
   useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      audioRef.current.defaultPlaybackRate = playbackRate;
+      audioRef.current.playbackRate = playbackRate;
+    }
     setCurrentTime(0);
     setDuration(activeVersion.duration_sec || 0);
     setIsPlaying(false);
-  }, [activeVersion.version_id, activeVersion.duration_sec]);
+  }, [activeVersion.version_id, activeVersion.duration_sec, playbackRate]);
 
   // Handle Play/Pause
   const togglePlayPause = async () => {
@@ -77,8 +83,13 @@ export function AudioPlayerBar({
   };
 
   const handleLoadedMetadata = () => {
-    if (audioRef.current && Number.isFinite(audioRef.current.duration) && audioRef.current.duration > 0) {
-      setDuration(audioRef.current.duration);
+    const audio = audioRef.current;
+    if (audio) {
+      audio.defaultPlaybackRate = playbackRate;
+      audio.playbackRate = playbackRate;
+      if (Number.isFinite(audio.duration) && audio.duration > 0) {
+        setDuration(audio.duration);
+      }
     }
   };
 
