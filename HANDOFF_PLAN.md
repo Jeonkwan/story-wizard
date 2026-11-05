@@ -22,9 +22,11 @@
      2. Stage and commit with a clear conventional message: `git add -A && git commit -m "feat(phase-N): <concise summary>"`
      3. Create a milestone tag for instant rollback if needed: `git tag phase-N-verified`
 4. **Definition of Done per Phase:**
-   - All TypeScript compiles cleanly (`npm run typecheck` -> exit `0`).
+   - Any open review items in `docs/reviews/` from the prior phase are resolved and checked off `[x]`.
+   - All TypeScript compiles cleanly (`npm run typecheck` -> exit `0`) AND `npx tsc -p tsconfig.server.json` (`NodeNext` ESM) emits valid `.js`-specifier imports in `dist/server/` that load cleanly in native `node`.
    - All unit/API/component tests pass (`npm test` -> exit `0`).
    - From Phase 2 onward, real headless Chromium E2E checks pass (`npm run test:e2e` -> exit `0`) and save visual checkpoint screenshots to `qa-screenshots/`.
+   - A concise phase completion audit is saved to `docs/audits/phase-N-audit.md` (single location—never duplicate at repo root).
    - Changes are committed and tagged (`phase-N-verified`) in Git.
 
 ---

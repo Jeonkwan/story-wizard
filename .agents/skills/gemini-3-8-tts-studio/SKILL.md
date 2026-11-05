@@ -42,8 +42,8 @@ Reader UI preserves prose parentheses `(like this)` and only strips `/<[^>]+>/g`
    - `speechMetadata.speaker` is normalized to `"Narrator"`.
    - Character vocal traits are prepended into `speechMetadata.style`.
 2. **Cast Mode:**
-   - Contiguous turns sharing `<= 2` distinct speakers are grouped into sub-batches using `multiSpeakerVoiceConfig`.
-   - `gemini-3.8-flash-tts` enforces a hard limit of at most 2 distinct speakers per API call.
+   - Contiguous turns sharing `<= 2` distinct speakers are grouped into sub-batches (`<= 12` turns, `<= 3,000` chars).
+   - **Exact-2 Speaker API Rule:** `multiSpeakerVoiceConfig.speakerVoiceConfigs` MUST contain **exact 2** speakers (`length === 2`). If a sub-batch has **1** distinct speaker, call `generateContent` using single-speaker `speechConfig.voiceConfig` (passing 1 speaker inside `multiSpeakerVoiceConfig` fails with `HTTP 400 INVALID_ARGUMENT`).
 3. **Chunking & Audio Concatenation:**
    - Batches must be `<= 12` turns and `<= 3,000` chars.
    - Strip RIFF headers from every chunk using `extractPcmFromWavOrRaw()` to get pure 24kHz 16-bit mono PCM.
