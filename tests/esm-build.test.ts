@@ -9,7 +9,7 @@ describe('Native Node ESM Build Verification', () => {
     }).not.toThrow();
 
     // 2. Import compiled modules in a native Node sub-process (NOT inside Vite/bundler environment)
-    const nodeCmd = `node -e "await import('./dist/server/lib/validators.js'); await import('./dist/server/lib/wav.js'); console.log('ESM_VERIFIED')"`;
+    const nodeCmd = `node -e "await import('./dist/server/lib/validators.js'); await import('./dist/server/lib/wav.js'); await import('./dist/server/app.js'); console.log('ESM_VERIFIED')"`;
     const result = execSync(nodeCmd, { encoding: 'utf-8' });
     expect(result.trim()).toBe('ESM_VERIFIED');
   });

@@ -589,18 +589,18 @@ Use these exact visual tokens in `client/styles/kinetic.css` (from the approved 
        - Out-of-bounds `Range` -> `416 Range Not Satisfiable` with `Content-Range: bytes */total`.
 
 #### Phase 1 Tests & Validation Gate (`tests/storageAndAuth.test.ts`)
-- [ ] **Catalog & Draft Privacy Test:** Seed 1 `"published"` story and 1 `"draft"` story in a temp `DATA_DIR`. Verify unauthenticated `GET /api/catalog` returns only the published story and `GET /api/stories/draft-id` returns `404`, while authenticated admin receives both.
-- [ ] **HTTP Range Streaming Tests:**
+- [x] **Catalog & Draft Privacy Test:** Seed 1 `"published"` story and 1 `"draft"` story in a temp `DATA_DIR`. Verify unauthenticated `GET /api/catalog` returns only the published story and `GET /api/stories/draft-id` returns `404`, while authenticated admin receives both.
+- [x] **HTTP Range Streaming Tests:**
   - `GET .../v1-owl-solo.wav` without `Range` -> `200`, starts with `"RIFF"`, `Accept-Ranges: bytes`.
   - `GET .../v1-owl-solo.wav` with `Range: bytes=0-43` -> `206`, `Content-Length: 44`, `Content-Range: bytes 0-43/<total>`, exact 44-byte WAV header returned.
   - `GET .../v1-owl-solo.wav` with `Range: bytes=9999999-10000000` -> `416`.
-- [ ] **Path Traversal Test:** `GET /api/stories/..%2Fsecret/audios/test.wav` -> `400` or `404`.
-- [ ] **GCS Atomic Retry Unit Test:** Mock `@google-cloud/storage` Bucket/File to throw `{ code: 412 }` on first `save()` and succeed on second `save()`, verifying `updateJsonAtomic` re-reads the new generation and merges without data loss.
-- [ ] **Auth Security Tests:**
+- [x] **Path Traversal Test:** `GET /api/stories/..%2Fsecret/audios/test.wav` -> `400` or `404`.
+- [x] **GCS Atomic Retry Unit Test:** Mock `@google-cloud/storage` Bucket/File to throw `{ code: 412 }` on first `save()` and succeed on second `save()`, verifying `updateJsonAtomic` re-reads the new generation and merges without data loss.
+- [x] **Auth Security Tests:**
   - Wrong Google email (`attacker@gmail.com`) -> `403`.
   - Tampered session cookie HMAC signature -> `401`.
   - When `K_SERVICE="storyteller"` or `NODE_ENV="production"`, `{ devBypass: true }` returns `401` even if `DEV_ADMIN_BYPASS="true"`.
-- [ ] Run `npm run seed && npm run typecheck && npm test` -> **100% green**, update Progress Tracker, commit (`feat(phase-1): dual-mode storage, range streaming, and admin auth`), and tag `phase-1-verified`.
+- [x] Run `npm run seed && npm run typecheck && npm test` -> **100% green**, update Progress Tracker, commit (`feat(phase-1): dual-mode storage, range streaming, and admin auth`), and tag `phase-1-verified`.
 
 ---
 
@@ -775,7 +775,7 @@ Use your interactive browser capabilities (`/browser`) on `http://localhost:8080
 ## 11. Progress Tracker (Update as Phases Complete)
 
 - [x] **Phase 0:** Scaffolding, `.agents/skills/`, Playwright Headless Chromium Setup, Shared Types, WAV & Validator Core + Unit Tests (`phase-0-verified`)
-- [ ] **Phase 1:** Dual-Mode Storage (`./data` + GCS `ifGenerationMatch`), Audio `Range` Streaming, Seed Data & Single-Admin Auth + Integration Tests (`phase-1-verified`)
+- [x] **Phase 1:** Dual-Mode Storage (`./data` + GCS `ifGenerationMatch`), Audio `Range` Streaming, Seed Data & Single-Admin Auth + Integration Tests (`phase-1-verified`)
 - [ ] **Phase 2:** Public Storybook UI (Kinetic Construct Theme, Instant Filter, Formatted Reader, Docked Audio Player) + Component & Headless E2E Tests (`phase-2-verified`)
 - [ ] **Phase 3:** Admin Director Studio (Mode A/B Writer -> Val 1 -> Director -> Val 2, Sequels, Draft Editor) + Pipeline & Headless E2E Tests (`phase-3-verified`)
 - [ ] **Phase 4:** Voice Audition Studio (`voices.json`), Chunked Gemini 3.8 TTS (`solo` & `cast`), Version Manager & Cloud Run `Dockerfile` + Release Gate (`phase-4-verified`)
