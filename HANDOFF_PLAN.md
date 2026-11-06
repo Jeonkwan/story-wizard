@@ -782,6 +782,7 @@ Use your interactive browser capabilities (`/browser`) on `http://localhost:8080
 - [x] **Phase 5:** Interactive Windows Antigravity `/browser` Visual, Mobile, & Audio Scrubbing QA Pass (`phase-5-qa-complete`)
 - [x] **Phase 6:** Multi-Genre Freedom, Real-time Generation Progress State, & Compact Mobile Audio Player (`phase-6-verified`)
 - [x] **Phase 7:** Zero-DB Asynchronous Job Manager & Refresh-Resilient Generation State (`phase-7-verified`)
+- [ ] **Phase 8:** Production GCP Cloud Run & GCS Deployment Orchestration (`phase-8-verified`)
 
 ---
 
@@ -846,3 +847,49 @@ Long-running AI operations (Drafting with Gemini 3.8 Flash taking ~10s, Directin
 - `npm run test:e2e` passes with exit code 0 and verifies page reload resilience during active generation.
 - Commit inside WSL as `feat(phase-7): zero-db async job manager and refresh-resilient generation state`.
 - Author phase audit report ONLY to `docs/audits/phase-7-audit.md`.
+
+---
+
+## 14. Phase 8: Production GCP Cloud Run & GCS Deployment Orchestration
+
+### Context & Objective
+Prepare and execute production deployment to Google Cloud Platform using serverless Cloud Run and Google Cloud Storage (GCS) following the strict two-tier agentic architecture (Lead Architect Parent Agent + Phase 8 Builder Subagent).
+
+### 1. Architectural Boundaries & Subagent Delegation Model
+- **Lead Architect (Parent Agent — High Reasoning / Pro):**
+  - Manages GCP project alignment (`mokamaker-gcp`, region `asia-southeast1`).
+  - Instructs the Builder Subagent with detailed task directives.
+  - Reviews every script and configuration change line-by-line.
+  - Performs independent firsthand verification of dry-runs, builds, and test suites.
+  - Owns git milestone tag `phase-8-verified`.
+- **Phase 8 Builder Subagent (Subagent — Fast Execution / Flash):**
+  - Implements idempotent GCS data migration script (`scripts/migrateToGcs.ts` / `npm run migrate:gcs`).
+  - Enhances `deploy.sh` with pre-flight environment checks, region defaults (`asia-southeast1`), `--dry-run` inspection, and `--max-instances=1` concurrency controls.
+  - Writes integration tests verifying production config assertions and GCS fallback logic (`tests/deploymentConfig.test.ts`).
+  - Creates GitHub Actions CI/CD workflow template (`.github/workflows/deploy.yml`).
+  - Authors completion report ONLY to `docs/audits/phase-8-audit.md`.
+  - Commits `feat(phase-8): gcp cloud run deployment orchestration and gcs migration tooling` inside WSL.
+
+### 2. Deliverables Specification
+1. **GCS Migration Tooling (`scripts/migrateToGcs.ts`):**
+   - Idempotent upload tool that scans `./data/` (`catalog.json`, `voices.json`, `stories/**`) and uploads directly to `$GCS_BUCKET_NAME` using `@google-cloud/storage`.
+   - Preserves content types (`application/json` and `audio/wav`).
+   - Supports dry-run flag (`--dry-run`).
+2. **Production Deployment Script (`deploy.sh`):**
+   - Default region: `asia-southeast1`.
+   - Service flags: `--timeout=300`, `--memory=512Mi`, `--cpu=1`, `--max-instances=1`, `--allow-unauthenticated`.
+   - Robust secret bindings for `SESSION_SECRET` and `GEMINI_API_KEY`.
+   - Pre-flight validation verifying gcloud authentication, target project, and required env vars.
+3. **CI/CD Automation (`.github/workflows/deploy.yml`):**
+   - Automated workflow executing `typecheck`, `test`, and native ESM build verification on every pull request or push to `main`.
+4. **Automated Deployment Config Tests (`tests/deploymentConfig.test.ts`):**
+   - Validates `loadConfig` behavior in production mode (`K_SERVICE` set), ensuring missing `SESSION_SECRET` properly throws and valid configs succeed.
+   - Tests migration script functions with mocks.
+
+### Validation Gate
+- `npm run typecheck` passes with exit code 0.
+- `npx tsc -p tsconfig.server.json` succeeds and native ESM build verification passes (`tests/esm-build.test.ts`).
+- `npm test` passes with exit code 0 including new deployment config tests.
+- `deploy.sh --dry-run` succeeds without errors.
+- Builder subagent authors `docs/audits/phase-8-audit.md`.
+- Lead Architect verifies all changes firsthand and commits/tags `phase-8-verified`.
