@@ -520,6 +520,7 @@ test.describe('Phase 5 Admin Director & Voice Studio Audit', () => {
     await expect(voicePanel.locator('.btn-tactile', { hasText: '⏹ Stop' })).toBeVisible();
     await voicePanel.locator('.btn-tactile', { hasText: '⏹ Stop' }).click();
     await expect(voicePanel.locator('.btn-tactile', { hasText: '🔊 Preview' }).first()).toBeVisible();
+    await expect(page.locator('text="Audition error"')).toHaveCount(0);
 
     // Test Solo vs Multi-Speaker Cast toggle
     const soloBtn = voicePanel.getByRole('button', { name: /Solo Storyteller/i });

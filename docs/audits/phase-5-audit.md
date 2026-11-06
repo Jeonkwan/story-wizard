@@ -162,6 +162,10 @@ During Phase 5 testing and visual audit, four specific defects were identified a
    - *Issue:* In `tests/ui.test.tsx`, querying `getByText('Sleepy Starship')` matched both the reader heading and the docked player track title.
    - *Fix:* Scoped the assertion to `screen.getByRole('heading', { name: 'Sleepy Starship' })`.
 
+5. **Audition Stop Audio Error Mitigation (Phase 5 Code Review Fix):**
+   - *Issue:* In `VoiceStudioPanel.tsx`, stopping an active audition caused `src = ''` on an audio element with attached `onerror` and aborted an in-flight `play()` promise, triggering a spurious `"⚠ Audition error: Audio playback failed"` banner.
+   - *Fix:* Detached `onerror = null` and `onended = null` before `.pause()` and `.src = ''` inside `stopAudition()`, filtered `AbortError` in `handlePlayAudition()`'s catch handler, added regression assertion in `qa-phase5.spec.ts`, and regenerated `qa-screenshots/phase5-admin-voice-studio.png` completely clean.
+
 ---
 
 ## 8. Final Verification Gate Summary

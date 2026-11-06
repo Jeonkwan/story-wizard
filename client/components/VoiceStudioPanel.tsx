@@ -63,6 +63,8 @@ export function VoiceStudioPanel({
   // Stop any active audition preview and clean up object URLs
   const stopAudition = useCallback(() => {
     if (currentAudioRef.current) {
+      currentAudioRef.current.onerror = null;
+      currentAudioRef.current.onended = null;
       currentAudioRef.current.pause();
       currentAudioRef.current.src = '';
       currentAudioRef.current = null;
@@ -198,6 +200,7 @@ export function VoiceStudioPanel({
 
       await audio.play();
     } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return;
       setAuditionError(err instanceof Error ? err.message : 'Audition preview failed');
       stopAudition();
     }
