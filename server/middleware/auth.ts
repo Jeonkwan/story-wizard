@@ -59,17 +59,30 @@ export function verifyAdminSession(
 ): AdminSessionPayload | null {
   if (!token || typeof token !== 'string') return null;
 
-  let expectedEmail = '';
+  const allowedEmails: string[] = [];
   if (typeof adminEmailOrConfig === 'string') {
-    expectedEmail = adminEmailOrConfig.trim();
+    allowedEmails.push(
+      ...adminEmailOrConfig
+        .split(',')
+        .map((e) => e.trim().toLowerCase())
+        .filter(Boolean)
+    );
   } else if (adminEmailOrConfig) {
-    expectedEmail =
-      adminEmailOrConfig.adminGoogleEmail?.trim() ||
-      (adminEmailOrConfig.allowDevBypass ? 'admin@storyteller.local' : '');
+    if (adminEmailOrConfig.adminGoogleEmail) {
+      allowedEmails.push(
+        ...adminEmailOrConfig.adminGoogleEmail
+          .split(',')
+          .map((e) => e.trim().toLowerCase())
+          .filter(Boolean)
+      );
+    }
+    if (adminEmailOrConfig.allowDevBypass) {
+      allowedEmails.push('admin@storyteller.local');
+    }
   }
 
-  // Fail closed if expected email is empty
-  if (!expectedEmail) {
+  // Fail closed if allowed emails list is empty
+  if (allowedEmails.length === 0) {
     return null;
   }
 
@@ -95,7 +108,7 @@ export function verifyAdminSession(
     if (typeof payload.exp !== 'number' || payload.exp <= Date.now()) {
       return null;
     }
-    if (payload.email.toLowerCase() !== expectedEmail.toLowerCase()) {
+    if (!allowedEmails.includes(payload.email.toLowerCase())) {
       return null;
     }
     return payload;

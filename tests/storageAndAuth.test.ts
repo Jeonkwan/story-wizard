@@ -499,6 +499,41 @@ describe('Phase 1: Dual-Mode Storage, HTTP Range Streaming & Admin Auth', () => 
       expect(cookies[0]).toContain('SameSite=Strict');
     });
 
+    it('supports multiple comma-separated admin emails', async () => {
+      const config = loadConfig({
+        DATA_DIR: tmpDir,
+        ADMIN_GOOGLE_EMAIL: 'alice@example.com, bob@example.com',
+        SESSION_SECRET: sessionSecret,
+        NODE_ENV: 'test',
+        DEV_ADMIN_BYPASS: 'false',
+      });
+
+      const aliceVerifier: GoogleTokenVerifier = async () => ({
+        email: 'alice@example.com',
+        email_verified: true,
+      });
+      const bobVerifier: GoogleTokenVerifier = async () => ({
+        email: 'BOB@EXAMPLE.COM', // Test case-insensitive
+        email_verified: true,
+      });
+      const eveVerifier: GoogleTokenVerifier = async () => ({
+        email: 'eve@example.com',
+        email_verified: true,
+      });
+
+      const appAlice = createApp({ config, storage, verifyGoogleIdToken: aliceVerifier });
+      const resAlice = await request(appAlice).post('/api/admin/login').send({ idToken: 'alice-token' });
+      expect(resAlice.status).toBe(200);
+
+      const appBob = createApp({ config, storage, verifyGoogleIdToken: bobVerifier });
+      const resBob = await request(appBob).post('/api/admin/login').send({ idToken: 'bob-token' });
+      expect(resBob.status).toBe(200);
+
+      const appEve = createApp({ config, storage, verifyGoogleIdToken: eveVerifier });
+      const resEve = await request(appEve).post('/api/admin/login').send({ idToken: 'eve-token' });
+      expect(resEve.status).toBe(403);
+    });
+
     it('allows dev bypass in non-production when configured', async () => {
       const app = createTestApp(undefined, true);
       const res = await request(app).post('/api/admin/login').send({ devBypass: true });

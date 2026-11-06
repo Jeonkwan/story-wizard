@@ -41,8 +41,12 @@ export function createAuthRouter(
       }
 
       // Security: fail closed if admin email is not configured
-      const configuredAdminEmail = config.adminGoogleEmail.trim();
-      if (!configuredAdminEmail) {
+      const configuredAdminEmails = config.adminGoogleEmail
+        .split(',')
+        .map((e) => e.trim().toLowerCase())
+        .filter(Boolean);
+
+      if (configuredAdminEmails.length === 0) {
         res.status(403).json({ error: 'Admin email is not configured' });
         return;
       }
@@ -54,7 +58,7 @@ export function createAuthRouter(
           return;
         }
 
-        if (payload.email.toLowerCase() !== configuredAdminEmail.toLowerCase()) {
+        if (!configuredAdminEmails.includes(payload.email.toLowerCase())) {
           res.status(403).json({ error: 'Access denied: account not authorized for admin access' });
           return;
         }

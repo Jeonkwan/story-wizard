@@ -9,6 +9,15 @@ set -euo pipefail
 # Ensure non-interactive gcloud execution
 export CLOUDSDK_CORE_DISABLE_PROMPTS=1
 
+# Auto-detect local proxy in WSL if present
+if [ -z "${https_proxy:-}" ] && [ -n "${WSL_DISTRO_NAME:-}" ]; then
+  _host_ip=$(ip route | grep default | awk '{print $3}' 2>/dev/null || awk '/nameserver/ {print $2}' /etc/resolv.conf 2>/dev/null || true)
+  if [ -n "$_host_ip" ]; then
+    export https_proxy="http://${_host_ip}:7891"
+    export http_proxy="http://${_host_ip}:7891"
+  fi
+fi
+
 # Default Configuration Parameters
 SERVICE_NAME="${SERVICE_NAME:-storyteller-studio}"
 REGION="${REGION:-asia-southeast1}"
