@@ -780,3 +780,28 @@ Use your interactive browser capabilities (`/browser`) on `http://localhost:8080
 - [x] **Phase 3:** Admin Director Studio (Mode A/B Writer -> Val 1 -> Director -> Val 2, Sequels, Draft Editor) + Pipeline & Headless E2E Tests (`phase-3-verified`)
 - [x] **Phase 4:** Voice Audition Studio (`voices.json`), Chunked Gemini 3.8 TTS (`solo` & `cast`), Version Manager & Cloud Run `Dockerfile` + Release Gate (`phase-4-verified`)
 - [x] **Phase 5:** Interactive Windows Antigravity `/browser` Visual, Mobile, & Audio Scrubbing QA Pass (`phase-5-qa-complete`)
+- [ ] **Phase 6:** Multi-Genre Freedom, Real-time Generation Progress State, & Compact Mobile Audio Player (`phase-6-verified`)
+
+---
+
+## 12. Phase 6: Multi-Genre Freedom, Real-time Generation Progress State, & Compact Mobile Audio Player
+
+### Context & User Feedback
+Following live mobile testing via Cloudflare Tunnel on external smartphones, three high-priority improvements were identified:
+1. **Genre & Tone Freedom (Eliminating Sleepy / Bedtime Hardcoded Bias):**
+   - The AI narrative generator (`writeStoryWithGemini`), sequel writer, and voice director (`autoDirectStoryWithGemini`) were locked to bedtime narratives ("soothing", "peaceful bedtime conclusion", "sleepy storyteller"). When users prompted for comedic adventures (e.g., Minions science comedy), the output was still bent into quiet bedtime whispers.
+   - **Resolution:** Decouple Storyteller Studio from hardcoded bedtime bias. The system prompts for narrative authoring, sequels, and audio direction must faithfully reflect whatever genre, tone, mood, and pace the user requests (e.g. comedic, adventurous, sci-fi, dramatic, mystery, whimsical, or bedtime). In the UI, provide mood/genre quick-preset pills (`[✨ Any / Custom]`, `[😂 Fun & Humorous]`, `[🚀 Adventure & Sci-Fi]`, `[🔍 Mystery & Intrigue]`, `[🌙 Bedtime & Soothing]`, `[🧚 Whimsical Fable]`) while letting the user's freeform prompt lead. Default audio labels change from "Bedtime Solo / Cast" to "Solo Narration / Full Cast Audio".
+2. **Real-time Generation Progress UX & Double-Submission Prevention:**
+   - In Step 1 (Drafting), Step 2 (Directing), and Step 3 (TTS Synthesis), long-running AI calls appeared to "hang" without clear animated status feedback, risking multiple clicks, tab refreshes, or user confusion.
+   - **Resolution:** Provide prominent, animated tactile progress cards with live elapsed-second timers (`0s`, `1s`, `2s`...) and descriptive step text ("Drafting Minions adventure with Gemini 3.8 Flash... 8s (typically 10-15s). Please keep this tab open."). While active, disable all inputs, submission buttons, and navigation to prevent duplicate submissions.
+3. **Compact Mobile Audio Player (Vertical Space Reclaim):**
+   - On mobile screens (<= 768px), the docked audio player stacked 4 vertical rows and had `195px` of bottom padding, consuming nearly 40-50% of the visible viewport on iPhone.
+   - **Resolution:** Redesign mobile audio player into a sleek 2-layer compact component: a top edge-to-edge slim scrubber with compact timecode, and a single tactile main row (title + version on left; Play/Pause, speed pill, and compact version selector on right) with total height ~58-64px. Reduce mobile `.reader-wrapper` `padding-bottom` from `195px` to `85px`, reclaiming over 110px of vertical reading space on mobile devices!
+
+### Validation Gate
+- `npm run typecheck` passes with exit code 0.
+- `npx tsc -p tsconfig.server.json` succeeds and native ESM build verification passes (`tests/esm-build.test.ts`).
+- `npm test` passes with exit code 0, including new tests for genre freedom, generation progress UI, and mobile player styling.
+- `npm run test:e2e` passes with exit code 0 and captures updated screenshots in `qa-screenshots/`.
+- Commit as `feat(phase-6): multi-genre freedom, generation ux state, and compact mobile player`.
+- Save audit report to `docs/audits/phase-6-audit.md`.
