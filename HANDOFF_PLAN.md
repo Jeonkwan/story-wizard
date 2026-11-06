@@ -781,6 +781,7 @@ Use your interactive browser capabilities (`/browser`) on `http://localhost:8080
 - [x] **Phase 4:** Voice Audition Studio (`voices.json`), Chunked Gemini 3.8 TTS (`solo` & `cast`), Version Manager & Cloud Run `Dockerfile` + Release Gate (`phase-4-verified`)
 - [x] **Phase 5:** Interactive Windows Antigravity `/browser` Visual, Mobile, & Audio Scrubbing QA Pass (`phase-5-qa-complete`)
 - [x] **Phase 6:** Multi-Genre Freedom, Real-time Generation Progress State, & Compact Mobile Audio Player (`phase-6-verified`)
+- [ ] **Phase 7:** Zero-DB Asynchronous Job Manager & Refresh-Resilient Generation State (`phase-7-verified`)
 
 ---
 
@@ -805,3 +806,43 @@ Following live mobile testing via Cloudflare Tunnel on external smartphones, thr
 - `npm run test:e2e` passes with exit code 0 and captures updated screenshots in `qa-screenshots/`.
 - Commit as `feat(phase-6): multi-genre freedom, generation ux state, and compact mobile player`.
 - Save audit report to `docs/audits/phase-6-audit.md`.
+
+---
+
+## 13. Phase 7: Zero-DB Asynchronous Job Manager & Refresh-Resilient Generation State
+
+### Context & Architectural Motivation
+Long-running AI operations (Drafting with Gemini 3.8 Flash taking ~10s, Directing taking ~8s, and TTS Audio Synthesis taking 20–60s) previously ran as synchronous HTTP requests. If a user refreshed the page, switched apps on mobile, or experienced brief connection hiccups, the browser aborted the HTTP fetch socket. Upon page reload, the client state reset to initial idle values, misleading the user into believing generation had failed or forcing them to click submit a second time.
+
+### Technical Blueprint (Zero Database Over-Engineering)
+1. **Shared Types (`shared/types.ts`):**
+   - Define `JobType = 'draft' | 'direct' | 'synthesize'`, `JobStatus = 'running' | 'completed' | 'failed'`.
+   - Define `JobProgress`: `job_id`, `story_id`, `type`, `status`, `started_at`, `elapsed_seconds`, `message`, `result_story_id`, `error`.
+   - Add optional `active_job?: ActiveJobSummary | null` to `Story` and `CatalogItem` so generation status survives server restarts and is visible across all clients.
+2. **In-Memory Job Manager (`server/services/jobManager.ts`):**
+   - Singleton `JobManager` maintaining active jobs in a Node.js `Map<string, JobProgress>`.
+   - Sub-millisecond lookup for active jobs by ID or by `storyId`.
+   - Automatically prunes completed/failed jobs older than 15 minutes.
+   - Synchronizes `story.active_job` in storage when jobs start, complete, or fail.
+3. **Admin Job Endpoints (`server/routes/adminStories.ts`):**
+   - `GET /api/admin/jobs/active?storyId=...`: Returns current active jobs.
+   - `GET /api/admin/jobs/:jobId`: Returns current status, elapsed seconds, and completed story payload.
+   - Support `?async=true` on `POST /stories/write`, `POST /stories/:id/direct`, and `POST /stories/:id/synthesize`:
+     - Returns `202 Accepted { jobId: string, status: 'running' }` immediately.
+     - Runs the Gemini task in the background without blocking the HTTP request.
+4. **Client API & UI Resilience (`client/api/client.ts`, `DirectorStudio.tsx`, `VoiceStudioPanel.tsx`):**
+   - On component mount or story selection, query `fetchActiveJobs()`.
+   - If an active job is detected (either from server in-memory or persisted `story.active_job`):
+     - Immediately restore the active progress card with the live elapsed-second timer.
+     - Disable submit and edit controls to prevent duplicate submissions.
+     - Seamlessly poll `GET /api/admin/jobs/:jobId` every 1.5–2s until finished.
+     - When completed, fetch the updated story, display success notification, and unlock controls.
+   - If the user reloads the page or locks their mobile phone screen mid-generation, refreshing immediately restores the active progress view without losing state!
+
+### Validation Gate
+- `npm run typecheck` passes with exit code 0.
+- `npx tsc -p tsconfig.server.json` succeeds and native ESM build verification passes (`tests/esm-build.test.ts`).
+- `npm test` passes with exit code 0, including unit/integration tests for `JobManager`, async job routes, and UI state restoration.
+- `npm run test:e2e` passes with exit code 0 and verifies page reload resilience during active generation.
+- Commit inside WSL as `feat(phase-7): zero-db async job manager and refresh-resilient generation state`.
+- Author phase audit report ONLY to `docs/audits/phase-7-audit.md`.
