@@ -25,6 +25,7 @@ import {
   GeminiTtsService,
   type TtsProvider,
 } from './services/geminiTts.js';
+import { JobManager, defaultJobManager } from './services/jobManager.js';
 import { ValidationError } from './lib/validators.js';
 
 export interface CreateAppOptions {
@@ -35,6 +36,7 @@ export interface CreateAppOptions {
   storyService?: GeminiStoryService;
   ttsProvider?: TtsProvider;
   ttsService?: GeminiTtsService;
+  jobManager?: JobManager;
 }
 
 export function createApp(options: CreateAppOptions = {}): express.Express {
@@ -52,6 +54,8 @@ export function createApp(options: CreateAppOptions = {}): express.Express {
     options.ttsService ||
     new GeminiTtsService(config, storage, options.ttsProvider);
 
+  const jobManager = options.jobManager || defaultJobManager;
+
   const app = express();
 
   app.use(express.json({ limit: '1mb' }));
@@ -61,7 +65,7 @@ export function createApp(options: CreateAppOptions = {}): express.Express {
   app.use('/api', createPublicRouter(config, storage));
   app.use('/api/admin', createAuthRouter(config, storage, verifyGoogleIdToken));
   app.use('/api/admin', createAdminVoicesRouter(config, storage, ttsService));
-  app.use('/api/admin', createAdminStoriesRouter(config, storage, storyService, ttsService));
+  app.use('/api/admin', createAdminStoriesRouter(config, storage, storyService, ttsService, jobManager));
 
   // Serve client static assets + SPA fallback ONLY if dist/client/index.html exists
   const clientDist = path.resolve('dist/client');

@@ -7,6 +7,9 @@ import {
   synthesizeStoryAudio,
   setDefaultAudioVersion,
   deleteAudioVersion,
+  fetchActiveJobs,
+  fetchJobStatus,
+  fetchStory,
 } from '../api/client';
 
 export interface VoiceStudioPanelProps {
@@ -37,6 +40,7 @@ export function VoiceStudioPanel({
   const [synthError, setSynthError] = useState<string | null>(null);
   const [synthSuccess, setSynthSuccess] = useState<boolean>(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const synthPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Audition playback state
   const [auditioningKey, setAuditioningKey] = useState<string | null>(null);
@@ -81,6 +85,9 @@ export function VoiceStudioPanel({
       stopAudition();
       if (timerRef.current) {
         clearInterval(timerRef.current);
+      }
+      if (synthPollTimerRef.current) {
+        clearInterval(synthPollTimerRef.current);
       }
     };
   }, [stopAudition]);
@@ -132,6 +139,93 @@ export function VoiceStudioPanel({
     }
     setVersionLabel(castingMode === 'solo' ? 'Solo Narration' : 'Full Cast Audio');
   }, [story.id, stopAudition]);
+
+  // Check and restore active synthesis job for this story
+  const checkActiveSynthesisJob = useCallback(async () => {
+    try {
+      const activeJobs = await fetchActiveJobs(story.id);
+      const synthJob =
+        activeJobs.find(
+          (j) =>
+            j.type === 'synthesize' &&
+            j.status === 'running' &&
+            (j.story_id === story.id || j.result_story_id === story.id)
+        ) ||
+        (story.active_job?.type === 'synthesize'
+          ? {
+              job_id: story.active_job.job_id,
+              story_id: story.id,
+              type: 'synthesize' as const,
+              status: 'running' as const,
+              started_at: story.active_job.started_at,
+              elapsed_seconds: Math.max(
+                0,
+                Math.floor(
+                  (Date.now() - new Date(story.active_job.started_at).getTime()) / 1000
+                )
+              ),
+            }
+          : null);
+
+      if (synthJob) {
+        setIsSynthesizing(true);
+        setSynthError(null);
+        setSynthSuccess(false);
+        setElapsedSeconds(synthJob.elapsed_seconds || 0);
+
+        if (!timerRef.current) {
+          timerRef.current = setInterval(() => {
+            setElapsedSeconds((sec) => sec + 1);
+          }, 1000);
+        }
+
+        if (synthPollTimerRef.current) {
+          clearInterval(synthPollTimerRef.current);
+        }
+
+        synthPollTimerRef.current = setInterval(async () => {
+          try {
+            const job = await fetchJobStatus(synthJob.job_id);
+            if (job.status === 'running') {
+              setElapsedSeconds(job.elapsed_seconds);
+            } else if (job.status === 'completed') {
+              if (synthPollTimerRef.current) {
+                clearInterval(synthPollTimerRef.current);
+                synthPollTimerRef.current = null;
+              }
+              if (timerRef.current) {
+                clearInterval(timerRef.current);
+                timerRef.current = null;
+              }
+              setIsSynthesizing(false);
+              const updated = await fetchStory(story.id);
+              onStoryUpdated(updated);
+              setSynthSuccess(true);
+            } else if (job.status === 'failed') {
+              if (synthPollTimerRef.current) {
+                clearInterval(synthPollTimerRef.current);
+                synthPollTimerRef.current = null;
+              }
+              if (timerRef.current) {
+                clearInterval(timerRef.current);
+                timerRef.current = null;
+              }
+              setIsSynthesizing(false);
+              setSynthError(job.error || 'Audio synthesis failed');
+            }
+          } catch {
+            // Keep polling
+          }
+        }, 1500);
+      }
+    } catch {
+      // Graceful fallback
+    }
+  }, [story.id, story.active_job, onStoryUpdated]);
+
+  useEffect(() => {
+    checkActiveSynthesisJob();
+  }, [checkActiveSynthesisJob]);
 
   // Prevent accidental navigation or tab closure while synthesis is active
   useEffect(() => {
@@ -317,6 +411,8 @@ export function VoiceStudioPanel({
         casting,
         label: versionLabel.trim() || (castingMode === 'solo' ? 'Solo Narration' : 'Full Cast Audio'),
         makeDefault: setAsDefault,
+        async: true,
+        onProgress: (job) => setElapsedSeconds(job.elapsed_seconds),
       });
 
       onStoryUpdated(updatedStory);

@@ -545,6 +545,150 @@ test.describe('Phase 4 Voice Audition Studio & Versions E2E', () => {
     expect(pageErrors).toEqual([]);
     expect(consoleErrors).toEqual([]);
   });
+
+  test('Phase 7 Zero-DB Asynchronous Job Manager & Refresh Resilience: page reload mid-generation restores progress card and completes automatically', async ({
+    page,
+  }) => {
+    const pageErrors: Error[] = [];
+    const consoleErrors: string[] = [];
+
+    await setupExternalMocks(page);
+
+    page.on('pageerror', (err) => pageErrors.push(err));
+    page.on('console', (msg) => {
+      if (msg.type() === 'error') consoleErrors.push(msg.text());
+    });
+    // Auto-accept beforeunload confirmation dialog during reload
+    page.on('dialog', async (dialog) => {
+      await dialog.accept();
+    });
+
+    let isStarted = false;
+    let isReloaded = false;
+    let reloadPollCount = 0;
+
+    // Mock active jobs & status routes to test reload recovery deterministically
+    await page.route('**/api/admin/jobs/active*', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          activeJobs:
+            isStarted && (!isReloaded || reloadPollCount < 2)
+              ? [
+                  {
+                    job_id: 'job-phase7-e2e-reload',
+                    story_id: 'new',
+                    type: 'draft',
+                    status: 'running',
+                    started_at: new Date(Date.now() - 6000).toISOString(),
+                    elapsed_seconds: 6,
+                    message: 'Drafting story with Gemini 3.8 Flash...',
+                  },
+                ]
+              : [],
+        }),
+      });
+    });
+
+    await page.route('**/api/admin/jobs/job-phase7-e2e-reload', (route) => {
+      const isComplete = isReloaded && reloadPollCount >= 1;
+      if (isReloaded) {
+        reloadPollCount++;
+      }
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          job: {
+            job_id: 'job-phase7-e2e-reload',
+            story_id: 'new',
+            type: 'draft',
+            status: isComplete ? 'completed' : 'running',
+            started_at: new Date(Date.now() - 6000).toISOString(),
+            elapsed_seconds: isComplete ? 10 : 7,
+            result_story_id: '2026-11-04-sleepy-little-train',
+            message: isComplete ? 'Story draft complete!' : 'Drafting story with Gemini 3.8 Flash...',
+          },
+        }),
+      });
+    });
+
+    await page.route('**/api/admin/stories/write*', (route) => {
+      isStarted = true;
+      route.fulfill({
+        status: 202,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          jobId: 'job-phase7-e2e-reload',
+          status: 'running',
+        }),
+      });
+    });
+
+    // 1. Initial Desktop Viewport
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/admin', { waitUntil: 'domcontentloaded' });
+
+    // Dev bypass login if needed
+    const newStoryBtn = page.getByRole('button', { name: /➕ New Story/i });
+    const bypassBtn = page.getByRole('button', { name: /Dev Sandbox Login/i });
+    await expect(newStoryBtn.or(bypassBtn)).toBeVisible();
+    if (await bypassBtn.isVisible()) {
+      await bypassBtn.click();
+    }
+
+    // Click "➕ New Story"
+    await expect(newStoryBtn).toBeVisible();
+    await newStoryBtn.click();
+
+    // Fill prompt
+    const promptInput = page.getByPlaceholder(/A comedic sci-fi adventure|A gentle, soothing bedtime story/i);
+    await promptInput.fill('A cozy rabbit hopping through powdery blue starlight in the pine forest.');
+
+    // Submit draft generation
+    const submitBtn = page.getByRole('button', { name: /1\. Write Story Draft/i });
+    await expect(submitBtn).toBeVisible();
+    await submitBtn.click({ noWaitAfter: true });
+
+    // Verify progress card is visible
+    const progressCard = page.locator('.tactile-progress-card');
+    await expect(progressCard).toBeVisible();
+    await expect(progressCard.locator('strong')).toHaveText(/Drafting story with Gemini 3\.8 Flash/i);
+
+    // 2. SIMULATE REFRESH / APP SWITCH MID-GENERATION
+    isReloaded = true;
+    await page.reload({ waitUntil: 'domcontentloaded' });
+
+    // Dev bypass login if needed on reload
+    await expect(newStoryBtn.or(bypassBtn)).toBeVisible();
+    if (await bypassBtn.isVisible()) {
+      await bypassBtn.click();
+    }
+
+    // VERIFY REFRESH RESILIENCE: Progress card is IMMEDIATELY restored upon page reload!
+    await expect(progressCard).toBeVisible();
+    await expect(progressCard.locator('strong')).toHaveText(/Drafting story with Gemini 3\.8 Flash/i);
+
+    // Verify submit button is disabled to prevent accidental double-submission
+    const writingBtn = page.getByRole('button', { name: /Writing Draft\.\.\./i });
+    await expect(writingBtn).toBeVisible();
+    await expect(writingBtn).toBeDisabled();
+
+    // Capture Phase 7 Active Job Recovery Screenshot
+    await page.screenshot({ path: 'qa-screenshots/phase7-active-job-recovery.png', fullPage: false });
+
+    // Wait for polling to automatically detect completion and load the story into workbench
+    await expect(page.getByRole('heading', { name: /Story Metadata/i })).toBeVisible({ timeout: 10000 });
+    const titleInput = page.locator('input[value="The Sleepy Little Train"]');
+    await expect(titleInput).toBeVisible();
+
+    // Capture Phase 7 Completed Workbench Screenshot
+    await page.screenshot({ path: 'qa-screenshots/phase7-workbench-completed.png', fullPage: false });
+
+    expect(pageErrors).toEqual([]);
+    expect(consoleErrors).toEqual([]);
+  });
 });
 
 

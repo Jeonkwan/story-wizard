@@ -11,20 +11,49 @@ import {
   storyToCatalogItem,
 } from '../services/geminiStory.js';
 import { GeminiTtsService } from '../services/geminiTts.js';
+import { JobManager, defaultJobManager } from '../services/jobManager.js';
 import type { CatalogItem, VoiceDesignCandidate } from '../../shared/types.js';
 
 export function createAdminStoriesRouter(
   config: AppConfig,
   storage: StorageAdapter,
   storyService: GeminiStoryService,
-  ttsService?: GeminiTtsService
+  ttsService?: GeminiTtsService,
+  jobManager: JobManager = defaultJobManager
 ): Router {
   const router = Router();
   const requireAdmin = createRequireAdminMiddleware(config);
   const tts = ttsService || new GeminiTtsService(config, storage);
 
+  jobManager.setStorage(storage);
+
   // All admin story routes require admin authentication
   router.use(requireAdmin);
+
+  // GET /api/admin/jobs/active
+  router.get(
+    '/jobs/active',
+    asyncHandler(async (req: Request, res: Response) => {
+      const storyId = typeof req.query.storyId === 'string' ? req.query.storyId : undefined;
+      jobManager.cleanupOldJobs();
+      const activeJobs = jobManager.getActiveJobs(storyId);
+      res.json({ activeJobs });
+    })
+  );
+
+  // GET /api/admin/jobs/:jobId
+  router.get(
+    '/jobs/:jobId',
+    asyncHandler(async (req: Request, res: Response) => {
+      const { jobId } = req.params;
+      const job = jobManager.getJob(jobId);
+      if (!job) {
+        res.status(404).json({ error: `Job not found: "${jobId}"` });
+        return;
+      }
+      res.json({ job });
+    })
+  );
 
   // GET /api/admin/stories
   router.get(
@@ -52,17 +81,48 @@ export function createAdminStoriesRouter(
         return;
       }
 
-      const story = await storyService.generateStoryDraft({
-        mode,
-        prompt: prompt.trim(),
-        referenceText: typeof referenceText === 'string' ? referenceText : undefined,
-        seriesId: typeof seriesId === 'string' && seriesId.trim() ? seriesId.trim() : undefined,
-        previousStoryId:
-          typeof previousStoryId === 'string' && previousStoryId.trim()
-            ? previousStoryId.trim()
-            : undefined,
-      });
+      const isAsync = req.query.async === 'true';
+      const storyTarget = mode === 'sequel' && previousStoryId ? String(previousStoryId).trim() : 'new';
+      const job = jobManager.createJob('draft', storyTarget, 'Drafting story with Gemini 3.8 Flash...');
 
+      const runDraft = async () => {
+        try {
+          const story = await storyService.generateStoryDraft({
+            mode,
+            prompt: prompt.trim(),
+            referenceText: typeof referenceText === 'string' ? referenceText : undefined,
+            seriesId: typeof seriesId === 'string' && seriesId.trim() ? seriesId.trim() : undefined,
+            previousStoryId:
+              typeof previousStoryId === 'string' && previousStoryId.trim()
+                ? previousStoryId.trim()
+                : undefined,
+          });
+
+          await jobManager.updateJobAsync(job.job_id, {
+            status: 'completed',
+            result_story_id: story.id,
+            message: 'Story draft complete!',
+          });
+          return story;
+        } catch (err) {
+          await jobManager.updateJobAsync(job.job_id, {
+            status: 'failed',
+            error: err instanceof Error ? err.message : 'Draft generation failed',
+            message: 'Draft generation failed',
+          });
+          throw err;
+        }
+      };
+
+      if (isAsync) {
+        runDraft().catch((err) => {
+          console.warn(`[JobManager] Background draft job ${job.job_id} failed:`, err);
+        });
+        res.status(202).json({ jobId: job.job_id, status: 'running' });
+        return;
+      }
+
+      const story = await runDraft();
       res.status(201).json(story);
     })
   );
@@ -74,7 +134,44 @@ export function createAdminStoriesRouter(
       const { id } = req.params;
       validateSlug(id, 'id');
 
-      const story = await storyService.directStoryScript(id);
+      const isAsync = req.query.async === 'true';
+      const job = jobManager.createJob(
+        'direct',
+        id,
+        'Directing vocal expressions and pacing with Gemini 3.8 Flash...',
+        false
+      );
+      await jobManager.persistJobStart(job.job_id);
+
+      const runDirect = async () => {
+        try {
+          const story = await storyService.directStoryScript(id);
+          story.active_job = null;
+          await jobManager.updateJobAsync(job.job_id, {
+            status: 'completed',
+            result_story_id: story.id,
+            message: 'Directing complete!',
+          });
+          return story;
+        } catch (err) {
+          await jobManager.updateJobAsync(job.job_id, {
+            status: 'failed',
+            error: err instanceof Error ? err.message : 'Directing failed',
+            message: 'Directing failed',
+          });
+          throw err;
+        }
+      };
+
+      if (isAsync) {
+        runDirect().catch((err) => {
+          console.warn(`[JobManager] Background direct job ${job.job_id} failed:`, err);
+        });
+        res.status(202).json({ jobId: job.job_id, status: 'running' });
+        return;
+      }
+
+      const story = await runDirect();
       res.json(story);
     })
   );
@@ -248,12 +345,48 @@ export function createAdminStoriesRouter(
         return;
       }
 
-      const updatedStory = await tts.synthesizeFullStory(id, {
-        casting,
-        label: typeof label === 'string' ? label : undefined,
-        makeDefault: typeof makeDefault === 'boolean' ? makeDefault : undefined,
-      });
+      const isAsync = req.query.async === 'true';
+      const job = jobManager.createJob(
+        'synthesize',
+        id,
+        'Synthesizing multi-speaker speech audio with Gemini 3.8 Flash TTS...',
+        false
+      );
+      await jobManager.persistJobStart(job.job_id);
 
+      const runSynthesize = async () => {
+        try {
+          const updatedStory = await tts.synthesizeFullStory(id, {
+            casting,
+            label: typeof label === 'string' ? label : undefined,
+            makeDefault: typeof makeDefault === 'boolean' ? makeDefault : undefined,
+          });
+          updatedStory.active_job = null;
+          await jobManager.updateJobAsync(job.job_id, {
+            status: 'completed',
+            result_story_id: updatedStory.id,
+            message: 'Audio synthesis complete!',
+          });
+          return updatedStory;
+        } catch (err) {
+          await jobManager.updateJobAsync(job.job_id, {
+            status: 'failed',
+            error: err instanceof Error ? err.message : 'Audio synthesis failed',
+            message: 'Audio synthesis failed',
+          });
+          throw err;
+        }
+      };
+
+      if (isAsync) {
+        runSynthesize().catch((err) => {
+          console.warn(`[JobManager] Background synthesis job ${job.job_id} failed:`, err);
+        });
+        res.status(202).json({ jobId: job.job_id, status: 'running' });
+        return;
+      }
+
+      const updatedStory = await runSynthesize();
       res.status(201).json(updatedStory);
     })
   );

@@ -95,6 +95,7 @@ export function storyToCatalogItem(story: Story): CatalogItem {
     updated_at: story.updated_at,
     default_audio_url: defaultAudio,
     audio_versions_count: story.audio_versions.length,
+    active_job: story.active_job ?? null,
   };
 }
 

@@ -8,6 +8,8 @@ import {
   saveStoryEdits,
   patchStoryStatus,
   deleteStory,
+  fetchActiveJobs,
+  fetchJobStatus,
   type AdminSession,
 } from '../api/client';
 import { VoiceStudioPanel } from './VoiceStudioPanel';
@@ -74,6 +76,7 @@ export function DirectorStudio({
   const [writingElapsedSeconds, setWritingElapsedSeconds] = useState<number>(0);
   const [writeError, setWriteError] = useState<string | null>(null);
   const writingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const draftPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Workbench Edit state
   const [editedTitle, setEditedTitle] = useState<string>('');
@@ -85,6 +88,7 @@ export function DirectorStudio({
   const [directingElapsedSeconds, setDirectingElapsedSeconds] = useState<number>(0);
   const [directError, setDirectError] = useState<string | null>(null);
   const directingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const directPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
@@ -120,6 +124,8 @@ export function DirectorStudio({
     return () => {
       if (writingTimerRef.current) clearInterval(writingTimerRef.current);
       if (directingTimerRef.current) clearInterval(directingTimerRef.current);
+      if (draftPollTimerRef.current) clearInterval(draftPollTimerRef.current);
+      if (directPollTimerRef.current) clearInterval(directPollTimerRef.current);
     };
   }, []);
 
@@ -164,6 +170,143 @@ export function DirectorStudio({
       setLoadingStory(false);
     }
   }, []);
+
+  const startPollingDraftJob = useCallback((jobId: string) => {
+    if (draftPollTimerRef.current) clearInterval(draftPollTimerRef.current);
+    draftPollTimerRef.current = setInterval(async () => {
+      try {
+        const job = await fetchJobStatus(jobId);
+        if (job.status === 'running') {
+          setWritingElapsedSeconds(job.elapsed_seconds);
+        } else if (job.status === 'completed') {
+          if (draftPollTimerRef.current) {
+            clearInterval(draftPollTimerRef.current);
+            draftPollTimerRef.current = null;
+          }
+          if (writingTimerRef.current) {
+            clearInterval(writingTimerRef.current);
+            writingTimerRef.current = null;
+          }
+          setIsWriting(false);
+          await loadStories();
+          onCatalogChanged?.();
+          if (job.result_story_id) {
+            await loadStoryIntoWorkbench(job.result_story_id);
+          }
+        } else if (job.status === 'failed') {
+          if (draftPollTimerRef.current) {
+            clearInterval(draftPollTimerRef.current);
+            draftPollTimerRef.current = null;
+          }
+          if (writingTimerRef.current) {
+            clearInterval(writingTimerRef.current);
+            writingTimerRef.current = null;
+          }
+          setIsWriting(false);
+          setWriteError(job.error || 'Draft generation failed');
+        }
+      } catch {
+        // Keep polling on transient errors
+      }
+    }, 1500);
+  }, [loadStories, onCatalogChanged, loadStoryIntoWorkbench]);
+
+  const startPollingDirectJob = useCallback((jobId: string, storyId: string) => {
+    if (directPollTimerRef.current) clearInterval(directPollTimerRef.current);
+    directPollTimerRef.current = setInterval(async () => {
+      try {
+        const job = await fetchJobStatus(jobId);
+        if (job.status === 'running') {
+          setDirectingElapsedSeconds(job.elapsed_seconds);
+        } else if (job.status === 'completed') {
+          if (directPollTimerRef.current) {
+            clearInterval(directPollTimerRef.current);
+            directPollTimerRef.current = null;
+          }
+          if (directingTimerRef.current) {
+            clearInterval(directingTimerRef.current);
+            directingTimerRef.current = null;
+          }
+          setIsDirecting(false);
+          const directed = await fetchStory(storyId);
+          setActiveStory(directed);
+          setEditedTitle(directed.title);
+          setEditedSummary(directed.summary);
+          setEditedTags(directed.tags.join(', '));
+          setEditedCharacters(JSON.parse(JSON.stringify(directed.characters)));
+          setEditedTurns(JSON.parse(JSON.stringify(directed.script_turns)));
+          await loadStories();
+          onCatalogChanged?.();
+        } else if (job.status === 'failed') {
+          if (directPollTimerRef.current) {
+            clearInterval(directPollTimerRef.current);
+            directPollTimerRef.current = null;
+          }
+          if (directingTimerRef.current) {
+            clearInterval(directingTimerRef.current);
+            directingTimerRef.current = null;
+          }
+          setIsDirecting(false);
+          setDirectError(job.error || 'Directing failed');
+        }
+      } catch {
+        // Keep polling
+      }
+    }, 1500);
+  }, [loadStories, onCatalogChanged]);
+
+  // Check and restore active jobs upon mount or story change
+  const checkActiveJobs = useCallback(async () => {
+    try {
+      const activeJobs = await fetchActiveJobs();
+      if (!Array.isArray(activeJobs) || activeJobs.length === 0) return;
+
+      // 1. Check for running draft job
+      const draftJob = activeJobs.find((j) => j.type === 'draft' && j.status === 'running');
+      if (draftJob) {
+        setViewMode('create');
+        setIsWriting(true);
+        setWriteError(null);
+        setWritingElapsedSeconds(draftJob.elapsed_seconds || 0);
+
+        if (!writingTimerRef.current) {
+          writingTimerRef.current = setInterval(() => {
+            setWritingElapsedSeconds((sec) => sec + 1);
+          }, 1000);
+        }
+        startPollingDraftJob(draftJob.job_id);
+        return;
+      }
+
+      // 2. Check for running direct job
+      if (activeStory) {
+        const directJob = activeJobs.find(
+          (j) =>
+            j.type === 'direct' &&
+            j.status === 'running' &&
+            (j.story_id === activeStory.id || j.result_story_id === activeStory.id)
+        );
+        if (directJob) {
+          setIsDirecting(true);
+          setDirectError(null);
+          setDirectingElapsedSeconds(directJob.elapsed_seconds || 0);
+
+          if (!directingTimerRef.current) {
+            directingTimerRef.current = setInterval(() => {
+              setDirectingElapsedSeconds((sec) => sec + 1);
+            }, 1000);
+          }
+          startPollingDirectJob(directJob.job_id, activeStory.id);
+        }
+      }
+    } catch {
+      // Graceful fallback
+    }
+  }, [activeStory, startPollingDraftJob, startPollingDirectJob]);
+
+  useEffect(() => {
+    checkActiveJobs();
+  }, [checkActiveJobs]);
 
   const handleSelectGenrePreset = (preset: GenrePreset) => {
     setSelectedGenrePreset(preset.id);
@@ -224,12 +367,18 @@ export function DirectorStudio({
           setIsWriting(false);
           return;
         }
-        created = await writeStoryDraft({
-          mode: 'fresh',
-          prompt: freshPrompt.trim(),
-          referenceText: freshReferenceText.trim() || undefined,
-          seriesId: freshSeriesId.trim() || undefined,
-        });
+        created = await writeStoryDraft(
+          {
+            mode: 'fresh',
+            prompt: freshPrompt.trim(),
+            referenceText: freshReferenceText.trim() || undefined,
+            seriesId: freshSeriesId.trim() || undefined,
+          },
+          {
+            async: true,
+            onProgress: (job) => setWritingElapsedSeconds(job.elapsed_seconds),
+          }
+        );
       } else {
         if (!sequelPrompt.trim()) {
           setWriteError('Please enter a sequel episode prompt.');
@@ -241,12 +390,18 @@ export function DirectorStudio({
           setIsWriting(false);
           return;
         }
-        created = await writeStoryDraft({
-          mode: 'sequel',
-          previousStoryId: sequelPreviousStoryId,
-          prompt: sequelPrompt.trim(),
-          referenceText: sequelReferenceText.trim() || undefined,
-        });
+        created = await writeStoryDraft(
+          {
+            mode: 'sequel',
+            previousStoryId: sequelPreviousStoryId,
+            prompt: sequelPrompt.trim(),
+            referenceText: sequelReferenceText.trim() || undefined,
+          },
+          {
+            async: true,
+            onProgress: (job) => setWritingElapsedSeconds(job.elapsed_seconds),
+          }
+        );
       }
 
       await loadStories();
@@ -302,7 +457,10 @@ export function DirectorStudio({
       // Persist pending workbench edits first so auto-direct acts on latest user prose/characters
       await persistWorkbenchEdits();
 
-      const directed = await directStory(activeStory.id);
+      const directed = await directStory(activeStory.id, {
+        async: true,
+        onProgress: (job) => setDirectingElapsedSeconds(job.elapsed_seconds),
+      });
       setActiveStory(directed);
       setEditedTitle(directed.title);
       setEditedSummary(directed.summary);

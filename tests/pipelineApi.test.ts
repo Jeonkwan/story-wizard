@@ -538,4 +538,110 @@ describe('Phase 3: Admin Studio & Writer-Director Pipeline Integration Tests', (
     expect(lastDirectScriptInput).not.toBeNull();
     expect(lastDirectScriptInput?.title).toBe(res.body.title);
   });
+
+  /* -------------------------------------------------------------------------
+   * Phase 7: Zero-DB Asynchronous Job Manager & Pipeline Routes
+   * ----------------------------------------------------------------------- */
+  it('Phase 7: GET /api/admin/jobs/active lists running jobs and GET /api/admin/jobs/:id returns status', async () => {
+    const app = createTestApp();
+    const adminCookie = getAdminCookie();
+
+    // Query active jobs initially -> empty list
+    const resInitial = await request(app)
+      .get('/api/admin/jobs/active')
+      .set('Cookie', [adminCookie]);
+    expect(resInitial.status).toBe(200);
+    expect(resInitial.body.activeJobs).toEqual([]);
+
+    // Query non-existent jobId -> 404
+    const resNotFound = await request(app)
+      .get('/api/admin/jobs/nonexistent-job-id')
+      .set('Cookie', [adminCookie]);
+    expect(resNotFound.status).toBe(404);
+  });
+
+  it('Phase 7: POST /api/admin/stories/write?async=true returns 202 Accepted and runs draft in background', async () => {
+    const app = createTestApp();
+    const adminCookie = getAdminCookie();
+
+    const resAsync = await request(app)
+      .post('/api/admin/stories/write?async=true')
+      .set('Cookie', [adminCookie])
+      .send({
+        mode: 'fresh',
+        prompt: 'A gentle owl story in the night',
+      });
+
+    expect(resAsync.status).toBe(202);
+    expect(resAsync.body.jobId).toMatch(/^job_\d+_[a-z0-9]+$/);
+    expect(resAsync.body.status).toBe('running');
+
+    const jobId = resAsync.body.jobId;
+
+    // Check GET /jobs/:jobId
+    const resStatus = await request(app)
+      .get(`/api/admin/jobs/${jobId}`)
+      .set('Cookie', [adminCookie]);
+    expect(resStatus.status).toBe(200);
+    expect(resStatus.body.job.job_id).toBe(jobId);
+
+    // Wait microtask tick for background draft completion
+    let attempts = 0;
+    while (attempts < 20) {
+      await new Promise((r) => setTimeout(r, 50));
+      const poll = await request(app)
+        .get(`/api/admin/jobs/${jobId}`)
+        .set('Cookie', [adminCookie]);
+      if (poll.body.job.status === 'completed') {
+        expect(poll.body.job.result_story_id).toBeDefined();
+        break;
+      }
+      attempts++;
+    }
+  });
+
+  it('Phase 7: POST /api/admin/stories/:id/direct?async=true returns 202 Accepted and updates story', async () => {
+    const app = createTestApp();
+    const adminCookie = getAdminCookie();
+
+    // First create a story synchronously
+    const resCreate = await request(app)
+      .post('/api/admin/stories/write')
+      .set('Cookie', [adminCookie])
+      .send({
+        mode: 'fresh',
+        prompt: 'A story to be directed',
+      });
+    expect(resCreate.status).toBe(201);
+    const storyId = resCreate.body.id;
+
+    // Trigger async direct
+    const resDirectAsync = await request(app)
+      .post(`/api/admin/stories/${storyId}/direct?async=true`)
+      .set('Cookie', [adminCookie]);
+
+    expect(resDirectAsync.status).toBe(202);
+    expect(resDirectAsync.body.status).toBe('running');
+    const directJobId = resDirectAsync.body.jobId;
+
+    // Verify GET /api/admin/jobs/active?storyId=... lists the direct job
+    const resActive = await request(app)
+      .get(`/api/admin/jobs/active?storyId=${storyId}`)
+      .set('Cookie', [adminCookie]);
+    expect(resActive.status).toBe(200);
+
+    // Wait for background completion
+    let attempts = 0;
+    while (attempts < 20) {
+      await new Promise((r) => setTimeout(r, 50));
+      const poll = await request(app)
+        .get(`/api/admin/jobs/${directJobId}`)
+        .set('Cookie', [adminCookie]);
+      if (poll.body.job.status === 'completed') {
+        expect(poll.body.job.status).toBe('completed');
+        break;
+      }
+      attempts++;
+    }
+  });
 });

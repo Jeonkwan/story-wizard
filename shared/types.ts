@@ -1,5 +1,26 @@
 export type StoryStatus = 'draft' | 'published';
 
+export type JobType = 'draft' | 'direct' | 'synthesize';
+export type JobStatus = 'running' | 'completed' | 'failed';
+
+export interface JobProgress {
+  job_id: string;
+  story_id: string;
+  type: JobType;
+  status: JobStatus;
+  started_at: string;
+  elapsed_seconds: number;
+  message?: string;
+  result_story_id?: string;
+  error?: string | null;
+}
+
+export interface ActiveJobSummary {
+  job_id: string;
+  type: JobType;
+  started_at: string;
+}
+
 export interface CatalogItem {
   id: string;                      // e.g. "2026-11-04-sleepy-little-train"
   status: StoryStatus;             // Public GET /api/catalog returns ONLY "published"
@@ -12,6 +33,7 @@ export interface CatalogItem {
   updated_at: string;              // ISO 8601
   default_audio_url: string | null;// "/api/stories/{id}/audios/{version_id}.wav" or null if draft
   audio_versions_count: number;
+  active_job?: ActiveJobSummary | null;
 }
 
 export interface CharacterProfile {
@@ -66,6 +88,7 @@ export interface Story {
   script_turns: ScriptTurn[];
   voice_candidates: VoiceDesignCandidate[]; // Populated by Director LLM
   audio_versions: AudioVersion[];
+  active_job?: ActiveJobSummary | null;
   created_at: string;
   updated_at: string;
 }

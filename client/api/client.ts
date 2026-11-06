@@ -1,6 +1,7 @@
 import type {
   CatalogItem,
   CharacterProfile,
+  JobProgress,
   ScriptTurn,
   Story,
   VoiceCasting,
@@ -82,6 +83,54 @@ export async function logoutAdmin(): Promise<{ ok: boolean }> {
   return handleResponse<{ ok: boolean }>(res);
 }
 
+export interface AsyncJobOptions {
+  async?: boolean;
+  onProgress?: (job: JobProgress) => void;
+  pollIntervalMs?: number;
+}
+
+export async function fetchActiveJobs(storyId?: string): Promise<JobProgress[]> {
+  try {
+    const url = storyId
+      ? `/api/admin/jobs/active?storyId=${encodeURIComponent(storyId)}`
+      : '/api/admin/jobs/active';
+    const res = await fetch(url);
+    if (!res.ok) {
+      return [];
+    }
+    const data = await handleResponse<{ activeJobs: JobProgress[] }>(res);
+    return Array.isArray(data?.activeJobs) ? data.activeJobs : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchJobStatus(jobId: string): Promise<JobProgress> {
+  const res = await fetch(`/api/admin/jobs/${encodeURIComponent(jobId)}`);
+  const data = await handleResponse<{ job: JobProgress }>(res);
+  return data.job;
+}
+
+export async function pollJobUntilComplete(
+  jobId: string,
+  onProgress?: (job: JobProgress) => void,
+  pollIntervalMs = 1500
+): Promise<JobProgress> {
+  while (true) {
+    const job = await fetchJobStatus(jobId);
+    if (onProgress) {
+      onProgress(job);
+    }
+    if (job.status === 'completed') {
+      return job;
+    }
+    if (job.status === 'failed') {
+      throw new Error(job.error || job.message || `Job ${jobId} failed`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+  }
+}
+
 export async function fetchAdminStories(): Promise<CatalogItem[]> {
   const res = await fetch('/api/admin/stories');
   return handleResponse<CatalogItem[]>(res);
@@ -93,21 +142,58 @@ export interface WriteStoryDraftPayload {
   referenceText?: string;
   seriesId?: string;
   previousStoryId?: string;
+  async?: boolean;
+  onProgress?: (job: JobProgress) => void;
+  pollIntervalMs?: number;
 }
 
-export async function writeStoryDraft(payload: WriteStoryDraftPayload): Promise<Story> {
-  const res = await fetch('/api/admin/stories/write', {
+export async function writeStoryDraft(
+  payload: WriteStoryDraftPayload,
+  options?: AsyncJobOptions
+): Promise<Story> {
+  const isAsync = options?.async ?? payload.async ?? false;
+  const onProgress = options?.onProgress ?? payload.onProgress;
+  const pollIntervalMs = options?.pollIntervalMs ?? payload.pollIntervalMs;
+  const url = isAsync ? '/api/admin/stories/write?async=true' : '/api/admin/stories/write';
+
+  const { async: _a, onProgress: _p, pollIntervalMs: _pi, ...bodyPayload } = payload;
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(bodyPayload),
   });
+
+  if (isAsync) {
+    const { jobId } = await handleResponse<{ jobId: string; status: string }>(res);
+    const completedJob = await pollJobUntilComplete(jobId, onProgress, pollIntervalMs);
+    if (!completedJob.result_story_id) {
+      throw new Error('Draft job completed without resulting story ID');
+    }
+    return fetchStory(completedJob.result_story_id);
+  }
+
   return handleResponse<Story>(res);
 }
 
-export async function directStory(storyId: string): Promise<Story> {
-  const res = await fetch(`/api/admin/stories/${encodeURIComponent(storyId)}/direct`, {
+export async function directStory(
+  storyId: string,
+  options?: AsyncJobOptions
+): Promise<Story> {
+  const isAsync = options?.async ?? false;
+  const url = isAsync
+    ? `/api/admin/stories/${encodeURIComponent(storyId)}/direct?async=true`
+    : `/api/admin/stories/${encodeURIComponent(storyId)}/direct`;
+
+  const res = await fetch(url, {
     method: 'POST',
   });
+
+  if (isAsync) {
+    const { jobId } = await handleResponse<{ jobId: string; status: string }>(res);
+    await pollJobUntilComplete(jobId, options?.onProgress, options?.pollIntervalMs);
+    return fetchStory(storyId);
+  }
+
   return handleResponse<Story>(res);
 }
 
@@ -198,17 +284,36 @@ export interface SynthesizeStoryAudioPayload {
   casting: VoiceCasting;
   label?: string;
   makeDefault?: boolean;
+  async?: boolean;
+  onProgress?: (job: JobProgress) => void;
+  pollIntervalMs?: number;
 }
 
 export async function synthesizeStoryAudio(
   storyId: string,
-  payload: SynthesizeStoryAudioPayload
+  payload: SynthesizeStoryAudioPayload,
+  options?: AsyncJobOptions
 ): Promise<Story> {
-  const res = await fetch(`/api/admin/stories/${encodeURIComponent(storyId)}/synthesize`, {
+  const isAsync = options?.async ?? payload.async ?? false;
+  const onProgress = options?.onProgress ?? payload.onProgress;
+  const pollIntervalMs = options?.pollIntervalMs ?? payload.pollIntervalMs;
+  const url = isAsync
+    ? `/api/admin/stories/${encodeURIComponent(storyId)}/synthesize?async=true`
+    : `/api/admin/stories/${encodeURIComponent(storyId)}/synthesize`;
+
+  const { async: _a, onProgress: _p, pollIntervalMs: _pi, ...bodyPayload } = payload;
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(bodyPayload),
   });
+
+  if (isAsync) {
+    const { jobId } = await handleResponse<{ jobId: string; status: string }>(res);
+    await pollJobUntilComplete(jobId, onProgress, pollIntervalMs);
+    return fetchStory(storyId);
+  }
+
   return handleResponse<Story>(res);
 }
 

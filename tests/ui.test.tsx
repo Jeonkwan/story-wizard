@@ -1171,6 +1171,123 @@ describe('Phase 3 Admin Studio & UI Components', () => {
       expect(mainRow?.querySelector('.player-main-controls')).not.toBeNull();
       expect(mainRow?.querySelector('.player-meta-controls')).not.toBeNull();
     });
+
+    /* -------------------------------------------------------------------------
+     * Phase 7: Refresh Resilience & Active Job Restoration UI Tests
+     * ----------------------------------------------------------------------- */
+    it('DirectorStudio automatically detects active draft job on mount, restores tactile progress card and disables inputs', async () => {
+      vi.spyOn(clientApi, 'fetchAdminStories').mockResolvedValue([]);
+      vi.spyOn(clientApi, 'fetchActiveJobs').mockResolvedValue([
+        {
+          job_id: 'job-active-draft-999',
+          story_id: 'new',
+          type: 'draft',
+          status: 'running',
+          started_at: new Date().toISOString(),
+          elapsed_seconds: 14,
+          message: 'Drafting story with Gemini 3.8 Flash...',
+        },
+      ]);
+      vi.spyOn(clientApi, 'fetchJobStatus').mockResolvedValue({
+        job_id: 'job-active-draft-999',
+        story_id: 'new',
+        type: 'draft',
+        status: 'running',
+        started_at: new Date().toISOString(),
+        elapsed_seconds: 14,
+      });
+
+      render(
+        <DirectorStudio
+          session={{
+            authenticated: true,
+            email: 'curator@storyteller.studio',
+            devBypassEnabled: true,
+          }}
+          onLogout={() => {}}
+          onNavigateHome={() => {}}
+        />
+      );
+
+      // Verify progress card is restored on mount without clicking anything
+      await waitFor(() => {
+        const statusEl = screen.getByRole('status');
+        expect(statusEl).toBeInTheDocument();
+        expect(statusEl).toHaveTextContent(/Drafting story with Gemini 3\.8 Flash\.\.\. 14s/i);
+      });
+
+      // Verify prompt textarea and submit buttons are disabled
+      const writeBtn = screen.getByRole('button', { name: /Writing Draft\.\.\./i });
+      expect(writeBtn).toBeDisabled();
+
+      const promptInput = screen.getByPlaceholderText(/A comedic sci-fi adventure|A gentle, soothing bedtime story/i);
+      expect(promptInput).toBeDisabled();
+    });
+
+    it('VoiceStudioPanel automatically restores synthesis progress card and disables synthesis button on mount', async () => {
+      vi.spyOn(clientApi, 'fetchVoices').mockResolvedValue([
+        {
+          id: 'prebuilt-kore',
+          label: 'Kore (Warm Prebuilt)',
+          source: 'prebuilt',
+          gemini_voice_name: 'Kore',
+          description: 'Warm soothing cadence',
+          language_code: 'en-US',
+          tags: ['bedtime'],
+          created_at: new Date().toISOString(),
+        },
+      ]);
+      vi.spyOn(clientApi, 'fetchActiveJobs').mockResolvedValue([
+        {
+          job_id: 'job-active-synth-888',
+          story_id: 'phase4-test-story',
+          type: 'synthesize',
+          status: 'running',
+          started_at: new Date().toISOString(),
+          elapsed_seconds: 28,
+          message: 'Synthesizing multi-speaker speech audio...',
+        },
+      ]);
+      vi.spyOn(clientApi, 'fetchJobStatus').mockResolvedValue({
+        job_id: 'job-active-synth-888',
+        story_id: 'phase4-test-story',
+        type: 'synthesize',
+        status: 'running',
+        started_at: new Date().toISOString(),
+        elapsed_seconds: 28,
+      });
+
+      const testStory: Story = {
+        id: 'phase4-test-story',
+        status: 'draft',
+        title: 'Active Synth Story',
+        summary: 'Testing recovery',
+        tags: ['audio'],
+        series_context: null,
+        characters: [],
+        script_turns: [],
+        voice_candidates: [],
+        audio_versions: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      render(
+        <VoiceStudioPanel
+          story={testStory}
+          onStoryUpdated={() => {}}
+        />
+      );
+
+      await waitFor(() => {
+        const statusEl = screen.getByRole('status');
+        expect(statusEl).toBeInTheDocument();
+        expect(statusEl).toHaveTextContent(/Synthesizing audio turns with Gemini 3\.8 Flash TTS\.\.\. 28s/i);
+      });
+
+      const synthBtn = screen.getByRole('button', { name: /Synthesizing\.\.\./i });
+      expect(synthBtn).toBeDisabled();
+    });
   });
 });
 
