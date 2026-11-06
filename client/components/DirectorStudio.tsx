@@ -23,6 +23,21 @@ const APPROVED_TAGS = [
   '<gasp>',
 ];
 
+export interface GenrePreset {
+  id: string;
+  label: string;
+  promptPrefix: string;
+}
+
+export const GENRE_PRESETS: GenrePreset[] = [
+  { id: 'any', label: '✨ Any / Custom', promptPrefix: '' },
+  { id: 'humor', label: '😂 Fun & Humorous', promptPrefix: 'A funny, comedic adventure with witty banter and playful chaos: ' },
+  { id: 'scifi', label: '🚀 Adventure & Sci-Fi', promptPrefix: 'An exciting, fast-paced sci-fi adventure exploring unknown worlds: ' },
+  { id: 'mystery', label: '🔍 Mystery & Intrigue', promptPrefix: 'A suspenseful, clever mystery with clues, suspects, and surprising twists: ' },
+  { id: 'bedtime', label: '🌙 Bedtime & Soothing', promptPrefix: 'A gentle, soothing bedtime story with calming imagery and peaceful reflections: ' },
+  { id: 'fable', label: '🧚 Whimsical Fable', promptPrefix: 'A charming, magical fairy tale fable with enchanted creatures and heart: ' },
+];
+
 interface DirectorStudioProps {
   session: AdminSession;
   onLogout: () => void;
@@ -48,6 +63,7 @@ export function DirectorStudio({
 
   // Mode A / B Creation state
   const [createMode, setCreateMode] = useState<'fresh' | 'sequel'>('fresh');
+  const [selectedGenrePreset, setSelectedGenrePreset] = useState<string>('any');
   const [freshPrompt, setFreshPrompt] = useState<string>('');
   const [freshReferenceText, setFreshReferenceText] = useState<string>('');
   const [freshSeriesId, setFreshSeriesId] = useState<string>('');
@@ -55,7 +71,9 @@ export function DirectorStudio({
   const [sequelPrompt, setSequelPrompt] = useState<string>('');
   const [sequelReferenceText, setSequelReferenceText] = useState<string>('');
   const [isWriting, setIsWriting] = useState<boolean>(false);
+  const [writingElapsedSeconds, setWritingElapsedSeconds] = useState<number>(0);
   const [writeError, setWriteError] = useState<string | null>(null);
+  const writingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Workbench Edit state
   const [editedTitle, setEditedTitle] = useState<string>('');
@@ -64,7 +82,9 @@ export function DirectorStudio({
   const [editedCharacters, setEditedCharacters] = useState<CharacterProfile[]>([]);
   const [editedTurns, setEditedTurns] = useState<ScriptTurn[]>([]);
   const [isDirecting, setIsDirecting] = useState<boolean>(false);
+  const [directingElapsedSeconds, setDirectingElapsedSeconds] = useState<number>(0);
   const [directError, setDirectError] = useState<string | null>(null);
+  const directingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
@@ -95,6 +115,28 @@ export function DirectorStudio({
     loadStories();
   }, [loadStories]);
 
+  // Clean up timers on unmount
+  useEffect(() => {
+    return () => {
+      if (writingTimerRef.current) clearInterval(writingTimerRef.current);
+      if (directingTimerRef.current) clearInterval(directingTimerRef.current);
+    };
+  }, []);
+
+  // Prevent accidental navigation or tab closure while generation is active
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isWriting || isDirecting) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [isWriting, isDirecting]);
+
   // Load selected story details into workbench
   const loadStoryIntoWorkbench = useCallback(async (id: string) => {
     setSelectedStoryId(id);
@@ -123,11 +165,28 @@ export function DirectorStudio({
     }
   }, []);
 
+  const handleSelectGenrePreset = (preset: GenrePreset) => {
+    setSelectedGenrePreset(preset.id);
+    if (preset.id === 'any') return;
+    setFreshPrompt((current) => {
+      for (const p of GENRE_PRESETS) {
+        if (p.promptPrefix && current.startsWith(p.promptPrefix)) {
+          return preset.promptPrefix + current.slice(p.promptPrefix.length);
+        }
+      }
+      if (!current.trim()) {
+        return preset.promptPrefix;
+      }
+      return `${preset.promptPrefix}${current}`;
+    });
+  };
+
   const handleStartNewStory = () => {
     setViewMode('create');
     setSelectedStoryId(null);
     setActiveStory(null);
     setWriteError(null);
+    setSelectedGenrePreset('any');
     setFreshPrompt('');
     setFreshReferenceText('');
     setFreshSeriesId('');
@@ -152,6 +211,10 @@ export function DirectorStudio({
     e.preventDefault();
     setIsWriting(true);
     setWriteError(null);
+    setWritingElapsedSeconds(0);
+    writingTimerRef.current = setInterval(() => {
+      setWritingElapsedSeconds((sec) => sec + 1);
+    }, 1000);
 
     try {
       let created: Story;
@@ -192,6 +255,10 @@ export function DirectorStudio({
     } catch (err) {
       setWriteError(err instanceof Error ? err.message : 'Draft generation failed');
     } finally {
+      if (writingTimerRef.current) {
+        clearInterval(writingTimerRef.current);
+        writingTimerRef.current = null;
+      }
       setIsWriting(false);
     }
   };
@@ -227,6 +294,10 @@ export function DirectorStudio({
     if (!activeStory) return;
     setIsDirecting(true);
     setDirectError(null);
+    setDirectingElapsedSeconds(0);
+    directingTimerRef.current = setInterval(() => {
+      setDirectingElapsedSeconds((sec) => sec + 1);
+    }, 1000);
     try {
       // Persist pending workbench edits first so auto-direct acts on latest user prose/characters
       await persistWorkbenchEdits();
@@ -244,6 +315,10 @@ export function DirectorStudio({
     } catch (err) {
       setDirectError(err instanceof Error ? err.message : 'Directing failed');
     } finally {
+      if (directingTimerRef.current) {
+        clearInterval(directingTimerRef.current);
+        directingTimerRef.current = null;
+      }
       setIsDirecting(false);
     }
   };
@@ -467,6 +542,7 @@ export function DirectorStudio({
             type="button"
             className="btn-tactile btn-tactile-primary"
             onClick={handleStartNewStory}
+            disabled={isWriting || isDirecting}
             style={{ width: '100%', marginBottom: '0.75rem' }}
           >
             ➕ New Story
@@ -475,6 +551,7 @@ export function DirectorStudio({
             type="button"
             className="btn-tactile"
             onClick={onNavigateHome}
+            disabled={isWriting || isDirecting}
             style={{ width: '100%', fontSize: '0.8rem' }}
           >
             ← Public Library
@@ -499,12 +576,20 @@ export function DirectorStudio({
           ) : (
             stories.map((item) => {
               const isSelected = selectedStoryId === item.id;
+              const isBusy = isWriting || isDirecting;
               return (
                 <div
                   key={item.id}
                   className={`studio-story-item card-tactile ${isSelected ? 'studio-story-item-active' : ''}`}
-                  onClick={() => loadStoryIntoWorkbench(item.id)}
-                  style={{ cursor: 'pointer', marginBottom: '0.6rem', padding: '0.65rem' }}
+                  onClick={() => {
+                    if (!isBusy) loadStoryIntoWorkbench(item.id);
+                  }}
+                  style={{
+                    cursor: isBusy ? 'not-allowed' : 'pointer',
+                    opacity: isBusy ? 0.7 : 1,
+                    marginBottom: '0.6rem',
+                    padding: '0.65rem',
+                  }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.25rem' }}>
                     <span
@@ -527,9 +612,10 @@ export function DirectorStudio({
                       type="button"
                       className="btn-tactile"
                       style={{ fontSize: '0.7rem', padding: '0.2rem 0.4rem' }}
+                      disabled={isBusy}
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleStartSequel(item.id);
+                        if (!isBusy) handleStartSequel(item.id);
                       }}
                       title="Create sequel episode from this story"
                     >
@@ -553,13 +639,14 @@ export function DirectorStudio({
            * ========================================================= */
           <div className="card-tactile" style={{ padding: '2rem' }}>
             <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.75rem', marginTop: 0 }}>
-              ✍️ Step 1: Write Bedtime Story
+              ✍️ Step 1: Write Story Draft
             </h2>
 
             <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
               <button
                 type="button"
                 className={`btn-tactile ${createMode === 'fresh' ? 'btn-tactile-primary' : ''}`}
+                disabled={isWriting}
                 onClick={() => setCreateMode('fresh')}
               >
                 Mode A: Fresh Story
@@ -567,6 +654,7 @@ export function DirectorStudio({
               <button
                 type="button"
                 className={`btn-tactile ${createMode === 'sequel' ? 'btn-tactile-primary' : ''}`}
+                disabled={isWriting}
                 onClick={() => setCreateMode('sequel')}
               >
                 Mode B: Episode Sequel
@@ -593,15 +681,36 @@ export function DirectorStudio({
               {createMode === 'fresh' ? (
                 <>
                   <div style={{ marginBottom: '1.25rem' }}>
+                    <div style={{ marginBottom: '0.65rem' }}>
+                      <span style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--ink-muted)', marginBottom: '0.35rem' }}>
+                        GENRE &amp; MOOD PRESETS
+                      </span>
+                      <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                        {GENRE_PRESETS.map((preset) => (
+                          <button
+                            key={preset.id}
+                            type="button"
+                            className={`btn-tactile ${selectedGenrePreset === preset.id ? 'btn-tactile-primary' : ''}`}
+                            style={{ fontSize: '0.8rem', padding: '0.25rem 0.55rem' }}
+                            disabled={isWriting}
+                            onClick={() => handleSelectGenrePreset(preset)}
+                          >
+                            {preset.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
                     <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.35rem', fontFamily: 'var(--font-mono)' }}>
                       Story Prompt *
                     </label>
                     <textarea
                       className="input-tactile"
                       style={{ width: '100%', minHeight: '100px', boxSizing: 'border-box' }}
-                      placeholder="e.g. A gentle bedtime story about a sleepy little train that helps tired animals along its tranquil mountain route."
+                      placeholder="e.g. A comedic sci-fi adventure about two quirky space mechanics trying to fix a hiccuping robot on a distant asteroid."
                       value={freshPrompt}
                       onChange={(e) => setFreshPrompt(e.target.value)}
+                      disabled={isWriting}
                       required
                     />
                   </div>
@@ -614,12 +723,13 @@ export function DirectorStudio({
                       type="text"
                       className="input-tactile"
                       style={{ width: '100%', boxSizing: 'border-box' }}
-                      placeholder="e.g. sleepy-train-adventures"
+                      placeholder="e.g. space-mechanics-adventures"
                       value={freshSeriesId}
                       onChange={(e) => setFreshSeriesId(e.target.value)}
+                      disabled={isWriting}
                     />
                     <small style={{ color: 'var(--ink-muted)', display: 'block', marginTop: '0.25rem' }}>
-                      If set, this story initiates Episode #1 of an ongoing bedtime series.
+                      If set, this story initiates Episode #1 of an ongoing series.
                     </small>
                   </div>
 
@@ -633,6 +743,7 @@ export function DirectorStudio({
                       placeholder="Optional world details, poem verses, or character backstory to weave into the story."
                       value={freshReferenceText}
                       onChange={(e) => setFreshReferenceText(e.target.value)}
+                      disabled={isWriting}
                     />
                   </div>
                 </>
@@ -647,6 +758,7 @@ export function DirectorStudio({
                       style={{ width: '100%', boxSizing: 'border-box' }}
                       value={sequelPreviousStoryId}
                       onChange={(e) => setSequelPreviousStoryId(e.target.value)}
+                      disabled={isWriting}
                       required
                     >
                       <option value="">Select a prior story...</option>
@@ -668,9 +780,10 @@ export function DirectorStudio({
                     <textarea
                       className="input-tactile"
                       style={{ width: '100%', minHeight: '100px', boxSizing: 'border-box' }}
-                      placeholder="e.g. In tonight's journey, the sleepy train climbs Star Mountain where constellations guide the way to peaceful slumber."
+                      placeholder="e.g. In tonight's journey, the space mechanics arrive at Nebula Station, only to discover the robot's hiccups are transmitting an alien disco beat across the sector."
                       value={sequelPrompt}
                       onChange={(e) => setSequelPrompt(e.target.value)}
+                      disabled={isWriting}
                       required
                     />
                   </div>
@@ -682,9 +795,10 @@ export function DirectorStudio({
                     <textarea
                       className="input-tactile"
                       style={{ width: '100%', minHeight: '80px', boxSizing: 'border-box' }}
-                      placeholder="Optional scene notes or specific bedtime motifs."
+                      placeholder="Optional scene notes, character dynamics, or specific narrative motifs."
                       value={sequelReferenceText}
                       onChange={(e) => setSequelReferenceText(e.target.value)}
+                      disabled={isWriting}
                     />
                   </div>
                 </>
@@ -696,8 +810,37 @@ export function DirectorStudio({
                 disabled={isWriting}
                 style={{ fontSize: '1rem', padding: '0.75rem 1.5rem' }}
               >
-                {isWriting ? '✍️ Writing Draft with Gemini 3.8...' : '✍️ 1. Write Story Draft'}
+                {isWriting
+                  ? `✍️ Writing Draft... (${writingElapsedSeconds}s)`
+                  : '✍️ 1. Write Story Draft'}
               </button>
+
+              {isWriting && (
+                <div
+                  className="card-tactile tactile-progress-card"
+                  role="status"
+                  aria-live="polite"
+                  style={{
+                    marginTop: '1.25rem',
+                    padding: '1.25rem',
+                    border: '2px solid var(--accent-module)',
+                    backgroundColor: 'var(--accent-module-bg)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
+                    <span className="spinner-tactile" style={{ fontSize: '1.2rem' }}>✍️</span>
+                    <strong style={{ fontSize: '1rem', color: 'var(--ink-primary)' }}>
+                      Drafting story with Gemini 3.8 Flash... {writingElapsedSeconds}s
+                    </strong>
+                  </div>
+                  <p style={{ margin: '0 0 0.75rem 0', fontSize: '0.85rem', color: 'var(--ink-muted)' }}>
+                    ✍️ Drafting story with Gemini 3.8 Flash... {writingElapsedSeconds}s (typically 8–15s). Creating characters and script turns. Please keep this tab open.
+                  </p>
+                  <div className="tactile-progress-bar-container">
+                    <div className="tactile-progress-bar-indeterminate" />
+                  </div>
+                </div>
+              )}
             </form>
           </div>
         ) : loadingStory ? (
@@ -740,6 +883,7 @@ export function DirectorStudio({
                     type="button"
                     className="btn-tactile"
                     onClick={() => handleStartSequel(activeStory.id)}
+                    disabled={isDirecting}
                     title="Start next sequel episode"
                   >
                     Start Sequel
@@ -749,7 +893,7 @@ export function DirectorStudio({
                     type="button"
                     className={`btn-tactile ${activeStory.status === 'draft' ? 'btn-tactile-published' : ''}`}
                     onClick={handleToggleStatus}
-                    disabled={isPublishing || isPublishDisabled}
+                    disabled={isPublishing || isPublishDisabled || isDirecting}
                     title={isPublishDisabled ? 'Cannot publish story with 0 audio versions' : undefined}
                   >
                     {isPublishing
@@ -764,6 +908,7 @@ export function DirectorStudio({
                       type="button"
                       className="btn-tactile"
                       style={{ color: 'var(--accent-state)' }}
+                      disabled={isDirecting}
                       onClick={() => setShowDeleteConfirm(true)}
                     >
                       🗑 Delete Story
@@ -778,13 +923,14 @@ export function DirectorStudio({
                         className="btn-tactile"
                         style={{ color: 'var(--accent-state)', borderColor: 'var(--accent-state)' }}
                         onClick={handleDeleteStory}
-                        disabled={isDeleting}
+                        disabled={isDeleting || isDirecting}
                       >
                         {isDeleting ? 'Deleting...' : 'Confirm'}
                       </button>
                       <button
                         type="button"
                         className="btn-tactile"
+                        disabled={isDirecting}
                         onClick={() => setShowDeleteConfirm(false)}
                       >
                         Cancel
@@ -828,7 +974,7 @@ export function DirectorStudio({
                     🎬 Step 2: Auto-Direct Voices &amp; Pacing
                   </h3>
                   <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--ink-muted)' }}>
-                    Instructs Gemini 3.8 Flash to annotate turns with acting styles, insert natural vocal tags, and propose voice designs. Spoken words are preserved verbatim.
+                    Instructs Gemini 3.8 Flash to annotate turns with emotional acting styles, insert natural vocal tags, and propose voice designs matching the story&apos;s genre. Spoken words are preserved verbatim.
                   </p>
                 </div>
                 <button
@@ -837,7 +983,9 @@ export function DirectorStudio({
                   onClick={handleAutoDirect}
                   disabled={isDirecting}
                 >
-                  {isDirecting ? '🎬 Directing Script...' : '🎬 2. Auto-Direct Voices & Pacing'}
+                  {isDirecting
+                    ? `🎬 Directing Script... (${directingElapsedSeconds}s)`
+                    : '🎬 2. Auto-Direct Voices & Pacing'}
                 </button>
               </div>
 
@@ -845,6 +993,33 @@ export function DirectorStudio({
                 <p style={{ margin: '0.5rem 0 0 0', color: 'var(--accent-state)', fontSize: '0.85rem' }}>
                   ⚠️ {directError}
                 </p>
+              )}
+
+              {isDirecting && (
+                <div
+                  className="card-tactile tactile-progress-card"
+                  role="status"
+                  aria-live="polite"
+                  style={{
+                    marginTop: '1rem',
+                    padding: '1.25rem',
+                    border: '2px solid var(--accent-module)',
+                    backgroundColor: 'var(--accent-module-bg)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
+                    <span className="spinner-tactile" style={{ fontSize: '1.2rem' }}>🎬</span>
+                    <strong style={{ fontSize: '1rem', color: 'var(--ink-primary)' }}>
+                      Directing vocal expressions and pacing with Gemini 3.8 Flash... {directingElapsedSeconds}s
+                    </strong>
+                  </div>
+                  <p style={{ margin: '0 0 0.75rem 0', fontSize: '0.85rem', color: 'var(--ink-muted)' }}>
+                    🎬 Directing vocal expressions and pacing with Gemini 3.8 Flash... {directingElapsedSeconds}s (typically 5–12s). Adding emotional cues and audio tags.
+                  </p>
+                  <div className="tactile-progress-bar-container">
+                    <div className="tactile-progress-bar-indeterminate" />
+                  </div>
+                </div>
               )}
             </div>
 

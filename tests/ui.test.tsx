@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { useState } from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { AudioVersion, CatalogItem, Story } from '../shared/types';
 import { StoryReader } from '../client/components/StoryReader';
@@ -917,6 +917,259 @@ describe('Phase 3 Admin Studio & UI Components', () => {
       await waitFor(() => {
         expect(audioElement).toHaveAttribute('src', '/api/stories/phase4-test-story/audios/v2-cast-test.wav');
       });
+    });
+  });
+
+  /* =========================================================================
+   * Phase 6: Multi-Genre Freedom, Generation UX State & Compact Mobile Player
+   * ========================================================================= */
+  describe('Phase 6 UI Tests: Multi-Genre Freedom, Generation Progress & Compact Mobile Player', () => {
+    const adminSessionFixture: clientApi.AdminSession = {
+      authenticated: true,
+      email: 'curator@storyteller.studio',
+      devBypassEnabled: true,
+    };
+
+    it('Masthead displays updated multi-genre subtitle', () => {
+      render(<Masthead />);
+      expect(
+        screen.getByText(/Expressive Narratives, Character Voices & Tactile Audio/i)
+      ).toBeInTheDocument();
+    });
+
+    it('DirectorStudio provides Genre & Mood preset pills that update the prompt input', async () => {
+      vi.spyOn(clientApi, 'fetchAdminStories').mockResolvedValue([]);
+
+      render(
+        <DirectorStudio
+          session={adminSessionFixture}
+          onLogout={() => {}}
+          onNavigateHome={() => {}}
+        />
+      );
+
+      // Verify Step 1 Header is updated
+      expect(screen.getByRole('heading', { name: /Step 1: Write Story Draft/i })).toBeInTheDocument();
+
+      // Check genre preset pills exist
+      const humorPill = screen.getByRole('button', { name: /Fun & Humorous/i });
+      const scifiPill = screen.getByRole('button', { name: /Adventure & Sci-Fi/i });
+      expect(humorPill).toBeInTheDocument();
+      expect(scifiPill).toBeInTheDocument();
+
+      const promptTextarea = screen.getByPlaceholderText(/A comedic sci-fi adventure/i);
+      expect(promptTextarea).toHaveValue('');
+
+      // Click Fun & Humorous
+      fireEvent.click(humorPill);
+      expect(promptTextarea).toHaveValue('A funny, comedic adventure with witty banter and playful chaos: ');
+      expect(humorPill).toHaveClass('btn-tactile-primary');
+
+      // Click Adventure & Sci-Fi -> replaces prefix
+      fireEvent.click(scifiPill);
+      expect(promptTextarea).toHaveValue('An exciting, fast-paced sci-fi adventure exploring unknown worlds: ');
+      expect(scifiPill).toHaveClass('btn-tactile-primary');
+      expect(humorPill).not.toHaveClass('btn-tactile-primary');
+    });
+
+    it('DirectorStudio shows prominent animated progress card and disables inputs during writing', async () => {
+      vi.spyOn(clientApi, 'fetchAdminStories').mockResolvedValue([]);
+      // Mock writeStoryDraft with delayed promise to inspect busy state
+      let resolveWrite: (val: any) => void;
+      const writePromise = new Promise((resolve) => {
+        resolveWrite = resolve;
+      });
+      vi.spyOn(clientApi, 'writeStoryDraft').mockReturnValue(writePromise as any);
+
+      render(
+        <DirectorStudio
+          session={adminSessionFixture}
+          onLogout={() => {}}
+          onNavigateHome={() => {}}
+        />
+      );
+
+      const promptTextarea = screen.getByPlaceholderText(/A comedic sci-fi adventure/i);
+      fireEvent.change(promptTextarea, { target: { value: 'Comedic space robot mystery' } });
+
+      const submitBtn = screen.getByRole('button', { name: /1\. Write Story Draft/i });
+      fireEvent.click(submitBtn);
+
+      // Verify inputs and buttons are disabled during writing
+      await waitFor(() => {
+        expect(promptTextarea).toBeDisabled();
+        expect(submitBtn).toBeDisabled();
+        expect(screen.getByRole('status')).toBeInTheDocument();
+      });
+
+      const statusCard = screen.getByRole('status');
+      expect(statusCard).toHaveTextContent(/Drafting story with Gemini 3.8 Flash/i);
+      expect(statusCard).toHaveTextContent(/Please keep this tab open/i);
+
+      // Resolve the draft
+      await act(async () => {
+        resolveWrite!({
+          id: 'new-robot-story',
+          title: 'New Robot Story',
+          summary: 'Summary',
+          tags: ['comedy'],
+          characters: [],
+          script_turns: [
+            { turn_id: 1, speaker: 'Narrator', style: '', text: 'Turn 1' },
+            { turn_id: 2, speaker: 'Narrator', style: '', text: 'Turn 2' },
+          ],
+          audio_versions: [],
+        });
+      });
+
+      await waitFor(() => {
+        expect(screen.queryByRole('status')).not.toBeInTheDocument();
+      });
+    });
+
+    it('VoiceStudioPanel defaults to "Solo Narration" and "Full Cast Audio", and shows animated progress card during synthesis', async () => {
+      const mockVoices = [
+        {
+          id: 'prebuilt-kore',
+          label: 'Kore (Warm Prebuilt)',
+          source: 'prebuilt' as const,
+          gemini_voice_name: 'Kore',
+          description: 'Warm, clear, expressive storytelling voice',
+          language_code: 'en-US',
+          tags: ['warm', 'expressive', 'storytelling'],
+          created_at: new Date().toISOString(),
+        },
+      ];
+      vi.spyOn(clientApi, 'fetchVoices').mockResolvedValue(mockVoices);
+
+      const phase6Story: Story = {
+        id: 'phase6-test-story',
+        status: 'draft',
+        title: 'Minions Adventure',
+        summary: 'A funny adventure.',
+        tags: ['humor', 'adventure'],
+        series_context: null,
+        characters: [{ name: 'Bob', traits: 'Playful minion' }],
+        script_turns: [
+          { turn_id: 1, speaker: 'Narrator', style: '', text: 'Banana time!' },
+          { turn_id: 2, speaker: 'Bob', style: '', text: 'Bello!' },
+        ],
+        voice_candidates: [],
+        audio_versions: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      let resolveSynth: (val: any) => void;
+      const synthPromise = new Promise((resolve) => {
+        resolveSynth = resolve;
+      });
+      vi.spyOn(clientApi, 'synthesizeStoryAudio').mockReturnValue(synthPromise as any);
+
+      render(
+        <VoiceStudioPanel
+          story={phase6Story}
+          onStoryUpdated={() => {}}
+        />
+      );
+
+      // Default version label in Solo mode is "Solo Narration"
+      await waitFor(() => {
+        const labelInput = screen.getByPlaceholderText(/e\.g\. Solo Narration/i);
+        expect(labelInput).toHaveValue('Solo Narration');
+      });
+
+      // Switch to Cast mode -> label updates to "Full Cast Audio"
+      const castBtn = screen.getByText(/Multi-Speaker Cast/i);
+      fireEvent.click(castBtn);
+
+      const labelInput = screen.getByPlaceholderText(/e\.g\. Solo Narration/i);
+      expect(labelInput).toHaveValue('Full Cast Audio');
+
+      // Click Synthesize
+      const synthBtn = screen.getByRole('button', { name: /3\. Synthesize & Publish Audio/i });
+      fireEvent.click(synthBtn);
+
+      // Progress card rendered, controls disabled
+      await waitFor(() => {
+        expect(synthBtn).toBeDisabled();
+        expect(labelInput).toBeDisabled();
+        expect(screen.getByRole('status')).toBeInTheDocument();
+      });
+
+      const progressCard = screen.getByRole('status');
+      expect(progressCard).toHaveTextContent(/Synthesizing audio turns with Gemini 3.8 Flash TTS/i);
+      expect(progressCard).toHaveTextContent(/Please keep this tab open/i);
+
+      // Complete synthesis
+      await act(async () => {
+        resolveSynth!({
+          ...phase6Story,
+          status: 'published',
+          audio_versions: [
+            {
+              version_id: 'v1-cast',
+              label: 'Full Cast Audio',
+              casting: { mode: 'cast', narrator_voice_id: 'prebuilt-kore', character_voices: { Bob: 'prebuilt-kore' } },
+              is_default: true,
+              duration_sec: 45,
+              audio_url: '/api/stories/phase6-test-story/audios/v1-cast.wav',
+              created_at: new Date().toISOString(),
+            },
+          ],
+        });
+      });
+
+      await waitFor(() => {
+        expect(screen.queryByRole('status')).not.toBeInTheDocument();
+      });
+    });
+
+    it('AudioPlayerBar renders 2-layer compact structure with .docked-audio-main-row and .player-scrub-section', () => {
+      const sampleStory: Story = {
+        id: 'player-test-story',
+        status: 'published',
+        title: 'Compact Audio Story',
+        summary: 'Testing mobile layout',
+        tags: ['audio'],
+        series_context: null,
+        characters: [],
+        script_turns: [],
+        voice_candidates: [],
+        audio_versions: [
+          {
+            version_id: 'v1',
+            label: 'Solo Narration',
+            casting: { mode: 'solo', narrator_voice_id: 'prebuilt-kore', character_voices: {} },
+            is_default: true,
+            duration_sec: 120,
+            audio_url: '/api/stories/player-test-story/audios/v1.wav',
+            created_at: new Date().toISOString(),
+          },
+        ],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      const { container } = render(
+        <AudioPlayerBar
+          story={sampleStory}
+          activeVersion={sampleStory.audio_versions[0]}
+          onVersionChange={() => {}}
+        />
+      );
+
+      // Verify 2 compact layers exist
+      const scrubSection = container.querySelector('.player-scrub-section');
+      expect(scrubSection).not.toBeNull();
+
+      const mainRow = container.querySelector('.docked-audio-main-row');
+      expect(mainRow).not.toBeNull();
+
+      // Main row contains track info, main controls, and meta controls
+      expect(mainRow?.querySelector('.player-track-info')).not.toBeNull();
+      expect(mainRow?.querySelector('.player-main-controls')).not.toBeNull();
+      expect(mainRow?.querySelector('.player-meta-controls')).not.toBeNull();
     });
   });
 });

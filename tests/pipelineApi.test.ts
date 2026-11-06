@@ -506,4 +506,36 @@ describe('Phase 3: Admin Studio & Writer-Director Pipeline Integration Tests', (
     // Throws ValidationError on malformed JSON
     expect(() => parseLLMJson('{"incomplete": true,', 'test')).toThrow(ValidationError);
   });
+
+  /* -------------------------------------------------------------------------
+   * Phase 6: Multi-Genre Freedom in Story Generation & Directing
+   * ----------------------------------------------------------------------- */
+  it('supports non-bedtime comedic, sci-fi, and adventure prompts without bedtime forcing', async () => {
+    const app = createTestApp();
+    const adminCookie = getAdminCookie();
+
+    const genrePrompt = 'A witty, fast-paced comedic sci-fi adventure about two space mechanics fixing a robot';
+    const res = await request(app)
+      .post('/api/admin/stories/write')
+      .set('Cookie', [adminCookie])
+      .send({
+        mode: 'fresh',
+        prompt: genrePrompt,
+        seriesId: 'space-mechanics',
+      });
+
+    expect(res.status).toBe(201);
+    expect(lastWriterDraftInput).not.toBeNull();
+    expect(lastWriterDraftInput?.prompt).toBe(genrePrompt);
+    expect(res.body.series_context?.series_id).toBe('space-mechanics');
+
+    // Directing preserves comedic/dynamic voice acting and pacing
+    const directRes = await request(app)
+      .post(`/api/admin/stories/${res.body.id}/direct`)
+      .set('Cookie', [adminCookie]);
+
+    expect(directRes.status).toBe(200);
+    expect(lastDirectScriptInput).not.toBeNull();
+    expect(lastDirectScriptInput?.title).toBe(res.body.title);
+  });
 });

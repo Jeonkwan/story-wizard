@@ -130,8 +130,22 @@ export function VoiceStudioPanel({
         : voices.find((v) => v.id === 'prebuilt-kore')?.id || voices[0].id;
       setNarratorVoiceId(defaultVoice);
     }
-    setVersionLabel(castingMode === 'solo' ? 'Bedtime Solo' : 'Bedtime Cast');
+    setVersionLabel(castingMode === 'solo' ? 'Solo Narration' : 'Full Cast Audio');
   }, [story.id, stopAudition]);
+
+  // Prevent accidental navigation or tab closure while synthesis is active
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isSynthesizing) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [isSynthesizing]);
 
   // Initialize casting defaults once voices are loaded or characters change
   useEffect(() => {
@@ -164,7 +178,7 @@ export function VoiceStudioPanel({
     });
 
     if (!versionLabel) {
-      setVersionLabel(castingMode === 'solo' ? 'Bedtime Solo' : 'Bedtime Cast');
+      setVersionLabel(castingMode === 'solo' ? 'Solo Narration' : 'Full Cast Audio');
     }
   }, [voices, story.series_context?.preferred_voice_id, story.characters, narratorVoiceId, versionLabel, castingMode]);
 
@@ -254,10 +268,10 @@ export function VoiceStudioPanel({
   // Mode toggle with default label sync
   const handleToggleCastingMode = (newMode: 'solo' | 'cast') => {
     setCastingMode(newMode);
-    if (newMode === 'cast' && versionLabel === 'Bedtime Solo') {
-      setVersionLabel('Bedtime Cast');
-    } else if (newMode === 'solo' && versionLabel === 'Bedtime Cast') {
-      setVersionLabel('Bedtime Solo');
+    if (newMode === 'cast' && (versionLabel === 'Solo Narration' || versionLabel === 'Bedtime Solo' || !versionLabel)) {
+      setVersionLabel('Full Cast Audio');
+    } else if (newMode === 'solo' && (versionLabel === 'Full Cast Audio' || versionLabel === 'Bedtime Cast' || !versionLabel)) {
+      setVersionLabel('Solo Narration');
     }
   };
 
@@ -301,7 +315,7 @@ export function VoiceStudioPanel({
 
       const updatedStory = await synthesizeStoryAudio(story.id, {
         casting,
-        label: versionLabel.trim() || (castingMode === 'solo' ? 'Bedtime Solo' : 'Bedtime Cast'),
+        label: versionLabel.trim() || (castingMode === 'solo' ? 'Solo Narration' : 'Full Cast Audio'),
         makeDefault: setAsDefault,
       });
 
@@ -360,7 +374,7 @@ export function VoiceStudioPanel({
               🎙️ Step 3: Voice Audition, Synthesis &amp; Versions
             </h3>
             <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.85rem', color: 'var(--ink-muted)' }}>
-              Audition voices with Gemini 3.8 Flash-Lite TTS, cast characters, and synthesize full bedtime studio audio.
+              Audition voices with Gemini 3.8 Flash-Lite TTS, cast characters, and synthesize full studio audio.
             </p>
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
@@ -411,6 +425,7 @@ export function VoiceStudioPanel({
             type="button"
             className="btn-tactile"
             style={{ fontSize: '0.8rem', padding: '0.25rem 0.65rem' }}
+            disabled={isSynthesizing}
             onClick={() => setShowVoiceDesigner(!showVoiceDesigner)}
           >
             {showVoiceDesigner ? '✕ Cancel Voice Design' : '✨ Design Custom Voice'}
@@ -438,6 +453,7 @@ export function VoiceStudioPanel({
                 placeholder="e.g. Grandma Willow"
                 value={newVoiceLabel}
                 onChange={(e) => setNewVoiceLabel(e.target.value)}
+                disabled={isSynthesizing || isCreatingVoice}
                 required
               />
             </div>
@@ -448,9 +464,10 @@ export function VoiceStudioPanel({
               <textarea
                 className="input-tactile"
                 style={{ width: '100%', minHeight: '60px', boxSizing: 'border-box' }}
-                placeholder="e.g. Warm, elderly grandmother with a gentle cadence and soothing bedtime chuckle."
+                placeholder="e.g. Warm, elderly grandmother who speaks in a gentle, reassuring tone with expressive storytelling cadence."
                 value={newVoiceDescription}
                 onChange={(e) => setNewVoiceDescription(e.target.value)}
+                disabled={isSynthesizing || isCreatingVoice}
                 required
               />
             </div>
@@ -458,7 +475,7 @@ export function VoiceStudioPanel({
               <button
                 type="button"
                 className="btn-tactile"
-                disabled={!newVoiceDescription.trim()}
+                disabled={isSynthesizing || !newVoiceDescription.trim()}
                 onClick={() =>
                   handlePlayAudition('custom-design-preview', {
                     description: newVoiceDescription.trim(),
@@ -470,7 +487,7 @@ export function VoiceStudioPanel({
               <button
                 type="submit"
                 className="btn-tactile btn-tactile-primary"
-                disabled={isCreatingVoice || !newVoiceLabel.trim() || !newVoiceDescription.trim()}
+                disabled={isSynthesizing || isCreatingVoice || !newVoiceLabel.trim() || !newVoiceDescription.trim()}
               >
                 {isCreatingVoice ? '💾 Creating Voice...' : '💾 Save to Voice Library'}
               </button>
@@ -504,6 +521,7 @@ export function VoiceStudioPanel({
                       type="button"
                       className="btn-tactile"
                       style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }}
+                      disabled={isSynthesizing}
                       onClick={() => handlePlayAudition(auditionKey, { description: vc.description })}
                     >
                       {auditioningKey === auditionKey ? '⏹ Stop' : '🔊 5s Preview'}
@@ -512,7 +530,7 @@ export function VoiceStudioPanel({
                       type="button"
                       className="btn-tactile"
                       style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }}
-                      disabled={isSaved}
+                      disabled={isSynthesizing || isSaved}
                       onClick={() => handleSaveCandidate(vc.label, vc.description, vc.suggested_for)}
                     >
                       {isSaved ? '✓ In Library' : '💾 Save to Library'}
@@ -540,6 +558,7 @@ export function VoiceStudioPanel({
           <button
             type="button"
             className={`btn-tactile ${castingMode === 'solo' ? 'btn-tactile-primary' : ''}`}
+            disabled={isSynthesizing}
             onClick={() => handleToggleCastingMode('solo')}
           >
             🎙️ Solo Storyteller
@@ -547,6 +566,7 @@ export function VoiceStudioPanel({
           <button
             type="button"
             className={`btn-tactile ${castingMode === 'cast' ? 'btn-tactile-primary' : ''}`}
+            disabled={isSynthesizing}
             onClick={() => handleToggleCastingMode('cast')}
           >
             🎭 Multi-Speaker Cast ({story.characters.length + 1} Speakers)
@@ -567,6 +587,7 @@ export function VoiceStudioPanel({
                 className="select-tactile"
                 style={{ flex: '1', minWidth: '220px' }}
                 value={narratorVoiceId}
+                disabled={isSynthesizing}
                 onChange={(e) => setNarratorVoiceId(e.target.value)}
               >
                 {voices.map((v) => (
@@ -579,6 +600,7 @@ export function VoiceStudioPanel({
                 type="button"
                 className="btn-tactile"
                 style={{ fontSize: '0.8rem', padding: '0.35rem 0.65rem' }}
+                disabled={isSynthesizing}
                 onClick={() => handlePlayAudition('audition-narrator', { voiceId: narratorVoiceId })}
               >
                 {auditioningKey === 'audition-narrator' ? '⏹ Stop' : '🔊 Preview'}
@@ -616,6 +638,7 @@ export function VoiceStudioPanel({
                           className="select-tactile"
                           style={{ flex: '1', minWidth: '220px' }}
                           value={charVoiceId}
+                          disabled={isSynthesizing}
                           onChange={(e) =>
                             setCharacterVoices({
                               ...characterVoices,
@@ -633,6 +656,7 @@ export function VoiceStudioPanel({
                           type="button"
                           className="btn-tactile"
                           style={{ fontSize: '0.8rem', padding: '0.35rem 0.65rem' }}
+                          disabled={isSynthesizing}
                           onClick={() => handlePlayAudition(auditionKey, { voiceId: charVoiceId })}
                         >
                           {auditioningKey === auditionKey ? '⏹ Stop' : '🔊 Preview'}
@@ -658,7 +682,8 @@ export function VoiceStudioPanel({
               style={{ width: '100%', boxSizing: 'border-box' }}
               value={versionLabel}
               onChange={(e) => setVersionLabel(e.target.value)}
-              placeholder="e.g. Bedtime Solo"
+              disabled={isSynthesizing}
+              placeholder="e.g. Solo Narration"
             />
           </div>
 
@@ -667,9 +692,10 @@ export function VoiceStudioPanel({
               type="checkbox"
               id="set-default-check"
               checked={setAsDefault}
+              disabled={isSynthesizing}
               onChange={(e) => setSetAsDefault(e.target.checked)}
             />
-            <label htmlFor="set-default-check" style={{ fontSize: '0.85rem', cursor: 'pointer' }}>
+            <label htmlFor="set-default-check" style={{ fontSize: '0.85rem', cursor: isSynthesizing ? 'not-allowed' : 'pointer' }}>
               Set as default version
             </label>
           </div>
@@ -686,6 +712,33 @@ export function VoiceStudioPanel({
               : '🎧 3. Synthesize & Publish Audio'}
           </button>
         </div>
+
+        {isSynthesizing && (
+          <div
+            className="card-tactile tactile-progress-card"
+            role="status"
+            aria-live="polite"
+            style={{
+              marginTop: '1rem',
+              padding: '1.25rem',
+              border: '2px solid var(--accent-module)',
+              backgroundColor: 'var(--accent-module-bg)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
+              <span className="spinner-tactile" style={{ fontSize: '1.2rem' }}>🎧</span>
+              <strong style={{ fontSize: '1rem', color: 'var(--ink-primary)' }}>
+                Synthesizing audio turns with Gemini 3.8 Flash TTS... {elapsedSeconds}s
+              </strong>
+            </div>
+            <p style={{ margin: '0 0 0.75rem 0', fontSize: '0.85rem', color: 'var(--ink-muted)' }}>
+              🎧 Synthesizing audio turns with Gemini 3.8 Flash TTS... {elapsedSeconds}s. Producing speech chunks and assembling 24kHz studio WAV. Please keep this tab open.
+            </p>
+            <div className="tactile-progress-bar-container">
+              <div className="tactile-progress-bar-indeterminate" />
+            </div>
+          </div>
+        )}
 
         {synthError && (
           <p style={{ margin: '0.75rem 0 0 0', color: 'var(--accent-state)', fontSize: '0.85rem' }}>
@@ -708,7 +761,7 @@ export function VoiceStudioPanel({
         {story.audio_versions.length === 0 ? (
           <div className="card-tactile" style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--ink-muted)' }}>
             <p style={{ margin: 0, fontStyle: 'italic' }}>
-              No audio versions generated yet. Complete Step 3 above to produce studio bedtime audio.
+              No audio versions generated yet. Complete Step 3 above to produce studio audio.
             </p>
           </div>
         ) : (
@@ -757,6 +810,7 @@ export function VoiceStudioPanel({
                           type="button"
                           className="btn-tactile"
                           style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }}
+                          disabled={isSynthesizing}
                           onClick={() => handleSetDefault(ver.version_id)}
                         >
                           ★ Set Default
@@ -775,7 +829,7 @@ export function VoiceStudioPanel({
                               backgroundColor: 'var(--accent-state-bg)',
                               color: 'var(--accent-state)',
                             }}
-                            disabled={isDeleting}
+                            disabled={isDeleting || isSynthesizing}
                             onClick={() => handleDeleteVersion(ver.version_id)}
                           >
                             {isDeleting ? 'Deleting...' : 'Confirm'}
@@ -784,6 +838,7 @@ export function VoiceStudioPanel({
                             type="button"
                             className="btn-tactile"
                             style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }}
+                            disabled={isSynthesizing}
                             onClick={() => setConfirmDeleteId(null)}
                           >
                             Cancel
@@ -794,6 +849,7 @@ export function VoiceStudioPanel({
                           type="button"
                           className="btn-tactile"
                           style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }}
+                          disabled={isDeleting || isSynthesizing}
                           onClick={() => setConfirmDeleteId(ver.version_id)}
                         >
                           🗑 Delete

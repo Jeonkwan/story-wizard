@@ -61,7 +61,7 @@ export function Masthead({ currentPath = '/', onNavigate }: MastheadProps): Reac
           <span>📖</span> Storyteller Studio
         </h1>
         <p className="masthead-subtitle">
-          Bedtime Narratives, Expressive Character Voices &amp; Tactile Audio
+          Expressive Narratives, Character Voices &amp; Tactile Audio
         </p>
       </div>
 

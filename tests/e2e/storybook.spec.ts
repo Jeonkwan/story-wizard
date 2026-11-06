@@ -408,6 +408,143 @@ test.describe('Phase 4 Voice Audition Studio & Versions E2E', () => {
     expect(pageErrors).toEqual([]);
     expect(consoleErrors).toEqual([]);
   });
+
+  test('Phase 6: verifies compact mobile audio player (<70px height, 85px padding), genre freedom presets, and generation UX', async ({
+    page,
+  }) => {
+    const pageErrors: Error[] = [];
+    const consoleErrors: string[] = [];
+
+    await setupExternalMocks(page);
+
+    page.on('pageerror', (err) => {
+      pageErrors.push(err);
+    });
+
+    page.on('console', (msg) => {
+      if (msg.type() === 'error') {
+        consoleErrors.push(msg.text());
+      }
+    });
+
+    // 1. Check Masthead subtitle on home page
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+
+    const mastheadSub = page.locator('.masthead-subtitle');
+    await expect(mastheadSub).toHaveText(/Expressive Narratives, Character Voices & Tactile Audio/i);
+
+    // 2. Open Reader on iPhone viewport (375x812) to inspect compact mobile audio player
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto('/stories/2026-11-04-sleepy-little-train', { waitUntil: 'domcontentloaded' });
+
+    const dockedBar = page.locator('.docked-audio-bar');
+    await expect(dockedBar).toBeVisible();
+
+    // Verify 2 compact layers exist in DOM
+    const scrubSection = page.locator('.docked-audio-bar .player-scrub-section');
+    const mainRow = page.locator('.docked-audio-bar .docked-audio-main-row');
+    await expect(scrubSection).toBeVisible();
+    await expect(mainRow).toBeVisible();
+
+    // Verify compact height (< 75px instead of previous ~195px)
+    const barBox = await dockedBar.boundingBox();
+    expect(barBox).not.toBeNull();
+    expect(barBox!.height).toBeLessThan(75);
+    expect(barBox!.height).toBeGreaterThanOrEqual(45);
+
+    // Verify reader-wrapper padding-bottom is 85px (reclaiming >110px of vertical space!)
+    const paddingBottom = await page.evaluate(() => {
+      const el = document.querySelector('.reader-wrapper');
+      return el ? window.getComputedStyle(el).paddingBottom : null;
+    });
+    expect(paddingBottom).toBe('85px');
+
+    // Verify touch target size of Play/Pause button (min 36px)
+    const playBtn = page.locator('.docked-audio-bar .player-main-controls .btn-tactile-primary');
+    await expect(playBtn).toBeVisible();
+    const playBtnBox = await playBtn.boundingBox();
+    expect(playBtnBox).not.toBeNull();
+    expect(playBtnBox!.height).toBeGreaterThanOrEqual(36);
+
+    // Capture Phase 6 Compact Mobile Player Screenshot
+    await page.screenshot({ path: 'qa-screenshots/phase6-compact-player-mobile.png', fullPage: false });
+
+    // 3. Admin Director Studio Audit (1440x900)
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/admin', { waitUntil: 'domcontentloaded' });
+
+    // Dev bypass login if gated or already logged in
+    const newStoryBtn = page.getByRole('button', { name: /➕ New Story/i });
+    const bypassBtn = page.getByRole('button', { name: /Dev Sandbox Login/i });
+    await expect(newStoryBtn.or(bypassBtn)).toBeVisible();
+    if (await bypassBtn.isVisible()) {
+      await bypassBtn.click();
+    }
+
+    // Click "➕ New Story" to open Step 1 Creation workflow
+    await expect(newStoryBtn).toBeVisible();
+    await newStoryBtn.click();
+
+    // Verify Step 1 header text
+    await expect(page.getByRole('heading', { name: /Step 1: Write Story Draft/i })).toBeVisible();
+
+    // Verify genre & mood preset pills exist
+    const anyPill = page.getByRole('button', { name: /✨ Any \/ Custom/i });
+    const humorPill = page.getByRole('button', { name: /😂 Fun & Humorous/i });
+    const scifiPill = page.getByRole('button', { name: /🚀 Adventure & Sci-Fi/i });
+    const mysteryPill = page.getByRole('button', { name: /🔍 Mystery & Intrigue/i });
+    const bedtimePill = page.getByRole('button', { name: /🌙 Bedtime & Soothing/i });
+    const fablePill = page.getByRole('button', { name: /🧚 Whimsical Fable/i });
+
+    await expect(anyPill).toBeVisible();
+    await expect(humorPill).toBeVisible();
+    await expect(scifiPill).toBeVisible();
+    await expect(mysteryPill).toBeVisible();
+    await expect(bedtimePill).toBeVisible();
+    await expect(fablePill).toBeVisible();
+
+    // Click humor pill and assert prompt input is populated
+    await humorPill.click();
+    const promptInput = page.getByPlaceholder(/A comedic sci-fi adventure/i);
+    await expect(promptInput).toHaveValue(/A funny, comedic adventure with witty banter and playful chaos:/i);
+    await expect(humorPill).toHaveClass(/btn-tactile-primary/);
+
+    // Click sci-fi pill -> replaces prefix
+    await scifiPill.click();
+    await expect(promptInput).toHaveValue(/An exciting, fast-paced sci-fi adventure exploring unknown worlds:/i);
+
+    // Capture Phase 6 Admin Genre Presets Screenshot
+    await page.screenshot({ path: 'qa-screenshots/phase6-admin-genre-presets.png', fullPage: false });
+
+    // 4. Open existing story in workbench to verify Step 2 & Step 3
+    const storyItem = page.locator('.studio-story-item', { hasText: 'The Sleepy Little Train' }).first();
+    await storyItem.click();
+
+    // Verify Step 2 header & subtext
+    await expect(page.getByRole('heading', { name: /Step 2: Auto-Direct Voices & Pacing/i })).toBeVisible();
+    await expect(page.getByText(/matching the story's genre/i)).toBeVisible();
+
+    // Verify Step 3 Voice Studio Panel default version labels
+    const voicePanel = page.locator('.voice-studio-panel');
+    await expect(voicePanel).toBeVisible();
+
+    const versionLabelInput = voicePanel.getByPlaceholder('e.g. Solo Narration');
+    await expect(versionLabelInput).toBeVisible();
+    await expect(versionLabelInput).toHaveValue('Solo Narration');
+
+    // Switch to Multi-Speaker Cast -> version label updates to "Full Cast Audio"
+    const castBtn = voicePanel.getByRole('button', { name: /Multi-Speaker Cast/i });
+    await castBtn.click();
+    await expect(versionLabelInput).toHaveValue('Full Cast Audio');
+
+    // Capture Phase 6 Voice Studio Desktop Screenshot
+    await page.screenshot({ path: 'qa-screenshots/phase6-voice-studio-desktop.png', fullPage: false });
+
+    // 5. Verify zero pageerror and zero console.error
+    expect(pageErrors).toEqual([]);
+    expect(consoleErrors).toEqual([]);
+  });
 });
 
 

@@ -176,8 +176,8 @@ export interface SynthesizeStoryInput {
   makeDefault?: boolean;
 }
 
-const DEFAULT_BEDTIME_SAMPLE =
-  'The sleepy little moon smiled down on the quiet valley, whispering a gentle goodnight to all the dreaming trees.';
+export const DEFAULT_VOICE_SAMPLE =
+  'The warm morning sun peeked over the emerald hills, welcoming adventurers to a brand new chapter full of wonder, humor, and discovery.';
 
 export const DEFAULT_PREBUILT_VOICES: VoiceEntry[] = [
   {
@@ -185,9 +185,9 @@ export const DEFAULT_PREBUILT_VOICES: VoiceEntry[] = [
     label: 'Kore (Warm Prebuilt)',
     source: 'prebuilt',
     gemini_voice_name: 'Kore',
-    description: 'Warm, calm, soothing female bedtime voice',
+    description: 'Warm, clear, expressive storytelling voice',
     language_code: 'en-US',
-    tags: ['warm', 'bedtime', 'female'],
+    tags: ['warm', 'expressive', 'storytelling'],
     created_at: '2026-11-04T00:00:00.000Z',
   },
   {
@@ -254,7 +254,7 @@ export class GeminiTtsService {
   async previewVoice(input: PreviewVoiceInput): Promise<Buffer> {
     const rawSample = input.sampleText && input.sampleText.trim()
       ? input.sampleText.trim()
-      : DEFAULT_BEDTIME_SAMPLE;
+      : DEFAULT_VOICE_SAMPLE;
     const clampedSample = rawSample.slice(0, 220);
 
     let speechConfig: SpeechConfigPayload;
@@ -266,7 +266,7 @@ export class GeminiTtsService {
       if (!voice) {
         throw new ValidationError(`Voice not found: "${input.voiceId}"`);
       }
-      const style = (input.description || voice.description || 'Warm, calm bedtime storytelling cadence').slice(0, 200);
+      const style = (input.description || voice.description || 'Warm, clear, expressive storytelling cadence').slice(0, 200);
       speechConfig = {
         voiceConfig: toGeminiVoiceConfig(voice),
       };
@@ -449,8 +449,8 @@ export class GeminiTtsService {
             const charTrait = characterMap.get(t.speaker);
             const effectiveStyle =
               t.speaker === 'Narrator'
-                ? t.style || 'Warm, calm bedtime storytelling cadence'
-                : `Speaking dialogue as ${t.speaker}${charTrait ? ` (${charTrait})` : ''}: ${t.style || 'expressive, gentle'}`;
+                ? t.style || 'Warm, clear, expressive storytelling cadence'
+                : `Speaking dialogue as ${t.speaker}${charTrait ? ` (${charTrait})` : ''}: ${t.style || 'expressive, dynamic'}`;
             return {
               text: t.text,
               speechMetadata: {
@@ -480,8 +480,8 @@ export class GeminiTtsService {
           const charTrait = characterMap.get(t.speaker);
           const effectiveStyle =
             t.speaker === 'Narrator'
-              ? t.style || 'Warm, calm bedtime storytelling cadence'
-              : `Speaking dialogue as ${t.speaker}${charTrait ? ` (${charTrait})` : ''}: ${t.style || 'expressive, gentle'}`;
+              ? t.style || 'Warm, clear, expressive storytelling cadence'
+              : `Speaking dialogue as ${t.speaker}${charTrait ? ` (${charTrait})` : ''}: ${t.style || 'expressive, dynamic'}`;
           return {
             text: t.text,
             speechMetadata: {
@@ -547,7 +547,7 @@ export class GeminiTtsService {
             text: t.text,
             speechMetadata: {
               speaker: t.speaker,
-              style: t.style || 'Warm, calm bedtime storytelling cadence',
+              style: t.style || 'Warm, clear, expressive storytelling cadence',
             },
           }));
 
@@ -594,7 +594,7 @@ export class GeminiTtsService {
           text: t.text,
           speechMetadata: {
             speaker: t.speaker,
-            style: t.style || 'Warm, calm bedtime storytelling cadence',
+            style: t.style || 'Warm, clear, expressive storytelling cadence',
           },
         }));
 

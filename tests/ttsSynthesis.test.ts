@@ -72,9 +72,9 @@ describe('Phase 4: Gemini 3.8 TTS Engine, Voice Studio & Version Management', ()
         label: 'Kore (Warm Prebuilt)',
         source: 'prebuilt',
         gemini_voice_name: 'Kore',
-        description: 'Warm, calm, soothing female bedtime voice',
+        description: 'Warm, clear, expressive storytelling voice',
         language_code: 'en-US',
-        tags: ['warm', 'bedtime', 'female'],
+        tags: ['warm', 'expressive', 'storytelling'],
         created_at: new Date().toISOString(),
       },
       {
@@ -596,5 +596,59 @@ describe('Phase 4: Gemini 3.8 TTS Engine, Voice Studio & Version Management', ()
     } finally {
       await fs.promises.rm(emptyTmpDir, { recursive: true, force: true });
     }
+  });
+
+  /* -------------------------------------------------------------------------
+   * Phase 6: Voice Sample & Fallback Storytelling Cadence Tests
+   * ----------------------------------------------------------------------- */
+  it('Phase 6: uses DEFAULT_VOICE_SAMPLE and Warm, clear, expressive storytelling cadence as fallback', async () => {
+    // 1. Preview with omitted sampleText -> verify DEFAULT_VOICE_SAMPLE is synthesized
+    const previewRes = await request(app)
+      .post('/api/admin/voices/preview')
+      .set('Cookie', adminCookie)
+      .send({
+        voiceId: 'prebuilt-kore',
+      });
+
+    expect(previewRes.status).toBe(200);
+    const lastPreviewCall = mockTts.synthesizeCalls[mockTts.synthesizeCalls.length - 1];
+    expect(lastPreviewCall.parts[0].text).toContain('The warm morning sun peeked over the emerald hills');
+    expect(lastPreviewCall.parts[0].speechMetadata?.style).toContain('expressive');
+
+    // 2. Synthesize story turn with undefined style -> fallback to expressive storytelling cadence
+    const genreStory: Story = {
+      id: 'phase6-genre-story',
+      status: 'draft',
+      title: 'Galactic Hitchhikers',
+      summary: 'A fast-paced sci-fi buddy comedy.',
+      tags: ['comedy', 'sci-fi'],
+      series_context: null,
+      characters: [{ name: 'Spork', traits: 'Clumsy alien chef' }],
+      script_turns: [
+        { turn_id: 1, speaker: 'Narrator', style: '', text: 'The galaxy had never seen a cook quite like Spork.' },
+        { turn_id: 2, speaker: 'Spork', style: '', text: 'Pass me the quantum spatula!' },
+      ],
+      voice_candidates: [],
+      audio_versions: [],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    await storage.saveStory(genreStory);
+
+    const synthRes = await request(app)
+      .post('/api/admin/stories/phase6-genre-story/synthesize')
+      .set('Cookie', adminCookie)
+      .send({
+        casting: {
+          mode: 'solo',
+          narrator_voice_id: 'prebuilt-kore',
+        },
+        label: 'Solo Narration',
+      });
+
+    expect(synthRes.status).toBe(201);
+    const soloSynthCall = mockTts.synthesizeCalls[mockTts.synthesizeCalls.length - 1];
+    expect(soloSynthCall.parts[0].speechMetadata?.style).toBe('Warm, clear, expressive storytelling cadence');
+    expect(soloSynthCall.parts[1].speechMetadata?.style).toContain('expressive, dynamic');
   });
 });

@@ -508,10 +508,14 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  flex-wrap: wrap;
+}
+
+.docked-audio-main-row {
+  display: contents;
 }
 
 .player-track-info {
+  order: 1;
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
@@ -540,12 +544,14 @@ body {
 }
 
 .player-main-controls {
+  order: 2;
   display: flex;
   align-items: center;
   gap: 0.75rem;
 }
 
 .player-scrub-section {
+  order: 3;
   flex: 1 1 240px;
   display: flex;
   align-items: center;
@@ -568,10 +574,10 @@ body {
 }
 
 .player-meta-controls {
+  order: 4;
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  flex-wrap: wrap;
 }
 
 .version-select {
@@ -586,7 +592,7 @@ body {
   }
 
   .reader-wrapper {
-    padding-bottom: 195px;
+    padding-bottom: 85px;
   }
 
   .masthead {
@@ -609,27 +615,151 @@ body {
     font-size: 1.1rem;
   }
 
+  .docked-audio-bar {
+    padding: 0.2rem 0.65rem 0.25rem 0.65rem;
+  }
+
   .docked-audio-content {
     flex-direction: column;
     align-items: stretch;
-    gap: 0.5rem;
-  }
-
-  .player-track-info {
-    max-width: 100%;
-    min-width: 0;
-  }
-
-  .player-main-controls {
-    justify-content: space-between;
+    gap: 0.15rem;
   }
 
   .player-scrub-section {
+    order: 1;
     width: 100%;
+    flex: unset;
+    gap: 0.4rem;
+    margin: 0;
+    align-items: center;
+    line-height: 1;
+  }
+
+  .player-scrub-bar {
+    height: 14px;
+    flex: 1;
+    margin: 0;
+    padding: 0;
+  }
+
+  .player-timecode {
+    font-size: 0.7rem;
+    line-height: 1;
+  }
+
+  .docked-audio-main-row {
+    order: 2;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.35rem;
+    width: 100%;
+    flex-wrap: nowrap;
+  }
+
+  .player-track-info {
+    order: unset;
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: calc(100% - 190px);
+  }
+
+  .player-track-title {
+    font-size: 0.8rem;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .player-track-version {
+    font-size: 0.65rem;
+    line-height: 1.1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .player-main-controls {
+    order: unset;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    flex-shrink: 0;
+  }
+
+  .player-main-controls .btn-tactile {
+    min-height: 36px;
+    height: 36px;
+    padding: 0.2rem 0.5rem;
+    font-size: 0.85rem;
   }
 
   .player-meta-controls {
-    justify-content: space-between;
+    order: unset;
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+  }
+
+  .version-select {
+    font-size: 0.75rem;
+    padding: 0.2rem 0.35rem;
+    max-width: 95px;
+    height: 36px;
+    min-height: 36px;
+  }
+}
+
+/* ==========================================================================
+   Tactile Generation Progress & Loading States
+   ========================================================================== */
+
+.tactile-progress-card {
+  border: 2px solid var(--accent-module) !important;
+  background-color: var(--accent-module-bg) !important;
+  animation: tactile-pulse-border 2s infinite ease-in-out;
+}
+
+@keyframes tactile-pulse-border {
+  0% {
+    box-shadow: 0 0 0 0 rgba(46, 80, 119, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(46, 80, 119, 0.15);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(46, 80, 119, 0.35);
+  }
+}
+
+.tactile-progress-bar-container {
+  width: 100%;
+  height: 6px;
+  background-color: var(--bg-well);
+  border: 1px solid var(--ink-primary);
+  border-radius: var(--radius-tactile);
+  overflow: hidden;
+  position: relative;
+}
+
+.tactile-progress-bar-indeterminate {
+  width: 35%;
+  height: 100%;
+  background-color: var(--accent-module);
+  position: absolute;
+  animation: tactile-slide-bar 1.5s infinite ease-in-out;
+}
+
+@keyframes tactile-slide-bar {
+  0% {
+    left: -35%;
+  }
+  50% {
+    left: 40%;
+  }
+  100% {
+    left: 100%;
   }
 }
 

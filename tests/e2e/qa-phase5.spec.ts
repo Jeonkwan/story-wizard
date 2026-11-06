@@ -382,7 +382,7 @@ test.describe('Phase 5 Formatted Reader & Docked Audio Player with HTTP 206 Rang
     // Check that docked audio bar does not obscure prose (clearance)
     const readerWrapper = page.locator('.reader-wrapper');
     const paddingBottom = await readerWrapper.evaluate((el) => window.getComputedStyle(el).paddingBottom);
-    expect(parseInt(paddingBottom, 10)).toBeGreaterThanOrEqual(120);
+    expect(parseInt(paddingBottom, 10)).toBeGreaterThanOrEqual(80);
 
     // Capture Screenshot 7: phase5-reader-mobile-dark.png
     await page.screenshot({ path: 'qa-screenshots/phase5-reader-mobile-dark.png', fullPage: false });

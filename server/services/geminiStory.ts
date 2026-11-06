@@ -143,8 +143,10 @@ export class GoogleGenAIStoryLLMProvider implements StoryLLMProvider {
   async generateWriterDraft(input: GenerateWriterDraftInput): Promise<WriterOutputInput> {
     const ai = this.getClient();
     let systemInstruction =
-      'You are a master bedtime narrative author for Storyteller Studio. Write gentle, immersive, soothing stories suitable for sleep and calm reflection. ' +
-      'Structure the narrative into title, a 1-2 sentence summary, 2 to 5 relevant bedtime tags, character profiles (never named "Narrator"), and at least 2 script turns. ' +
+      'You are a master storytelling author for Storyteller Studio. Write engaging, vivid, immersive narratives ' +
+      'matching whatever genre, tone, mood, and pace the user requests (e.g. comedic, adventurous, sci-fi, dramatic, mystery, whimsical, or bedtime). ' +
+      'Maintain natural, punchy dialogue where each character speaks with a distinct personality. ' +
+      'Structure the narrative into title, a 1-2 sentence summary, 2 to 5 relevant genre/mood tags, character profiles (never named "Narrator"), and at least 2 script turns. ' +
       'Script turns alternate between "Narrator" and character speakers. Do not emit vocal sound-effect tags like <sigh> or <pause> at this stage; write pure narrative prose and dialogue.';
 
     let promptText = `Story Prompt: ${input.prompt}`;
@@ -156,7 +158,7 @@ export class GoogleGenAIStoryLLMProvider implements StoryLLMProvider {
         `\nYou are writing Episode ${episodeNumber} in the ongoing series "${seriesId}". ` +
         `Prior Episode Title: "${priorTitle || 'Untitled'}". ` +
         `Prior Episode Summary: "${priorSummary || ''}". ` +
-        'Maintain continuity with prior events and preserve the established personality traits and vocal quirks of existing characters. Advance the story gently toward a peaceful bedtime conclusion.';
+        'Advance the story organically, maintaining narrative energy, established character personalities, and vocal quirks from previous episodes without forcing a peaceful bedtime conclusion unless that series is explicitly bedtime.';
 
       if (characterBible && characterBible.length > 0) {
         promptText += `\nExisting Character Bible:\n${JSON.stringify(characterBible, null, 2)}`;
@@ -213,11 +215,11 @@ export class GoogleGenAIStoryLLMProvider implements StoryLLMProvider {
 
   async directScript(input: DirectScriptInput): Promise<DirectorOutputInput> {
     const systemInstruction =
-      'You are an expert audio drama voice director for bedtime stories. Your job is to direct pacing and vocal expressions for each script turn: ' +
+      'You are an expert audio drama voice director for Storyteller Studio. Your job is to direct pacing, emotion, and vocal expressions matching the specific scene context and emotional beat of the story: ' +
       '1. KEEP SPOKEN WORDS VERBATIM. Do not alter story prose or drop dialogue. ' +
       '2. Insert natural inline vocal tags strictly from the approved list: <sigh>, <laugh>, <chuckle>, <gasp>, <yawn>, <breath>, <short pause>, <long pause>. ' +
-      '3. For each turn, provide a sustained acting note in "style" (max 200 chars), describing emotional tone, cadence, or vocal characterization. ' +
-      '4. Propose 1 to 3 distinct voice design candidates (label, description, suggested_for) suitable for audio synthesis.';
+      '3. For each turn, provide a sustained acting note in "style" (max 200 chars), reflecting character emotions in that moment, vocal pacing (e.g. whispered, excited, cautious, booming), or dramatic mood. ' +
+      '4. Propose 1 to 3 distinct voice design candidates (label, description, suggested_for) suitable for audio synthesis matching the genre and character personalities.';
 
     const promptText = `Story Title: ${input.title}\nSummary: ${input.summary}\nCharacters:\n${JSON.stringify(
       input.characters,

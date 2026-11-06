@@ -122,32 +122,6 @@ export function AudioPlayerBar({
       />
 
       <div className="docked-audio-content">
-        <div className="player-track-info">
-          <span className="player-track-title">{story.title}</span>
-          <span className="player-track-version">{activeVersion.label}</span>
-        </div>
-
-        <div className="player-main-controls">
-          <button
-            type="button"
-            className="btn-tactile btn-tactile-primary"
-            onClick={togglePlayPause}
-            aria-label={isPlaying ? 'Pause' : 'Play'}
-          >
-            {isPlaying ? '⏸ Pause' : '▶ Play'}
-          </button>
-
-          <button
-            type="button"
-            className="btn-tactile"
-            onClick={toggleSpeed}
-            aria-label="Toggle playback speed"
-            style={{ minWidth: '68px' }}
-          >
-            {playbackRate.toFixed(1)}x
-          </button>
-        </div>
-
         <div className="player-scrub-section">
           <input
             type="range"
@@ -165,28 +139,56 @@ export function AudioPlayerBar({
           </span>
         </div>
 
-        <div className="player-meta-controls">
-          <label htmlFor="audio-version-select" style={{ display: 'none' }}>
-            Audio Version
-          </label>
-          <select
-            id="audio-version-select"
-            className="select-tactile version-select"
-            aria-label="Audio Version"
-            value={activeVersion.version_id}
-            onChange={(e) => {
-              const selected = story.audio_versions.find((v) => v.version_id === e.target.value);
-              if (selected) {
-                onVersionChange(selected);
-              }
-            }}
-          >
-            {story.audio_versions.map((ver) => (
-              <option key={ver.version_id} value={ver.version_id}>
-                {ver.label} {ver.is_default ? '(Default)' : ''}
-              </option>
-            ))}
-          </select>
+        <div className="docked-audio-main-row">
+          <div className="player-track-info">
+            <span className="player-track-title">{story.title}</span>
+            <span className="player-track-version">{activeVersion.label}</span>
+          </div>
+
+          <div className="player-main-controls">
+            <button
+              type="button"
+              className="btn-tactile btn-tactile-primary"
+              onClick={togglePlayPause}
+              aria-label={isPlaying ? 'Pause' : 'Play'}
+            >
+              {isPlaying ? '⏸ Pause' : '▶ Play'}
+            </button>
+
+            <button
+              type="button"
+              className="btn-tactile"
+              onClick={toggleSpeed}
+              aria-label="Toggle playback speed"
+              style={{ minWidth: '60px' }}
+            >
+              {playbackRate.toFixed(1)}x
+            </button>
+          </div>
+
+          <div className="player-meta-controls">
+            <label htmlFor="audio-version-select" style={{ display: 'none' }}>
+              Audio Version
+            </label>
+            <select
+              id="audio-version-select"
+              className="select-tactile version-select"
+              aria-label="Audio Version"
+              value={activeVersion.version_id}
+              onChange={(e) => {
+                const selected = story.audio_versions.find((v) => v.version_id === e.target.value);
+                if (selected) {
+                  onVersionChange(selected);
+                }
+              }}
+            >
+              {story.audio_versions.map((ver) => (
+                <option key={ver.version_id} value={ver.version_id}>
+                  {ver.label} {ver.is_default ? '(Default)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
     </div>
