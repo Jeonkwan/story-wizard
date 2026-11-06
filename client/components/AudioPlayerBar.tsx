@@ -122,6 +122,11 @@ export function AudioPlayerBar({
       />
 
       <div className="docked-audio-content">
+        <div className="player-track-info">
+          <span className="player-track-title">{story.title}</span>
+          <span className="player-track-version">{activeVersion.label}</span>
+        </div>
+
         <div className="player-main-controls">
           <button
             type="button"

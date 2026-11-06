@@ -441,7 +441,8 @@ body {
   color: var(--ink-prose);
 }
 
-.opening-narration::first-letter {
+.opening-narration::first-letter,
+.first-letter-dropcap::first-letter {
   font-family: var(--font-heading);
   font-size: 3.2rem;
   float: left;
@@ -508,6 +509,34 @@ body {
   justify-content: space-between;
   gap: 1rem;
   flex-wrap: wrap;
+}
+
+.player-track-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 140px;
+  max-width: 240px;
+}
+
+.player-track-title {
+  font-family: var(--font-heading);
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--ink-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+
+.player-track-version {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .player-main-controls {
@@ -584,6 +613,11 @@ body {
     flex-direction: column;
     align-items: stretch;
     gap: 0.5rem;
+  }
+
+  .player-track-info {
+    max-width: 100%;
+    min-width: 0;
   }
 
   .player-main-controls {

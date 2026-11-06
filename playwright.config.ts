@@ -20,8 +20,8 @@ export default defineConfig({
   ],
   webServer: {
     command: 'PORT=8181 DEV_ADMIN_BYPASS=true npm start',
-    port: 8181,
-    reuseExistingServer: false,
+    url: 'http://localhost:8181',
+    reuseExistingServer: !process.env.CI,
     timeout: 30000,
   },
 });

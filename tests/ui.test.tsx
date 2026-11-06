@@ -882,7 +882,7 @@ describe('Phase 3 Admin Studio & UI Components', () => {
 
       // Wait for story and audio bar to render
       await waitFor(() => {
-        expect(screen.getByText('Sleepy Starship')).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Sleepy Starship' })).toBeInTheDocument();
       });
 
       // Default version is v1-solo-test, so audio src is v1

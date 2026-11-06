@@ -90,12 +90,20 @@ export function VoiceStudioPanel({
     try {
       const list = await fetchVoices();
       setVoices(list);
+      if (list.length > 0) {
+        const preferredId = story.series_context?.preferred_voice_id;
+        const hasPreferred = preferredId && list.some((v) => v.id === preferredId);
+        const defaultVoice = hasPreferred
+          ? preferredId!
+          : list.find((v) => v.id === 'prebuilt-kore')?.id || list[0].id;
+        setNarratorVoiceId((prev) => (prev && list.some((v) => v.id === prev) ? prev : defaultVoice));
+      }
     } catch (err) {
       setVoicesError(err instanceof Error ? err.message : 'Failed to load voices');
     } finally {
       setLoadingVoices(false);
     }
-  }, []);
+  }, [story.series_context?.preferred_voice_id]);
 
   useEffect(() => {
     loadVoices();
@@ -252,9 +260,19 @@ export function VoiceStudioPanel({
 
   // Synthesize Full Story
   const handleSynthesize = async () => {
-    if (!narratorVoiceId) {
+    const effectiveNarratorVoiceId =
+      narratorVoiceId ||
+      story.series_context?.preferred_voice_id ||
+      voices.find((v) => v.id === 'prebuilt-kore')?.id ||
+      voices[0]?.id;
+
+    if (!effectiveNarratorVoiceId) {
       setSynthError('Please select a Narrator voice');
       return;
+    }
+
+    if (!narratorVoiceId) {
+      setNarratorVoiceId(effectiveNarratorVoiceId);
     }
 
     setIsSynthesizing(true);
@@ -274,7 +292,7 @@ export function VoiceStudioPanel({
 
       const casting: VoiceCasting = {
         mode: castingMode,
-        narrator_voice_id: narratorVoiceId,
+        narrator_voice_id: effectiveNarratorVoiceId,
         character_voices: castingMode === 'cast' ? characterVoices : {},
       };
 

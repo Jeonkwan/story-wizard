@@ -255,7 +255,7 @@ export function StoryReader({
             return (
               <p
                 key={turn.turn_id}
-                className={isFirst ? 'opening-narration' : 'prose-narration'}
+                className={isFirst ? 'opening-narration first-letter-dropcap' : 'prose-narration'}
                 data-turn-id={turn.turn_id}
               >
                 {cleanedText}

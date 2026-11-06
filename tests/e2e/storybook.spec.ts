@@ -1,4 +1,30 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, Page } from '@playwright/test';
+
+async function setupExternalMocks(page: Page) {
+  await page.route('https://accounts.google.com/**', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/javascript',
+      body: 'window.google = { accounts: { id: { initialize() {}, renderButton() {}, prompt() {} } } };',
+    });
+  });
+
+  await page.route('https://fonts.googleapis.com/**', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'text/css',
+      body: '/* mock google fonts css */',
+    });
+  });
+
+  await page.route('https://fonts.gstatic.com/**', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'font/woff2',
+      body: Buffer.alloc(0),
+    });
+  });
+}
 
 test.describe('Phase 2 Public Storybook E2E', () => {
   test('renders catalog, filters stories, opens formatted reader, scrubs audio, and captures screenshots', async ({
@@ -7,14 +33,7 @@ test.describe('Phase 2 Public Storybook E2E', () => {
     const pageErrors: Error[] = [];
     const consoleErrors: string[] = [];
 
-    // Route accounts.google.com to a clean mock to prevent external network flakes
-    await page.route('https://accounts.google.com/**', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/javascript',
-        body: 'window.google = { accounts: { id: { initialize() {}, renderButton() {}, prompt() {} } } };',
-      });
-    });
+    await setupExternalMocks(page);
 
     page.on('pageerror', (err) => {
       pageErrors.push(err);
@@ -28,7 +47,7 @@ test.describe('Phase 2 Public Storybook E2E', () => {
 
     // 1. Desktop viewport initially
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto('/');
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
 
     // Verify initial light color-scheme
     const initialColorScheme = await page.evaluate(
@@ -173,13 +192,7 @@ test.describe('Phase 3 Admin Director Studio E2E', () => {
     const pageErrors: Error[] = [];
     const consoleErrors: string[] = [];
 
-    await page.route('https://accounts.google.com/**', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/javascript',
-        body: 'window.google = { accounts: { id: { initialize() {}, renderButton() {}, prompt() {} } } };',
-      });
-    });
+    await setupExternalMocks(page);
 
     page.on('pageerror', (err) => {
       pageErrors.push(err);
@@ -194,7 +207,7 @@ test.describe('Phase 3 Admin Director Studio E2E', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
 
     // 1. Navigate to /admin
-    await page.goto('/admin');
+    await page.goto('/admin', { waitUntil: 'domcontentloaded' });
     await expect(page.locator('h2', { hasText: 'Director Studio' })).toBeVisible();
 
     // 2. Click Dev Sandbox Login
@@ -294,13 +307,7 @@ test.describe('Phase 4 Voice Audition Studio & Versions E2E', () => {
     const pageErrors: Error[] = [];
     const consoleErrors: string[] = [];
 
-    await page.route('https://accounts.google.com/**', (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/javascript',
-        body: 'window.google = { accounts: { id: { initialize() {}, renderButton() {}, prompt() {} } } };',
-      });
-    });
+    await setupExternalMocks(page);
 
     page.on('pageerror', (err) => {
       pageErrors.push(err);
@@ -316,7 +323,7 @@ test.describe('Phase 4 Voice Audition Studio & Versions E2E', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
 
     // 2. Navigate to /admin and log in via Dev Sandbox
-    await page.goto('/admin');
+    await page.goto('/admin', { waitUntil: 'domcontentloaded' });
     await expect(page.locator('h2', { hasText: 'Director Studio' })).toBeVisible();
 
     const devLoginBtn = page.getByRole('button', { name: /Dev Sandbox Login/i });
