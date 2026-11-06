@@ -366,3 +366,114 @@ describe('Phase 8: GCS Data Migration Tooling (scripts/migrateToGcs.ts)', () => 
     });
   });
 });
+
+describe('Phase 8: Cloud Run & DevOps Hygiene Specifications', () => {
+  const rootDir = path.resolve(__dirname, '..');
+
+  describe('gcs-lifecycle.json Specification', () => {
+    it('defines 14-day deletion rule for noncurrent object versions', async () => {
+      const lifecyclePath = path.join(rootDir, 'gcs-lifecycle.json');
+      expect(fs.existsSync(lifecyclePath)).toBe(true);
+
+      const raw = await fs.promises.readFile(lifecyclePath, 'utf-8');
+      const config = JSON.parse(raw);
+
+      expect(config.rule).toBeDefined();
+      expect(Array.isArray(config.rule)).toBe(true);
+      expect(config.rule).toHaveLength(1);
+
+      const rule = config.rule[0];
+      expect(rule.action).toEqual({ type: 'Delete' });
+      expect(rule.condition).toEqual({ daysSinceNoncurrentTime: 14 });
+    });
+  });
+
+  describe('.dockerignore Hygiene', () => {
+    it('strictly excludes tests, docs, artifacts, credentials, and local build directories', async () => {
+      const dockerignorePath = path.join(rootDir, '.dockerignore');
+      expect(fs.existsSync(dockerignorePath)).toBe(true);
+
+      const content = await fs.promises.readFile(dockerignorePath, 'utf-8');
+      const lines = content
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0 && !l.startsWith('#'));
+
+      const requiredPatterns = [
+        'node_modules',
+        'dist',
+        'data',
+        '.git',
+        '.env*',
+        'qa-screenshots',
+        'playwright-report',
+        'test-results',
+        'coverage',
+        '*.log',
+        'docs',
+        'tests',
+      ];
+
+      for (const pattern of requiredPatterns) {
+        expect(lines).toContain(pattern);
+      }
+    });
+  });
+
+  describe('deploy.sh Script Configuration', () => {
+    it('contains all required production Cloud Run scaling flags and defaults', async () => {
+      const deployPath = path.join(rootDir, 'deploy.sh');
+      expect(fs.existsSync(deployPath)).toBe(true);
+
+      const content = await fs.promises.readFile(deployPath, 'utf-8');
+
+      // Default architectural parameters
+      expect(content).toContain('REGION="${REGION:-asia-southeast1}"');
+      expect(content).toContain('SERVICE_NAME="${SERVICE_NAME:-storyteller-studio}"');
+      expect(content).toContain('GCS_BUCKET_NAME="${GCS_BUCKET_NAME:-storyteller-studio-mokamaker}"');
+      expect(content).toContain('ADMIN_GOOGLE_EMAIL="${ADMIN_GOOGLE_EMAIL:-jeonkwan@gmail.com}"');
+
+      // Scaling strategy parameters
+      expect(content).toContain('--min-instances=0');
+      expect(content).toContain('--max-instances=1');
+      expect(content).toContain('--concurrency=80');
+      expect(content).toContain('--timeout=300');
+      expect(content).toContain('--memory=512Mi');
+      expect(content).toContain('--cpu=1');
+      expect(content).toContain('--allow-unauthenticated');
+
+      // Dry run and fail-closed security handling
+      expect(content).toContain('--dry-run');
+      expect(content).toContain('SESSION_SECRET is required');
+      expect(content).toContain('GEMINI_API_KEY is required');
+    });
+  });
+
+  describe('.github/workflows/deploy.yml CI/CD Pipeline', () => {
+    it('configures push/PR triggers, test-and-verify job, and automated Cloud Run deployment', async () => {
+      const workflowPath = path.join(rootDir, '.github', 'workflows', 'deploy.yml');
+      expect(fs.existsSync(workflowPath)).toBe(true);
+
+      const content = await fs.promises.readFile(workflowPath, 'utf-8');
+
+      // Triggers
+      expect(content).toContain('branches:\n      - main');
+      expect(content).toContain('pull_request:');
+
+      // Test job verification commands
+      expect(content).toContain('npm ci');
+      expect(content).toContain('npm run typecheck');
+      expect(content).toContain('npx tsc -p tsconfig.server.json');
+      expect(content).toContain('npm test');
+
+      // Deploy job verification
+      expect(content).toContain('deploy-cloud-run:');
+      expect(content).toContain('needs: test-and-verify');
+      expect(content).toContain("github.event_name == 'push' && github.ref == 'refs/heads/main'");
+      expect(content).toContain('google-github-actions/auth@v2');
+      expect(content).toContain('google-github-actions/setup-gcloud@v2');
+      expect(content).toContain('./deploy.sh');
+    });
+  });
+});
+
