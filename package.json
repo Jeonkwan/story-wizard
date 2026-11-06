@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:live": "tsx --env-file-if-exists=.env scripts/smokePhase3Live.ts && tsx --env-file-if-exists=.env scripts/smokePhase4Live.ts",
     "test:e2e": "npm run seed && npm run build && playwright test",
-    "seed": "tsx scripts/seedLocalData.ts"
+    "seed": "tsx scripts/seedLocalData.ts",
+    "tunnel": "bash scripts/tunnel.sh"
   },
   "dependencies": {
     "@google-cloud/storage": "^7.15.2",

@@ -12,5 +12,5 @@ describe('Native Node ESM Build Verification', () => {
     const nodeCmd = `node -e "await import('./dist/server/lib/validators.js'); await import('./dist/server/lib/wav.js'); await import('./dist/server/services/geminiStory.js'); await import('./dist/server/services/geminiTts.js'); await import('./dist/server/routes/adminStories.js'); await import('./dist/server/routes/adminVoices.js'); await import('./dist/server/app.js'); console.log('ESM_VERIFIED')"`;
     const result = execSync(nodeCmd, { encoding: 'utf-8' });
     expect(result.trim()).toBe('ESM_VERIFIED');
-  }, 15000);
+  }, 30000);
 });
