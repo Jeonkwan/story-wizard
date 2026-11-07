@@ -3,7 +3,7 @@
 > **Target Audience:** Lead Architect / Senior Reviewing Agent  
 > **Milestone:** Phase 9 (Backend Voice Lifecycle — Staged Draft Voices & CRUD, Emotion-Preserving Pacing Guardrails, & Multimodal Dictation STT API)  
 > **Repository:** `/home/ubuntu/story-wizard`  
-> **Status:** All Phase 9 Objectives & Verification Criteria 100% Complete & Passing (166/166 Unit & Integration Tests Green across 10 Test Files, 8/8 Playwright E2E Tests Passing, NodeNext Native ESM Build Verified)
+> **Status:** All Phase 9 Objectives & Verification Criteria 100% Complete & Passing (182/182 Unit & Integration Tests Green across 10 Test Files, 8/8 Playwright E2E Tests Passing, NodeNext Native ESM Build Verified)
 
 ---
 
@@ -34,7 +34,7 @@ All work strictly obeys the architectural guardrails: zero unapproved dependenci
    - Voice CRUD: `PATCH /api/voices/:id` (updates label, description, tags, default_pace), `DELETE /api/voices/:id` (rejects prebuilt with 400; removes designed voice from `voices.json`, deletes cached preview, best-effort deletes custom Gemini voice), and `DELETE /api/voices/draft/:geminiVoiceName` (discards draft with 409 conflict protection).
 6. **Kids Anti-Rush Script Direction & Pacing Guardrails (`server/services/geminiStory.ts`, `server/services/geminiTts.ts`):**
    - `directScript` tuned in a single LLM call to separate theatrical excitement from speaking speed, forbidding rapid-tempo directives like "speak fast", "rush through", "hyperactive speed".
-   - `sanitizeLiteralTempoPhrases`: neutralizes literal tempo directives using the exact canonical replacement table while preserving emotional tone words ("excited", "joyful", "panicked", etc.), cleanly clamped to <= 280 characters.
+   - `sanitizeLiteralTempoPhrases`: neutralizes literal tempo directives using the exact canonical replacement table while preserving emotional tone words ("excited", "joyful", "panicked", etc.), cleanly clamped to <= 280 characters without cutting words mid-token.
    - Synthesis anchors `PACE_SYNTHESIS_ANCHOR` and `PACE_VOICE_PROMPT_CLAUSE` injected for consistent acoustic pacing.
    - Hard batch limits: lowered to `MAX_TTS_BATCH_TURNS = 6` and `MAX_TTS_BATCH_CHARS = 1500` across both solo and cast branches to prevent pacing compression on long segments.
    - Maintained the Exact-2 Speaker Rule for Gemini `multiSpeakerVoiceConfig`.
@@ -82,18 +82,18 @@ Exit code: 0
 
  ✓ tests/jobManager.test.ts (7 tests)
  ✓ tests/deploymentConfig.test.ts (27 tests)
- ✓ tests/wav.test.ts (6 tests)
  ✓ tests/validators.test.ts (19 tests)
+ ✓ tests/wav.test.ts (6 tests)
  ✓ tests/ttsSynthesis.test.ts (6 tests)
  ✓ tests/storageAndAuth.test.ts (31 tests)
  ✓ tests/pipelineApi.test.ts (12 tests)
- ✓ tests/phase9VoiceLifecycle.test.ts (34 tests)
+ ✓ tests/phase9VoiceLifecycle.test.ts (50 tests)
  ✓ tests/ui.test.tsx (23 tests)
  ✓ tests/esm-build.test.ts (1 test)
 
  Test Files  10 passed (10)
-      Tests  166 passed (166)
-   Duration  5.40s
+      Tests  182 passed (182)
+   Duration  5.45s
 Exit code: 0
 ```
 
@@ -107,7 +107,7 @@ vite v6.4.5 building for production...
 dist/client/index.html                   1.18 kB │ gzip:   0.60 kB
 dist/client/assets/index-DPu3aSxL.css   12.71 kB │ gzip:   2.96 kB
 dist/client/assets/index-plY_cjk-.js   551.03 kB │ gzip: 150.42 kB
-✓ built in 1.99s
+✓ built in 1.98s
 Exit code: 0
 ```
 
@@ -118,16 +118,16 @@ Exit code: 0
 
 Running 8 tests using 1 worker
 
-  ✓ 1 [chromium] › tests/e2e/qa-phase5.spec.ts:47:3 › Phase 5 Public Library & Kinetic Construct Visual Audit (1.5s)
+  ✓ 1 [chromium] › tests/e2e/qa-phase5.spec.ts:47:3 › Phase 5 Public Library & Kinetic Construct Visual Audit (1.7s)
   ✓ 2 [chromium] › tests/e2e/qa-phase5.spec.ts:198:3 › Phase 5 Formatted Reader & Docked Audio Player with HTTP 206 Range Scrubbing (1.3s)
-  ✓ 3 [chromium] › tests/e2e/qa-phase5.spec.ts:396:3 › Phase 5 Admin Director & Voice Studio Audit (3.5s)
-  ✓ 4 [chromium] › tests/e2e/storybook.spec.ts:30:3 › Phase 2 Public Storybook E2E (1.0s)
-  ✓ 5 [chromium] › tests/e2e/storybook.spec.ts:189:3 › Phase 3 Admin Director Studio E2E (2.1s)
+  ✓ 3 [chromium] › tests/e2e/qa-phase5.spec.ts:396:3 › Phase 5 Admin Director & Voice Studio Audit (3.4s)
+  ✓ 4 [chromium] › tests/e2e/storybook.spec.ts:30:3 › Phase 2 Public Storybook E2E (978ms)
+  ✓ 5 [chromium] › tests/e2e/storybook.spec.ts:189:3 › Phase 3 Admin Director Studio E2E (2.0s)
   ✓ 6 [chromium] › tests/e2e/storybook.spec.ts:304:3 › Phase 4 Voice Audition Studio & Versions E2E (1.7s)
-  ✓ 7 [chromium] › tests/e2e/storybook.spec.ts:412:3 › Phase 4 Voice Audition Studio & Versions E2E (Phase 6) (1.6s)
-  ✓ 8 [chromium] › tests/e2e/storybook.spec.ts:549:3 › Phase 4 Voice Audition Studio & Versions E2E (Phase 7) (4.5s)
+  ✓ 7 [chromium] › tests/e2e/storybook.spec.ts:412:3 › Phase 4 Voice Audition Studio & Versions E2E (Phase 6) (1.8s)
+  ✓ 8 [chromium] › tests/e2e/storybook.spec.ts:549:3 › Phase 4 Voice Audition Studio & Versions E2E (Phase 7) (4.3s)
 
-  8 passed (19.1s)
+  8 passed (19.6s)
 Exit code: 0
 ```
 
@@ -160,21 +160,56 @@ Exit code: 0
 ### Added Files:
 - `shared/voiceSamples.ts`: Sample presets, char limit constant, default sample.
 - `server/routes/adminTranscribe.ts`: Transcribe audio route with 12MB limit, auth guard, codec stripper, STT provider call.
-- `tests/phase9VoiceLifecycle.test.ts`: Comprehensive test suite containing 34 tests validating all 6 gates, error cases, and storage methods.
+- `tests/phase9VoiceLifecycle.test.ts`: Comprehensive test suite containing 50 tests validating all 6 gates, error cases, storage methods, and code review invariants.
 - `docs/audits/phase-9-audit.md`: This audit report.
 
 ### Modified Files:
+- `docs/reviews/phase-9-review.md`: Checked off all 5 resolved review action items.
 - `shared/types.ts`: `VoicePace`, `VoiceSamplePreset`, `VoiceEntry.default_pace?`, `VoiceCasting.pace?`.
+- `server/lib/validators.ts`: Added typed `ConflictError` (409) and `NotFoundError` (404).
 - `server/storage/storageAdapter.ts`: `saveVoicePreview`, `deleteVoicePreview`, `getVoicePreviewStream` signatures.
 - `server/storage/localStorage.ts`: Implemented preview storage methods and slug validator.
 - `server/storage/gcsStorage.ts`: Implemented GCS preview storage methods.
 - `server/routes/public.ts`: Extracted `streamAudioWithRange` helper, added `GET /api/voices/:id/preview.wav`.
-- `server/routes/adminVoices.ts`: Staged voice preview, promotion, draft deletion, CRUD operations, pace validation.
-- `server/services/geminiTts.ts`: Staged draft preview, `deleteCustomVoice`, pacing guardrails, batch caps, promotion.
+- `server/routes/adminVoices.ts`: Staged voice preview, promotion, draft deletion, CRUD operations, pace validation, typed error mapping, RIFF/WAVE header validation.
+- `server/services/geminiTts.ts`: Staged draft preview, `deleteCustomVoice`, pacing guardrails, batch caps, promotion, `clampToBoundary`, best-effort preview caching, orphan cleanup.
 - `server/services/geminiStory.ts`: Anti-rush prompt tuning, `transcribeAudio` provider method.
-- `server/app.ts`: Body parser registration ordering, transcribe router mount.
+- `server/app.ts`: Body parser registration ordering, transcribe router mount, typed `ConflictError` and `NotFoundError` middleware handling.
 - `client/api/client.ts`: Backward-compatible parameter signatures for voice preview & create.
 - `scripts/smokePhase4Live.ts`: Updated to read `.wav` from `PreviewVoiceResult`.
 - `playwright.config.ts`: Added `GCS_BUCKET_NAME=""` to test server command.
 - `tests/ttsSynthesis.test.ts`: Updated batch count assertions for 6-turn limits.
 - `tests/esm-build.test.ts`: Added `adminTranscribe.js` and `voiceSamples.js` verification.
+
+---
+
+## 6. Lead Architect Review Remediation & Enhanced Invariants
+
+All 5 items identified in `docs/reviews/phase-9-review.md` were resolved and verified with dedicated regression tests:
+
+1. **Typed Error Classes (`ConflictError` & `NotFoundError`):**
+   - Introduced `ConflictError` (409) and `NotFoundError` (404) in `server/lib/validators.ts`.
+   - Handled centrally by `instanceof` in `server/app.ts` error handler and `server/routes/adminVoices.ts`.
+   - Replaced substring matching in route handlers.
+   - Unknown voice IDs now return 404 on `PATCH /api/admin/voices/:id`, `DELETE /api/admin/voices/:id`, and `POST /api/admin/voices/preview` (`{ voiceId }`).
+2. **Best-Effort Preview Caching & Voice Persistence:**
+   - Validated `previewAudioBase64` at route entry for RIFF/WAVE header; rejects non-WAV data with 400 (`"previewAudioBase64 must be a WAV file"`) before any Gemini API calls occur.
+   - Wrapped fallback preview synthesis and `saveVoicePreview` in try/catch: on preview generation failure, voice is still successfully persisted (HTTP 201) without `preview_audio_url`.
+   - If `voices.json` update fails after a fresh `createPromptedVoice`, best-effort calls `deleteCustomVoice` on the orphaned voice ID.
+3. **Comprehensive Invariant Test Coverage:**
+   - Added tests in `tests/phase9VoiceLifecycle.test.ts` for:
+     - Cast mode single-speaker sub-batches using single `voiceConfig` with no `multiSpeakerVoiceConfig`.
+     - Cast mode per-speaker `default_pace` fallback when `casting.pace` is unset, and `casting.pace` overriding both speakers.
+     - Solo mode falling back to `narratorVoice.default_pace` when `casting.pace` is unset; request `casting.pace` persisted in story `audio_version.casting.pace`.
+     - Case A preview (`voiceId: 'designed-saved-hero'`): no `createPromptedVoice` call, no `X-Draft-Voice-Name` header, uses saved voice config and lively anchor.
+     - Sample text longer than 320 chars clamped to `MAX_VOICE_PREVIEW_CHARS` (320).
+     - Regenerate take test asserting exact deletion calls (`toEqual(['voice_draft_dragon_99'])`) and changing draft vs previous draft deleting previous while reusing new take.
+     - JSON body > 1MB accepted on `POST /api/admin/voices` (verifying route-level 4MB parser).
+     - `401 Unauthorized` without session cookie across all voice admin endpoints.
+     - Non-staged save path calling `createPromptedVoice` once with pace clause appended and caching `sampleAudioWav`.
+4. **Grammar-Preserving Tempo Rewrites:**
+   - Updated regex from `/(?:runs|running)\s+full speed/` to `/(runs|running)\s+full speed/` -> `$1 with playful urgency`.
+   - `"as he runs full speed toward the exit"` correctly transforms into `"as he runs with playful urgency toward the exit"`, preserving sentence structure and acting intent.
+5. **Whitespace/Punctuation Boundary Clamping (`clampToBoundary`):**
+   - Implemented `clampToBoundary(text, maxLen)` which finds the last whitespace or punctuation boundary within `maxLen` and trims trailing punctuation (`[,;:\s]+$`).
+   - Ensures turn styles and sanitized text never terminate with a chopped, half-severed word.

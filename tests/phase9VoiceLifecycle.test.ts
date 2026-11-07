@@ -19,6 +19,8 @@ import {
   PACE_SYNTHESIS_ANCHOR,
   sanitizeLiteralTempoPhrases,
   buildTurnStyle,
+  clampToBoundary,
+  GeminiTtsService,
   GoogleGenAITtsProvider,
   type TtsProvider,
   type SynthesizeBatchRequest,
@@ -113,6 +115,7 @@ describe('Phase 9: Staged Draft Voice Lifecycle, Pacing Guardrails & Multimodal 
   let mockTts: MockPhase9TtsProvider;
   let mockLlm: MockPhase9StoryLLMProvider;
   let storage: LocalStorageAdapter;
+  let ttsService: GeminiTtsService;
   let app: ReturnType<typeof createApp>;
   let adminCookie: string;
 
@@ -131,10 +134,12 @@ describe('Phase 9: Staged Draft Voice Lifecycle, Pacing Guardrails & Multimodal 
     mockTts = new MockPhase9TtsProvider();
     mockLlm = new MockPhase9StoryLLMProvider();
 
+    ttsService = new GeminiTtsService(config, storage, mockTts);
+
     app = createApp({
       config,
       storage,
-      ttsProvider: mockTts,
+      ttsService,
       storyLLMProvider: mockLlm,
     });
 
@@ -278,7 +283,85 @@ describe('Phase 9: Staged Draft Voice Lifecycle, Pacing Guardrails & Multimodal 
       // Created new voice
       expect(mockTts.createVoiceCalls).toHaveLength(1);
       // Cleaned up previous draft (bare ID without voices/ prefix)
-      expect(mockTts.deleteVoiceCalls).toContain('voice_draft_dragon_99');
+      expect(mockTts.deleteVoiceCalls).toEqual(['voice_draft_dragon_99']);
+    });
+
+    it('changing draftGeminiVoiceName vs previousDraftGeminiVoiceName without regenerateTake deletes previous and reuses new draft', async () => {
+      const res = await request(app)
+        .post('/api/admin/voices/preview')
+        .set('Cookie', adminCookie)
+        .send({
+          description: 'A cozy dragon',
+          pace: 'calm',
+          draftGeminiVoiceName: 'voice_new_dragon_100',
+          previousDraftGeminiVoiceName: 'voice_old_dragon_99',
+          regenerateTake: false,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.headers['x-draft-voice-name']).toBe('voice_new_dragon_100');
+      // Did NOT create a new voice
+      expect(mockTts.createVoiceCalls).toHaveLength(0);
+      // Cleaned up previous draft
+      expect(mockTts.deleteVoiceCalls).toEqual(['voice_old_dragon_99']);
+      // Synthesized using the new draft ID
+      expect(mockTts.synthesizeCalls).toHaveLength(1);
+      expect(mockTts.synthesizeCalls[0].speechConfig.voiceConfig).toEqual({
+        voice: 'voice_new_dragon_100',
+      });
+    });
+
+    it('Case A preview (voiceId: designed-saved-hero) does not call createPromptedVoice, returns no X-Draft header, and uses saved voice config', async () => {
+      const res = await request(app)
+        .post('/api/admin/voices/preview')
+        .set('Cookie', adminCookie)
+        .send({
+          voiceId: 'designed-saved-hero',
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toContain('audio/wav');
+      expect(res.headers['x-draft-voice-name']).toBeUndefined();
+
+      // createPromptedVoice was NOT called
+      expect(mockTts.createVoiceCalls).toHaveLength(0);
+
+      // Synthesized using the saved voice ID with its default pace (lively)
+      expect(mockTts.synthesizeCalls).toHaveLength(1);
+      expect(mockTts.synthesizeCalls[0].speechConfig.voiceConfig).toEqual({
+        voice: 'voice_saved_hero_123',
+      });
+      expect(mockTts.synthesizeCalls[0].parts[0].speechMetadata?.style).toContain(
+        PACE_SYNTHESIS_ANCHOR.lively
+      );
+    });
+
+    it('previewVoice with unknown voiceId returns 404 NotFound', async () => {
+      const res = await request(app)
+        .post('/api/admin/voices/preview')
+        .set('Cookie', adminCookie)
+        .send({
+          voiceId: 'non-existent-voice-xyz',
+        });
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toContain('Voice not found: "non-existent-voice-xyz"');
+    });
+
+    it('sample text longer than 320 chars is clamped to exactly MAX_VOICE_PREVIEW_CHARS', async () => {
+      const longSample = 'A'.repeat(450);
+      const res = await request(app)
+        .post('/api/admin/voices/preview')
+        .set('Cookie', adminCookie)
+        .send({
+          voiceId: 'prebuilt-kore',
+          sampleText: longSample,
+        });
+
+      expect(res.status).toBe(200);
+      expect(mockTts.synthesizeCalls).toHaveLength(1);
+      expect(mockTts.synthesizeCalls[0].parts[0].text.length).toBe(MAX_VOICE_PREVIEW_CHARS);
+      expect(mockTts.synthesizeCalls[0].parts[0].text.length).toBe(320);
     });
 
     it('Saved-Voice Protection Invariant: silent no-op when preview cleanup references a saved voice ID', async () => {
@@ -399,6 +482,138 @@ describe('Phase 9: Staged Draft Voice Lifecycle, Pacing Guardrails & Multimodal 
       expect(res.body.error).toContain('exceeds maximum 2MB limit');
     });
 
+    it('rejects POST /api/admin/voices with 400 if previewAudioBase64 is not a valid WAV without calling createPromptedVoice', async () => {
+      const garbageAudio = Buffer.from('this is definitely not a RIFF WAVE file header');
+      const garbageB64 = garbageAudio.toString('base64');
+
+      const res = await request(app)
+        .post('/api/admin/voices')
+        .set('Cookie', adminCookie)
+        .send({
+          label: 'Garbage Audio Voice',
+          description: 'Valid prompt but garbage audio base64',
+          previewAudioBase64: garbageB64,
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('previewAudioBase64 must be a WAV file');
+      expect(mockTts.createVoiceCalls).toHaveLength(0);
+    });
+
+    it('non-staged save path calls createPromptedVoice exactly once with pace clause appended and caches sampleAudioWav', async () => {
+      mockTts.nextCreatedVoiceId = 'voice_fresh_turtle_1';
+      const samplePcm = Buffer.alloc(2400, 0x44);
+      const { wav: sampleWav } = wrapPcmAsWav(samplePcm);
+      mockTts.sampleAudioWav = sampleWav;
+
+      const res = await request(app)
+        .post('/api/admin/voices')
+        .set('Cookie', adminCookie)
+        .send({
+          label: 'Old Oak Turtle',
+          description: 'A wise, ancient tortoise who speaks deliberately',
+          defaultPace: 'slow',
+          tags: ['wise', 'soothing'],
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.id).toBe('designed-old-oak-turtle');
+      expect(res.body.gemini_voice_name).toBe('voice_fresh_turtle_1');
+      expect(res.body.default_pace).toBe('slow');
+      expect(res.body.preview_audio_url).toBe('/api/voices/designed-old-oak-turtle/preview.wav');
+
+      // createPromptedVoice called exactly once with the slow pace clause
+      expect(mockTts.createVoiceCalls).toHaveLength(1);
+      expect(mockTts.createVoiceCalls[0].description).toContain('A wise, ancient tortoise');
+      expect(mockTts.createVoiceCalls[0].description).toContain(PACE_VOICE_PROMPT_CLAUSE.slow);
+
+      // Verify cached preview.wav matches sampleAudioWav
+      const stream = await storage.getVoicePreviewStream('designed-old-oak-turtle');
+      expect(stream.totalBytes).toBe(sampleWav.length);
+    });
+
+    it('persists voice with 201 without preview_audio_url if fallback preview synthesis fails', async () => {
+      const originalSynthesize = mockTts.synthesizeBatch.bind(mockTts);
+      mockTts.synthesizeBatch = async () => {
+        throw new Error('TTS quota exceeded or connection reset');
+      };
+
+      try {
+        const res = await request(app)
+          .post('/api/admin/voices')
+          .set('Cookie', adminCookie)
+          .send({
+            label: 'Resilient Voice',
+            description: 'Voice saved despite preview failure',
+            defaultPace: 'calm',
+            stagedGeminiVoiceName: 'voice_staged_resilient_99',
+          });
+
+        expect(res.status).toBe(201);
+        expect(res.body.id).toBe('designed-resilient-voice');
+        expect(res.body.gemini_voice_name).toBe('voice_staged_resilient_99');
+        // preview_audio_url is not set because caching failed
+        expect(res.body.preview_audio_url).toBeUndefined();
+
+        // Verify voice was persisted in voices.json
+        const voices = await storage.getVoices();
+        expect(voices.some((v) => v.id === 'designed-resilient-voice')).toBe(true);
+      } finally {
+        mockTts.synthesizeBatch = originalSynthesize;
+      }
+    });
+
+    it('cleans up orphaned Gemini voice if storage persistence fails after fresh createPromptedVoice', async () => {
+      mockTts.nextCreatedVoiceId = 'voice_orphan_cleanup_test';
+
+      const originalUpdateJsonAtomic = storage.updateJsonAtomic.bind(storage);
+      storage.updateJsonAtomic = async (filename: string) => {
+        if (filename === 'voices.json') {
+          throw new Error('Disk full or simulated write failure');
+        }
+        return originalUpdateJsonAtomic(filename as any, () => null as any, null as any);
+      };
+
+      try {
+        await expect(
+          ttsService.createAndSaveVoice({
+            label: 'Doomed Voice',
+            description: 'Will fail on write',
+          })
+        ).rejects.toThrow('Disk full');
+
+        // Verify createPromptedVoice was called
+        expect(mockTts.createVoiceCalls).toHaveLength(1);
+        // And orphan was cleaned up via deleteCustomVoice
+        expect(mockTts.deleteVoiceCalls).toEqual(['voice_orphan_cleanup_test']);
+      } finally {
+        storage.updateJsonAtomic = originalUpdateJsonAtomic;
+      }
+    });
+
+    it('POST /api/admin/voices accepts a JSON body > 1MB proving 4mb route parser precedes 1mb global parser', async () => {
+      // 1.2MB PCM -> ~1.2MB WAV -> ~1.6MB base64 JSON payload
+      const bigPcm = Buffer.alloc(1.2 * 1024 * 1024, 0x12);
+      const { wav: bigWav } = wrapPcmAsWav(bigPcm);
+      const bigB64 = `data:audio/wav;base64,${bigWav.toString('base64')}`;
+
+      const res = await request(app)
+        .post('/api/admin/voices')
+        .set('Cookie', adminCookie)
+        .send({
+          label: 'Big Body Voice',
+          description: 'A giant friendly troll with heavy resonance',
+          defaultPace: 'slow',
+          stagedGeminiVoiceName: 'voice_staged_giant_1',
+          previewAudioBase64: bigB64,
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.id).toBe('designed-big-body-voice');
+      const stream = await storage.getVoicePreviewStream('designed-big-body-voice');
+      expect(stream.totalBytes).toBe(bigWav.length);
+    });
+
     it('streams cached preview via GET /api/voices/:id/preview.wav with 200 OK and 206 Partial Content (HTTP Range)', async () => {
       // 1. Full 200 OK request
       const res200 = await request(app).get('/api/voices/designed-saved-hero/preview.wav');
@@ -492,6 +707,45 @@ describe('Phase 9: Staged Draft Voice Lifecycle, Pacing Guardrails & Multimodal 
 
       // Verify provider custom voice cleanup called
       expect(mockTts.deleteVoiceCalls).toContain('voice_saved_hero_123');
+    });
+
+    it('PATCH /api/admin/voices/does-not-exist returns 404 NotFound', async () => {
+      const res = await request(app)
+        .patch('/api/admin/voices/does-not-exist')
+        .set('Cookie', adminCookie)
+        .send({ label: 'Non-existent voice update' });
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toContain('Voice not found: "does-not-exist"');
+    });
+
+    it('DELETE /api/admin/voices/does-not-exist returns 404 NotFound', async () => {
+      const res = await request(app)
+        .delete('/api/admin/voices/does-not-exist')
+        .set('Cookie', adminCookie);
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toContain('Voice not found: "does-not-exist"');
+    });
+
+    it('enforces requireAdmin authentication (401 without cookie) across all voice admin endpoints', async () => {
+      const previewRes = await request(app)
+        .post('/api/admin/voices/preview')
+        .send({ description: 'Testing auth' });
+      expect(previewRes.status).toBe(401);
+
+      const patchRes = await request(app)
+        .patch('/api/admin/voices/designed-saved-hero')
+        .send({ label: 'New Label' });
+      expect(patchRes.status).toBe(401);
+
+      const deleteRes = await request(app)
+        .delete('/api/admin/voices/designed-saved-hero');
+      expect(deleteRes.status).toBe(401);
+
+      const draftDeleteRes = await request(app)
+        .delete('/api/admin/voices/draft/voice_staged_123');
+      expect(draftDeleteRes.status).toBe(401);
     });
   });
 
@@ -618,11 +872,11 @@ describe('Phase 9: Staged Draft Voice Lifecycle, Pacing Guardrails & Multimodal 
         },
         {
           input: 'frantic and urgent as he runs full speed toward the exit',
-          expected: 'frantic and urgent as he with playful urgency toward the exit',
+          expected: 'frantic and urgent as he runs with playful urgency toward the exit',
         },
         {
           input: 'Excited, running full speed through the meadow',
-          expected: 'Excited, with playful urgency through the meadow',
+          expected: 'Excited, running with playful urgency through the meadow',
         },
         {
           input: 'Energetic narration at full speed with breathless laughter',
@@ -672,6 +926,24 @@ describe('Phase 9: Staged Draft Voice Lifecycle, Pacing Guardrails & Multimodal 
       const veryLong = 'Very expressive dramatic tone. '.repeat(20);
       const sanitized = sanitizeLiteralTempoPhrases(veryLong);
       expect(sanitized.length).toBeLessThanOrEqual(280);
+    });
+
+    it('clampToBoundary clamps cleanly at whitespace/punctuation boundary without cutting words in half', () => {
+      const text = 'Excited baby dragon who loves jumping over fluffy clouds and singing cheerful songs';
+      // At maxLen = 35: "Excited baby dragon who loves jump" -> boundary before "jump" is index 29
+      const clamped = clampToBoundary(text, 35);
+      expect(clamped).toBe('Excited baby dragon who loves');
+      expect(clamped.endsWith('jump')).toBe(false);
+
+      // Trailing punctuation stripping
+      const punctText = 'Cheerful, bouncy, playful,;';
+      expect(clampToBoundary(punctText, 25)).toBe('Cheerful, bouncy');
+
+      // Sanitized style clamped never ends with a partially cut word
+      const veryLong = 'Energetic storytelling style with wonderful words and delightful dialogue. '.repeat(10);
+      const sanitized = sanitizeLiteralTempoPhrases(veryLong);
+      expect(sanitized.length).toBeLessThanOrEqual(280);
+      expect(/[,;:\s]$/.test(sanitized)).toBe(false);
     });
 
     it('buildTurnStyle appends structured PACE_SYNTHESIS_ANCHOR and stays <= 280 chars', () => {
@@ -1044,6 +1316,182 @@ describe('Phase 9: Staged Draft Voice Lifecycle, Pacing Guardrails & Multimodal 
         expect(call.speechConfig.multiSpeakerVoiceConfig).toBeDefined();
         expect(call.speechConfig.multiSpeakerVoiceConfig?.speakerVoiceConfigs).toHaveLength(2);
       }
+    });
+
+    it('cast mode single-speaker sub-batch uses speechConfig.voiceConfig and has NO multiSpeakerVoiceConfig', async () => {
+      // 3 turns, all spoken by Narrator
+      const turns = [
+        { turn_id: 1, speaker: 'Narrator', style: 'Gentle', text: 'Turn one by narrator.' },
+        { turn_id: 2, speaker: 'Narrator', style: 'Gentle', text: 'Turn two by narrator.' },
+        { turn_id: 3, speaker: 'Narrator', style: 'Gentle', text: 'Turn three by narrator.' },
+      ];
+
+      const story: Story = {
+        id: 'single-speaker-cast-story',
+        status: 'draft',
+        title: 'Single Speaker Cast Story',
+        summary: 'Cast mode with single speaker in sub-batch.',
+        tags: ['cast'],
+        series_context: null,
+        characters: [{ name: 'Captain', traits: 'Bold' }],
+        script_turns: turns,
+        voice_candidates: [],
+        audio_versions: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      await storage.saveStory(story);
+
+      const res = await request(app)
+        .post('/api/admin/stories/single-speaker-cast-story/synthesize')
+        .set('Cookie', adminCookie)
+        .send({
+          casting: {
+            mode: 'cast',
+            narrator_voice_id: 'prebuilt-kore',
+            character_voices: {
+              Captain: 'designed-saved-hero',
+            },
+          },
+        });
+
+      expect(res.status).toBe(201);
+      expect(mockTts.synthesizeCalls).toHaveLength(1);
+      const call = mockTts.synthesizeCalls[0];
+      // Has single voiceConfig
+      expect(call.speechConfig.voiceConfig).toBeDefined();
+      expect(call.speechConfig.voiceConfig).toEqual({ prebuiltVoiceConfig: { voiceName: 'Kore' } });
+      // Has NO multiSpeakerVoiceConfig
+      expect(call.speechConfig.multiSpeakerVoiceConfig).toBeUndefined();
+    });
+
+    it('cast mode uses per-speaker default_pace when casting.pace is unset, and casting.pace overrides both', async () => {
+      // Narrator (prebuilt-kore: natural) and Captain (designed-saved-hero: lively)
+      const turns = [
+        { turn_id: 1, speaker: 'Narrator', style: 'Once upon a time', text: 'The sun rose.' },
+        { turn_id: 2, speaker: 'Captain', style: 'Ready for action', text: 'Onward!' },
+      ];
+
+      const story: Story = {
+        id: 'pace-fallback-story',
+        status: 'draft',
+        title: 'Pace Fallback Story',
+        summary: 'Verifying per-speaker pace fallback.',
+        tags: ['cast'],
+        series_context: null,
+        characters: [{ name: 'Captain', traits: 'Bold' }],
+        script_turns: turns,
+        voice_candidates: [],
+        audio_versions: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      await storage.saveStory(story);
+
+      // Part A: casting.pace unset -> per-speaker fallback
+      const resUnset = await request(app)
+        .post('/api/admin/stories/pace-fallback-story/synthesize')
+        .set('Cookie', adminCookie)
+        .send({
+          casting: {
+            mode: 'cast',
+            narrator_voice_id: 'prebuilt-kore',
+            character_voices: {
+              Captain: 'designed-saved-hero',
+            },
+          },
+        });
+
+      expect(resUnset.status).toBe(201);
+      const callUnset = mockTts.synthesizeCalls[0];
+      // Narrator (turn 1) gets 'natural' anchor
+      expect(callUnset.parts[0].speechMetadata?.style).toContain(PACE_SYNTHESIS_ANCHOR.natural);
+      // Captain (turn 2) gets 'lively' anchor
+      expect(callUnset.parts[1].speechMetadata?.style).toContain(PACE_SYNTHESIS_ANCHOR.lively);
+
+      // Part B: casting.pace set to 'slow' -> overrides both
+      mockTts.synthesizeCalls = [];
+      const resSlow = await request(app)
+        .post('/api/admin/stories/pace-fallback-story/synthesize')
+        .set('Cookie', adminCookie)
+        .send({
+          casting: {
+            mode: 'cast',
+            narrator_voice_id: 'prebuilt-kore',
+            character_voices: {
+              Captain: 'designed-saved-hero',
+            },
+            pace: 'slow',
+          },
+        });
+
+      expect(resSlow.status).toBe(201);
+      const callSlow = mockTts.synthesizeCalls[0];
+      expect(callSlow.parts[0].speechMetadata?.style).toContain(PACE_SYNTHESIS_ANCHOR.slow);
+      expect(callSlow.parts[1].speechMetadata?.style).toContain(PACE_SYNTHESIS_ANCHOR.slow);
+    });
+
+    it('solo mode falls back to narratorVoice.default_pace when casting.pace is unset, and persists request pace', async () => {
+      const turns = [
+        { turn_id: 1, speaker: 'Narrator', style: 'Heroic tale', text: 'He climbed the peak.' },
+      ];
+
+      const story: Story = {
+        id: 'solo-pace-fallback-story',
+        status: 'draft',
+        title: 'Solo Pace Story',
+        summary: 'Verifying solo mode pace fallback and persistence.',
+        tags: ['solo'],
+        series_context: null,
+        characters: [],
+        script_turns: turns,
+        voice_candidates: [],
+        audio_versions: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      await storage.saveStory(story);
+
+      // Part A: casting.pace unset with designed-saved-hero (default_pace: lively)
+      const resUnset = await request(app)
+        .post('/api/admin/stories/solo-pace-fallback-story/synthesize')
+        .set('Cookie', adminCookie)
+        .send({
+          casting: {
+            mode: 'solo',
+            narrator_voice_id: 'designed-saved-hero',
+            character_voices: {},
+          },
+        });
+
+      expect(resUnset.status).toBe(201);
+      expect(mockTts.synthesizeCalls[0].parts[0].speechMetadata?.style).toContain(
+        PACE_SYNTHESIS_ANCHOR.lively
+      );
+
+      // Part B: casting.pace explicit 'calm' -> persisted in AudioVersion.casting.pace
+      mockTts.synthesizeCalls = [];
+      const resCalm = await request(app)
+        .post('/api/admin/stories/solo-pace-fallback-story/synthesize')
+        .set('Cookie', adminCookie)
+        .send({
+          casting: {
+            mode: 'solo',
+            narrator_voice_id: 'designed-saved-hero',
+            character_voices: {},
+            pace: 'calm',
+          },
+        });
+
+      expect(resCalm.status).toBe(201);
+      expect(mockTts.synthesizeCalls[0].parts[0].speechMetadata?.style).toContain(
+        PACE_SYNTHESIS_ANCHOR.calm
+      );
+
+      // Verify persisted story audio version
+      const updatedStory = await storage.getStory('solo-pace-fallback-story');
+      const latestVersion = updatedStory!.audio_versions[updatedStory!.audio_versions.length - 1];
+      expect(latestVersion.casting.pace).toBe('calm');
     });
   });
 });

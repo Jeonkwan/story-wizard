@@ -27,7 +27,7 @@ import {
   type TtsProvider,
 } from './services/geminiTts.js';
 import { JobManager, defaultJobManager } from './services/jobManager.js';
-import { ValidationError } from './lib/validators.js';
+import { ValidationError, ConflictError, NotFoundError } from './lib/validators.js';
 
 export interface CreateAppOptions {
   config?: AppConfig;
@@ -106,7 +106,11 @@ export function createApp(options: CreateAppOptions = {}): express.Express {
         res.status(400).json({ error: err.message });
         return;
       }
-      if (err instanceof StorageNotFoundError) {
+      if (err instanceof ConflictError) {
+        res.status(409).json({ error: err.message });
+        return;
+      }
+      if (err instanceof NotFoundError || err instanceof StorageNotFoundError) {
         res.status(404).json({ error: err.message });
         return;
       }

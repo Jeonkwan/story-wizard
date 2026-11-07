@@ -6,7 +6,7 @@ import { validateSlug } from '../storage/storageAdapter.js';
 import { createRequireAdminMiddleware } from '../middleware/auth.js';
 import { asyncHandler } from '../lib/asyncHandler.js';
 import { GeminiTtsService } from '../services/geminiTts.js';
-import { ValidationError } from '../lib/validators.js';
+import { ValidationError, ConflictError, NotFoundError } from '../lib/validators.js';
 import type { VoicePace } from '../../shared/types.js';
 
 const VALID_PACES: VoicePace[] = ['slow', 'calm', 'natural', 'lively'];
@@ -52,29 +52,41 @@ export function createAdminVoicesRouter(
         return;
       }
 
-      const result = await ttsService.previewVoice({
-        voiceId: typeof voiceId === 'string' ? voiceId.trim() : undefined,
-        description: typeof description === 'string' ? description.trim() : undefined,
-        sampleText: typeof sampleText === 'string' ? sampleText.trim() : undefined,
-        pace,
-        draftGeminiVoiceName:
-          typeof draftGeminiVoiceName === 'string' ? draftGeminiVoiceName.trim() : undefined,
-        previousDraftGeminiVoiceName:
-          typeof previousDraftGeminiVoiceName === 'string'
-            ? previousDraftGeminiVoiceName.trim()
-            : undefined,
-        regenerateTake: Boolean(regenerateTake),
-      });
+      try {
+        const result = await ttsService.previewVoice({
+          voiceId: typeof voiceId === 'string' ? voiceId.trim() : undefined,
+          description: typeof description === 'string' ? description.trim() : undefined,
+          sampleText: typeof sampleText === 'string' ? sampleText.trim() : undefined,
+          pace,
+          draftGeminiVoiceName:
+            typeof draftGeminiVoiceName === 'string' ? draftGeminiVoiceName.trim() : undefined,
+          previousDraftGeminiVoiceName:
+            typeof previousDraftGeminiVoiceName === 'string'
+              ? previousDraftGeminiVoiceName.trim()
+              : undefined,
+          regenerateTake: Boolean(regenerateTake),
+        });
 
-      if (result.draftGeminiVoiceName) {
-        res.setHeader('X-Draft-Voice-Name', result.draftGeminiVoiceName);
-        res.setHeader('Access-Control-Expose-Headers', 'X-Draft-Voice-Name');
+        if (result.draftGeminiVoiceName) {
+          res.setHeader('X-Draft-Voice-Name', result.draftGeminiVoiceName);
+          res.setHeader('Access-Control-Expose-Headers', 'X-Draft-Voice-Name');
+        }
+
+        res.setHeader('Content-Type', 'audio/wav');
+        res.setHeader('Content-Length', result.wav.length);
+        res.setHeader('Cache-Control', 'private, no-store');
+        res.send(result.wav);
+      } catch (err: unknown) {
+        if (err instanceof NotFoundError) {
+          res.status(404).json({ error: err.message });
+          return;
+        }
+        if (err instanceof ValidationError) {
+          res.status(400).json({ error: err.message });
+          return;
+        }
+        throw err;
       }
-
-      res.setHeader('Content-Type', 'audio/wav');
-      res.setHeader('Content-Length', result.wav.length);
-      res.setHeader('Cache-Control', 'private, no-store');
-      res.send(result.wav);
     })
   );
 
@@ -116,6 +128,14 @@ export function createAdminVoicesRouter(
           res.status(400).json({ error: 'previewAudioBase64 exceeds maximum 2MB limit' });
           return;
         }
+        if (
+          previewWavBuffer.length < 12 ||
+          previewWavBuffer.toString('ascii', 0, 4) !== 'RIFF' ||
+          previewWavBuffer.toString('ascii', 8, 12) !== 'WAVE'
+        ) {
+          res.status(400).json({ error: 'previewAudioBase64 must be a WAV file' });
+          return;
+        }
       }
 
       try {
@@ -134,11 +154,11 @@ export function createAdminVoicesRouter(
 
         res.status(201).json(created);
       } catch (err: unknown) {
+        if (err instanceof ConflictError) {
+          res.status(409).json({ error: err.message });
+          return;
+        }
         if (err instanceof ValidationError) {
-          if (err.message.includes('already exists')) {
-            res.status(409).json({ error: err.message });
-            return;
-          }
           res.status(400).json({ error: err.message });
           return;
         }
@@ -168,14 +188,26 @@ export function createAdminVoicesRouter(
         return;
       }
 
-      const updated = await ttsService.updateVoice(id, {
-        label: typeof label === 'string' ? label : undefined,
-        description: typeof description === 'string' ? description : undefined,
-        tags: Array.isArray(tags) ? tags : undefined,
-        defaultPace,
-      });
+      try {
+        const updated = await ttsService.updateVoice(id, {
+          label: typeof label === 'string' ? label : undefined,
+          description: typeof description === 'string' ? description : undefined,
+          tags: Array.isArray(tags) ? tags : undefined,
+          defaultPace,
+        });
 
-      res.json(updated);
+        res.json(updated);
+      } catch (err: unknown) {
+        if (err instanceof NotFoundError) {
+          res.status(404).json({ error: err.message });
+          return;
+        }
+        if (err instanceof ValidationError) {
+          res.status(400).json({ error: err.message });
+          return;
+        }
+        throw err;
+      }
     })
   );
 
@@ -190,11 +222,11 @@ export function createAdminVoicesRouter(
         await ttsService.discardDraftVoice(geminiVoiceName);
         res.json({ ok: true });
       } catch (err: unknown) {
+        if (err instanceof ConflictError) {
+          res.status(409).json({ error: err.message });
+          return;
+        }
         if (err instanceof ValidationError) {
-          if (err.message.includes('currently saved')) {
-            res.status(409).json({ error: err.message });
-            return;
-          }
           res.status(400).json({ error: err.message });
           return;
         }
@@ -215,8 +247,20 @@ export function createAdminVoicesRouter(
         return;
       }
 
-      const result = await ttsService.deleteVoice(id);
-      res.json({ ok: true, deletedId: result.deletedId });
+      try {
+        const result = await ttsService.deleteVoice(id);
+        res.json({ ok: true, deletedId: result.deletedId });
+      } catch (err: unknown) {
+        if (err instanceof NotFoundError) {
+          res.status(404).json({ error: err.message });
+          return;
+        }
+        if (err instanceof ValidationError) {
+          res.status(400).json({ error: err.message });
+          return;
+        }
+        throw err;
+      }
     })
   );
 

@@ -2,7 +2,7 @@ import { GoogleGenAI } from '@google/genai';
 import type { AppConfig } from '../config.js';
 import type { StorageAdapter } from '../storage/storageAdapter.js';
 import { validateSlug } from '../storage/storageAdapter.js';
-import { ValidationError } from '../lib/validators.js';
+import { ValidationError, ConflictError, NotFoundError } from '../lib/validators.js';
 import { extractPcmFromWavOrRaw, createSilencePcm, wrapPcmAsWav } from '../lib/wav.js';
 import { storyToCatalogItem } from './geminiStory.js';
 import type {
@@ -200,11 +200,28 @@ export const PACE_SYNTHESIS_ANCHOR: Record<VoicePace, string> = {
   lively: 'Pace: lively, upbeat, animated storytelling energy while keeping every word crisp, clear, and unhurried for young children.',
 };
 
+export function clampToBoundary(text: string, maxLen: number): string {
+  if (text.length <= maxLen) return text;
+  const truncated = text.slice(0, maxLen);
+  const lastBoundary = Math.max(
+    truncated.lastIndexOf(' '),
+    truncated.lastIndexOf('\t'),
+    truncated.lastIndexOf(','),
+    truncated.lastIndexOf(';'),
+    truncated.lastIndexOf('.'),
+    truncated.lastIndexOf(':')
+  );
+  const clamped = (lastBoundary > 0 ? truncated.slice(0, lastBoundary) : truncated)
+    .replace(/[,;:\s]+$/, '')
+    .trim();
+  return clamped;
+}
+
 export function sanitizeLiteralTempoPhrases(style: string): string {
   if (!style) return '';
   let s = style
     .replace(/^fast,\s*/i, 'Energetic, ')
-    .replace(/\b(?:runs|running)\s+full speed\b/gi, 'with playful urgency')
+    .replace(/\b(runs|running)\s+full speed\b/gi, '$1 with playful urgency')
     .replace(/\bfull speed\b/gi, 'full enthusiasm')
     .replace(/\bat high speed\b/gi, 'with high animated energy')
     .replace(/\bcartoonish speed\b/gi, 'animated cartoon energy')
@@ -214,7 +231,7 @@ export function sanitizeLiteralTempoPhrases(style: string): string {
 
   s = s.replace(/\s{2,}/g, ' ').trim();
   if (s.length > 280) {
-    s = s.slice(0, 280).trim();
+    s = clampToBoundary(s, 280);
   }
   return s;
 }
@@ -226,7 +243,7 @@ export function buildTurnStyle(baseStyle: string, pace: VoicePace): string {
     return anchor;
   }
   const maxBase = 280 - anchor.length - 2;
-  const trimmedBase = sanitized.length > maxBase ? sanitized.slice(0, maxBase).trim() : sanitized;
+  const trimmedBase = sanitized.length > maxBase ? clampToBoundary(sanitized, maxBase) : sanitized;
   return trimmedBase ? `${trimmedBase}. ${anchor}` : anchor;
 }
 
@@ -361,7 +378,7 @@ export class GeminiTtsService {
       const voices = await this.listVoices();
       const voice = voices.find((v) => v.id === input.voiceId!.trim());
       if (!voice) {
-        throw new ValidationError(`Voice not found: "${input.voiceId}"`);
+        throw new NotFoundError(`Voice not found: "${input.voiceId}"`);
       }
       const effectivePace: VoicePace = input.pace || voice.default_pace || 'natural';
       const style = buildTurnStyle(
@@ -486,6 +503,7 @@ export class GeminiTtsService {
 
     let geminiVoiceName: string;
     let fallbackSampleAudioWav: Buffer | undefined;
+    const isFreshPromptedVoice = !input.stagedGeminiVoiceName || !input.stagedGeminiVoiceName.trim();
 
     if (input.stagedGeminiVoiceName && input.stagedGeminiVoiceName.trim()) {
       const bareStagedId = input.stagedGeminiVoiceName.trim().replace(/^voices\//, '');
@@ -497,7 +515,7 @@ export class GeminiTtsService {
         (v) => (v.gemini_voice_name || '').replace(/^voices\//, '') === bareStagedId
       );
       if (isAlreadySaved) {
-        throw new ValidationError(`Staged voice ID already exists as a saved voice: "${bareStagedId}"`);
+        throw new ConflictError(`Staged voice ID already exists as a saved voice: "${bareStagedId}"`);
       }
 
       geminiVoiceName = bareStagedId;
@@ -529,27 +547,35 @@ export class GeminiTtsService {
 
     validateSlug(voiceId, 'voiceId');
 
-    // Obtain preview WAV buffer to cache
-    let previewWav: Buffer;
-    if (input.previewWavBuffer && input.previewWavBuffer.length > 0) {
-      const pcm = extractPcmFromWavOrRaw(input.previewWavBuffer);
-      const { wav } = wrapPcmAsWav(pcm);
-      previewWav = wav;
-    } else if (fallbackSampleAudioWav && fallbackSampleAudioWav.length > 0) {
-      const pcm = extractPcmFromWavOrRaw(fallbackSampleAudioWav);
-      const { wav } = wrapPcmAsWav(pcm);
-      previewWav = wav;
-    } else {
-      const previewRes = await this.previewVoice({
-        description,
-        sampleText: DEFAULT_VOICE_SAMPLE,
-        pace: defaultPace,
-        draftGeminiVoiceName: geminiVoiceName,
-      });
-      previewWav = previewRes.wav;
-    }
+    // Best-effort preview WAV caching
+    let previewAudioUrl: string | undefined;
+    try {
+      let previewWav: Buffer | undefined;
+      if (input.previewWavBuffer && input.previewWavBuffer.length > 0) {
+        const pcm = extractPcmFromWavOrRaw(input.previewWavBuffer);
+        const { wav } = wrapPcmAsWav(pcm);
+        previewWav = wav;
+      } else if (fallbackSampleAudioWav && fallbackSampleAudioWav.length > 0) {
+        const pcm = extractPcmFromWavOrRaw(fallbackSampleAudioWav);
+        const { wav } = wrapPcmAsWav(pcm);
+        previewWav = wav;
+      } else {
+        const previewRes = await this.previewVoice({
+          description,
+          sampleText: DEFAULT_VOICE_SAMPLE,
+          pace: defaultPace,
+          draftGeminiVoiceName: geminiVoiceName,
+        });
+        previewWav = previewRes.wav;
+      }
 
-    await this.storage.saveVoicePreview(voiceId, previewWav);
+      if (previewWav && previewWav.length > 0) {
+        await this.storage.saveVoicePreview(voiceId, previewWav);
+        previewAudioUrl = `/api/voices/${voiceId}/preview.wav`;
+      }
+    } catch (previewErr) {
+      console.warn(`[TtsService] Best-effort preview caching failed for ${voiceId}:`, previewErr);
+    }
 
     const newVoice: VoiceEntry = {
       id: voiceId,
@@ -562,19 +588,30 @@ export class GeminiTtsService {
         ? input.tags.map((t) => String(t).trim()).filter(Boolean)
         : [],
       default_pace: defaultPace,
-      preview_audio_url: `/api/voices/${voiceId}/preview.wav`,
+      ...(previewAudioUrl ? { preview_audio_url: previewAudioUrl } : {}),
       created_at: new Date().toISOString(),
     };
 
-    await this.storage.updateJsonAtomic<VoiceEntry[]>(
-      'voices.json',
-      (current) => {
-        const list = current && current.length > 0 ? [...current] : [...DEFAULT_PREBUILT_VOICES];
-        list.push(newVoice);
-        return list;
-      },
-      []
-    );
+    try {
+      await this.storage.updateJsonAtomic<VoiceEntry[]>(
+        'voices.json',
+        (current) => {
+          const list = current && current.length > 0 ? [...current] : [...DEFAULT_PREBUILT_VOICES];
+          list.push(newVoice);
+          return list;
+        },
+        []
+      );
+    } catch (storageErr) {
+      if (isFreshPromptedVoice && this.ttsProvider.deleteCustomVoice) {
+        try {
+          await this.ttsProvider.deleteCustomVoice(geminiVoiceName);
+        } catch {
+          // Best-effort cleanup of orphaned Gemini voice
+        }
+      }
+      throw storageErr;
+    }
 
     return newVoice;
   }
@@ -607,7 +644,7 @@ export class GeminiTtsService {
         } else {
           const prebuilt = DEFAULT_PREBUILT_VOICES.find((v) => v.id === voiceId);
           if (!prebuilt) {
-            throw new ValidationError(`Voice not found: "${voiceId}"`);
+            throw new NotFoundError(`Voice not found: "${voiceId}"`);
           }
           existing = { ...prebuilt };
           list.push(existing);
@@ -639,7 +676,7 @@ export class GeminiTtsService {
     );
 
     if (!updatedEntry) {
-      throw new ValidationError(`Voice not found: "${voiceId}"`);
+      throw new NotFoundError(`Voice not found: "${voiceId}"`);
     }
 
     return updatedEntry;
@@ -655,7 +692,7 @@ export class GeminiTtsService {
     const voices = await this.listVoices();
     const voice = voices.find((v) => v.id === voiceId);
     if (!voice) {
-      throw new ValidationError(`Voice not found: "${voiceId}"`);
+      throw new NotFoundError(`Voice not found: "${voiceId}"`);
     }
 
     if (voice.source === 'prebuilt') {
@@ -698,7 +735,7 @@ export class GeminiTtsService {
       (v) => (v.gemini_voice_name || '').replace(/^voices\//, '') === bareId
     );
     if (isSaved) {
-      throw new ValidationError(
+      throw new ConflictError(
         `Cannot delete voice "${bareId}": it is currently saved in the voice library`
       );
     }
