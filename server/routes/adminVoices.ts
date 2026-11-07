@@ -179,11 +179,12 @@ export function createAdminVoicesRouter(
         return;
       }
 
-      const { label, description, tags, defaultPace } = req.body || {};
+      const { label, description, tags, defaultPace, default_pace } = req.body || {};
+      const paceValue = defaultPace !== undefined ? defaultPace : default_pace;
 
-      if (defaultPace !== undefined && !VALID_PACES.includes(defaultPace)) {
+      if (paceValue !== undefined && !VALID_PACES.includes(paceValue)) {
         res.status(400).json({
-          error: `Invalid default pace: "${defaultPace}". Must be one of: slow, calm, natural, lively`,
+          error: `Invalid default pace: "${paceValue}". Must be one of: slow, calm, natural, lively`,
         });
         return;
       }
@@ -193,7 +194,7 @@ export function createAdminVoicesRouter(
           label: typeof label === 'string' ? label : undefined,
           description: typeof description === 'string' ? description : undefined,
           tags: Array.isArray(tags) ? tags : undefined,
-          defaultPace,
+          defaultPace: paceValue,
         });
 
         res.json(updated);

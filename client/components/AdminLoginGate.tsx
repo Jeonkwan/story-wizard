@@ -7,6 +7,7 @@ import {
   type AdminSession,
 } from '../api/client';
 import { DirectorStudio } from './DirectorStudio';
+import { VoiceLibraryPage } from './VoiceLibraryPage';
 
 declare global {
   interface Window {
@@ -28,14 +29,18 @@ declare global {
   }
 }
 
-interface AdminLoginGateProps {
+export interface AdminLoginGateProps {
   onNavigateHome: () => void;
   onCatalogChanged?: () => void;
+  currentPath?: string;
+  onNavigate?: (path: string) => void;
 }
 
 export function AdminLoginGate({
   onNavigateHome,
   onCatalogChanged,
+  currentPath,
+  onNavigate,
 }: AdminLoginGateProps): React.JSX.Element {
   const [session, setSession] = useState<AdminSession | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -155,13 +160,87 @@ export function AdminLoginGate({
   }
 
   if (session?.authenticated) {
+    const effectivePath =
+      currentPath || (typeof window !== 'undefined' ? window.location.pathname : '/admin');
+    const isVoiceLibrary = effectivePath.startsWith('/admin/voices');
+
     return (
-      <DirectorStudio
-        session={session}
-        onLogout={handleLogout}
-        onCatalogChanged={onCatalogChanged}
-        onNavigateHome={onNavigateHome}
-      />
+      <div className="admin-studio-wrapper">
+        {/* Admin Navigation Tabs */}
+        <nav
+          className="admin-nav-tabs"
+          aria-label="Admin Navigation Tabs"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '0.75rem',
+            marginBottom: '1.5rem',
+            paddingBottom: '0.75rem',
+            borderBottom: '2px solid var(--ink-primary)',
+          }}
+        >
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className={`btn-tactile ${!isVoiceLibrary ? 'btn-tactile-primary' : ''}`}
+              onClick={() => onNavigate?.('/admin')}
+              aria-current={!isVoiceLibrary ? 'page' : undefined}
+              style={{ minHeight: '44px', padding: '0.5rem 1rem' }}
+            >
+              📖 Stories Workbench
+            </button>
+            <button
+              type="button"
+              className={`btn-tactile ${isVoiceLibrary ? 'btn-tactile-primary' : ''}`}
+              onClick={() => onNavigate?.('/admin/voices')}
+              aria-current={isVoiceLibrary ? 'page' : undefined}
+              style={{ minHeight: '44px', padding: '0.5rem 1rem' }}
+            >
+              🎙️ Voice Library
+            </button>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.85rem', color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)' }}>
+              {session.email || 'Admin'}
+            </span>
+            <button
+              type="button"
+              className="btn-tactile"
+              onClick={handleLogout}
+              style={{ fontSize: '0.8rem', padding: '0.35rem 0.65rem', minHeight: '38px' }}
+            >
+              Logout
+            </button>
+          </div>
+        </nav>
+
+        {isVoiceLibrary ? (
+          <VoiceLibraryPage
+            session={session}
+            onLogout={handleLogout}
+            onNavigate={
+              onNavigate ||
+              ((path: string) => {
+                if (typeof window !== 'undefined') window.history.pushState(null, '', path);
+              })
+            }
+            onNavigateHome={onNavigateHome}
+            onCatalogChanged={onCatalogChanged}
+          />
+        ) : (
+          <DirectorStudio
+            session={session}
+            onLogout={handleLogout}
+            onCatalogChanged={onCatalogChanged}
+            onNavigateHome={onNavigateHome}
+            currentPath={currentPath}
+            onNavigate={onNavigate}
+          />
+        )}
+      </div>
     );
   }
 

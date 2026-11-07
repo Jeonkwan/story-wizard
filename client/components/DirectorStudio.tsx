@@ -42,11 +42,13 @@ export const GENRE_PRESETS: GenrePreset[] = [
   { id: 'fable', label: '🧚 Whimsical Fable', promptPrefix: 'A charming, magical fairy tale fable with enchanted creatures and heart: ' },
 ];
 
-interface DirectorStudioProps {
+export interface DirectorStudioProps {
   session: AdminSession;
   onLogout: () => void;
   onCatalogChanged?: () => void;
   onNavigateHome: () => void;
+  currentPath?: string;
+  onNavigate?: (path: string) => void;
 }
 
 export function DirectorStudio({
@@ -54,6 +56,8 @@ export function DirectorStudio({
   onLogout,
   onCatalogChanged,
   onNavigateHome,
+  currentPath,
+  onNavigate,
 }: DirectorStudioProps): React.JSX.Element {
   const [stories, setStories] = useState<CatalogItem[]>([]);
   const [loadingStories, setLoadingStories] = useState<boolean>(true);
@@ -99,6 +103,7 @@ export function DirectorStudio({
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isPublishing, setIsPublishing] = useState<boolean>(false);
   const [publishError, setPublishError] = useState<string | null>(null);
+  const [initialNarratorVoiceId, setInitialNarratorVoiceId] = useState<string | undefined>(undefined);
 
   // References to turn textareas for cursor-precise tag insertion
   const turnTextareaRefs = useRef<Map<number, HTMLTextAreaElement>>(new Map());
@@ -172,6 +177,30 @@ export function DirectorStudio({
       setLoadingStory(false);
     }
   }, []);
+
+  // Inspect URL query params on mount or when currentPath changes (e.g. handoff from Voice Library)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const search = currentPath && currentPath.includes('?')
+      ? currentPath.slice(currentPath.indexOf('?'))
+      : window.location.search;
+    const params = new URLSearchParams(search);
+    const storyId = params.get('storyId');
+    const narratorVoice = params.get('narratorVoiceId');
+    const step = params.get('step');
+
+    if (storyId) {
+      loadStoryIntoWorkbench(storyId);
+      if (narratorVoice) {
+        setInitialNarratorVoiceId(narratorVoice);
+      }
+      if (step === '3' || narratorVoice) {
+        setTimeout(() => {
+          document.getElementById('step-3-voice-studio')?.scrollIntoView?.({ behavior: 'smooth' });
+        }, 300);
+      }
+    }
+  }, [currentPath, loadStoryIntoWorkbench]);
 
   const startPollingDraftJob = useCallback((jobId: string) => {
     if (draftPollTimerRef.current) clearInterval(draftPollTimerRef.current);
@@ -1255,6 +1284,8 @@ export function DirectorStudio({
             <VoiceStudioPanel
               story={{ ...activeStory, characters: editedCharacters }}
               onStoryUpdated={handleStoryUpdated}
+              initialNarratorVoiceId={initialNarratorVoiceId}
+              onNavigateToVoiceLibrary={onNavigate ? () => onNavigate('/admin/voices') : undefined}
               onBeforeSynthesize={async () => {
                 await persistWorkbenchEdits();
               }}

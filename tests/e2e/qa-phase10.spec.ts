@@ -175,8 +175,11 @@ test.describe('Phase 10: Mobile Focus Composer, Voice Dictation & Fine-Grained P
     await page.goto('/admin', { waitUntil: 'domcontentloaded' });
 
     const devLoginBtn = page.getByRole('button', { name: /Dev Sandbox Login/i });
-    if (await devLoginBtn.isVisible({ timeout: 4000 }).catch(() => false)) {
+    try {
+      await devLoginBtn.waitFor({ state: 'visible', timeout: 5000 });
       await devLoginBtn.click();
+    } catch {
+      // Already authenticated
     }
 
     await expect(page.locator('.studio-sidebar')).toBeVisible();

@@ -9,7 +9,7 @@ import { AdminLoginGate } from './components/AdminLoginGate';
 
 export function App(): React.JSX.Element {
   const [currentPath, setCurrentPath] = useState<string>(() =>
-    typeof window !== 'undefined' ? window.location.pathname : '/'
+    typeof window !== 'undefined' ? window.location.pathname + window.location.search : '/'
   );
 
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
@@ -33,7 +33,8 @@ export function App(): React.JSX.Element {
   // Centralized navigation helper
   const navigate = useCallback((nextPath: string, replace = false) => {
     if (typeof window !== 'undefined') {
-      if (window.location.pathname !== nextPath) {
+      const currentFull = window.location.pathname + window.location.search;
+      if (currentFull !== nextPath) {
         if (replace) {
           window.history.replaceState(null, '', nextPath);
         } else {
@@ -68,7 +69,7 @@ export function App(): React.JSX.Element {
   // Sync route with window.location on mount and popstate (Browser Back/Forward)
   useEffect(() => {
     const handlePopState = () => {
-      setCurrentPath(window.location.pathname);
+      setCurrentPath(window.location.pathname + window.location.search);
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
@@ -76,7 +77,8 @@ export function App(): React.JSX.Element {
 
   // Route effect: inspect currentPath and sync activeStory (/stories/:id vs /)
   useEffect(() => {
-    const storyMatch = currentPath.match(/^\/stories\/([^/]+)$/);
+    const pathOnly = currentPath.split('?')[0];
+    const storyMatch = pathOnly.match(/^\/stories\/([^/]+)$/);
     if (storyMatch) {
       const storyId = decodeURIComponent(storyMatch[1]);
       if (!activeStory || activeStory.id !== storyId) {
@@ -141,6 +143,8 @@ export function App(): React.JSX.Element {
       <main role="main">
         {isAdmin ? (
           <AdminLoginGate
+            currentPath={currentPath}
+            onNavigate={handleNavigate}
             onNavigateHome={() => handleNavigate('/')}
             onCatalogChanged={refreshCatalog}
           />

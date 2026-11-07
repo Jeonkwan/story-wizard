@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import type { Story, VoiceCasting, VoiceEntry } from '../../shared/types';
+import type { Story, VoiceCasting, VoiceEntry, VoicePace } from '../../shared/types';
 import {
   fetchVoices,
   previewVoiceAudio,
@@ -11,17 +11,29 @@ import {
   fetchJobStatus,
   fetchStory,
 } from '../api/client';
+import { VoiceDesigner } from './VoiceDesigner';
 
 export interface VoiceStudioPanelProps {
   story: Story;
   onStoryUpdated: (updatedStory: Story) => void;
   onBeforeSynthesize?: () => Promise<void>;
+  initialNarratorVoiceId?: string;
+  onNavigateToVoiceLibrary?: () => void;
 }
+
+const PACE_BADGES: Record<VoicePace, { label: string; desc: string }> = {
+  slow: { label: '🐢 Slow', desc: 'Soothing & unhurried' },
+  calm: { label: '🌙 Calm', desc: 'Measured & relaxed' },
+  natural: { label: '✨ Natural', desc: 'Balanced rhythm' },
+  lively: { label: '⚡ Lively', desc: 'Animated & upbeat' },
+};
 
 export function VoiceStudioPanel({
   story,
   onStoryUpdated,
   onBeforeSynthesize,
+  initialNarratorVoiceId,
+  onNavigateToVoiceLibrary,
 }: VoiceStudioPanelProps): React.JSX.Element {
   const [voices, setVoices] = useState<VoiceEntry[]>([]);
   const [loadingVoices, setLoadingVoices] = useState<boolean>(true);
@@ -29,10 +41,11 @@ export function VoiceStudioPanel({
 
   // Casting state
   const [castingMode, setCastingMode] = useState<'solo' | 'cast'>('solo');
-  const [narratorVoiceId, setNarratorVoiceId] = useState<string>('');
+  const [narratorVoiceId, setNarratorVoiceId] = useState<string>(initialNarratorVoiceId || '');
   const [characterVoices, setCharacterVoices] = useState<Record<string, string>>({});
   const [versionLabel, setVersionLabel] = useState<string>('');
   const [setAsDefault, setSetAsDefault] = useState<boolean>(true);
+  const [narrationPace, setNarrationPace] = useState<VoicePace | 'inherit'>('inherit');
 
   // Synthesis progress state
   const [isSynthesizing, setIsSynthesizing] = useState<boolean>(false);
@@ -50,9 +63,11 @@ export function VoiceStudioPanel({
 
   // Custom Voice Designer state
   const [showVoiceDesigner, setShowVoiceDesigner] = useState<boolean>(false);
-  const [newVoiceLabel, setNewVoiceLabel] = useState<string>('');
-  const [newVoiceDescription, setNewVoiceDescription] = useState<string>('');
-  const [isCreatingVoice, setIsCreatingVoice] = useState<boolean>(false);
+  const [designerInitialValues, setDesignerInitialValues] = useState<{
+    label?: string;
+    description?: string;
+    tags?: string[];
+  } | null>(null);
   const [voiceCreateError, setVoiceCreateError] = useState<string | null>(null);
   const [voiceCreateSuccess, setVoiceCreateSuccess] = useState<string | null>(null);
 
@@ -63,6 +78,10 @@ export function VoiceStudioPanel({
   const [deletingVersionId, setDeletingVersionId] = useState<string | null>(null);
   const [versionActionError, setVersionActionError] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  // Prompt expansion toggle on selected narrator voice
+  const [showFullNarratorPrompt, setShowFullNarratorPrompt] = useState<boolean>(true);
+  const [copiedPrompt, setCopiedPrompt] = useState<boolean>(false);
 
   // Stop any active audition preview and clean up object URLs
   const stopAudition = useCallback(() => {
@@ -100,7 +119,7 @@ export function VoiceStudioPanel({
       const list = await fetchVoices();
       setVoices(list);
       if (list.length > 0) {
-        const preferredId = story.series_context?.preferred_voice_id;
+        const preferredId = initialNarratorVoiceId || story.series_context?.preferred_voice_id;
         const hasPreferred = preferredId && list.some((v) => v.id === preferredId);
         const defaultVoice = hasPreferred
           ? preferredId!
@@ -112,11 +131,18 @@ export function VoiceStudioPanel({
     } finally {
       setLoadingVoices(false);
     }
-  }, [story.series_context?.preferred_voice_id]);
+  }, [story.series_context?.preferred_voice_id, initialNarratorVoiceId]);
 
   useEffect(() => {
     loadVoices();
   }, [loadVoices]);
+
+  // Handle external initialNarratorVoiceId updates
+  useEffect(() => {
+    if (initialNarratorVoiceId && voices.some((v) => v.id === initialNarratorVoiceId)) {
+      setNarratorVoiceId(initialNarratorVoiceId);
+    }
+  }, [initialNarratorVoiceId, voices]);
 
   // Reset transient banners and casting defaults when switching stories
   useEffect(() => {
@@ -130,7 +156,7 @@ export function VoiceStudioPanel({
     setConfirmDeleteId(null);
 
     if (voices.length > 0) {
-      const preferredId = story.series_context?.preferred_voice_id;
+      const preferredId = initialNarratorVoiceId || story.series_context?.preferred_voice_id;
       const hasPreferred = preferredId && voices.some((v) => v.id === preferredId);
       const defaultVoice = hasPreferred
         ? preferredId!
@@ -138,7 +164,7 @@ export function VoiceStudioPanel({
       setNarratorVoiceId(defaultVoice);
     }
     setVersionLabel(castingMode === 'solo' ? 'Solo Narration' : 'Full Cast Audio');
-  }, [story.id, stopAudition]);
+  }, [story.id, stopAudition, initialNarratorVoiceId]);
 
   // Check and restore active synthesis job for this story
   const checkActiveSynthesisJob = useCallback(async () => {
@@ -245,8 +271,7 @@ export function VoiceStudioPanel({
   useEffect(() => {
     if (voices.length === 0) return;
 
-    // Pick preferred voice if matched, or prebuilt-kore, or first voice
-    const preferredId = story.series_context?.preferred_voice_id;
+    const preferredId = initialNarratorVoiceId || story.series_context?.preferred_voice_id;
     const hasPreferred = preferredId && voices.some((v) => v.id === preferredId);
     const defaultVoice = hasPreferred
       ? preferredId!
@@ -261,7 +286,6 @@ export function VoiceStudioPanel({
       const updated = { ...prev };
       story.characters.forEach((char, idx) => {
         if (!updated[char.name] || !voices.some((v) => v.id === updated[char.name])) {
-          // Rotate starter voices across characters
           const candidateVoice =
             voices.find((v) => v.id === (idx % 2 === 0 ? 'prebuilt-puck' : 'prebuilt-aoede'))?.id ||
             voices[idx % voices.length].id;
@@ -274,12 +298,12 @@ export function VoiceStudioPanel({
     if (!versionLabel) {
       setVersionLabel(castingMode === 'solo' ? 'Solo Narration' : 'Full Cast Audio');
     }
-  }, [voices, story.series_context?.preferred_voice_id, story.characters, narratorVoiceId, versionLabel, castingMode]);
+  }, [voices, story.series_context?.preferred_voice_id, story.characters, narratorVoiceId, versionLabel, castingMode, initialNarratorVoiceId]);
 
   // Play a 5-second audition preview
   const handlePlayAudition = async (
     key: string,
-    params: { voiceId?: string; description?: string; sampleText?: string }
+    params: { voiceId?: string; description?: string; sampleText?: string; pace?: VoicePace }
   ) => {
     if (auditioningKey === key) {
       stopAudition();
@@ -333,30 +357,14 @@ export function VoiceStudioPanel({
     }
   };
 
-  // Design custom voice
-  const handleCreateCustomVoice = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newVoiceLabel.trim() || !newVoiceDescription.trim()) return;
-
-    setIsCreatingVoice(true);
-    setVoiceCreateError(null);
-    setVoiceCreateSuccess(null);
-
-    try {
-      const created = await createCustomVoice({
-        label: newVoiceLabel.trim(),
-        description: newVoiceDescription.trim(),
-      });
-      setNewVoiceLabel('');
-      setNewVoiceDescription('');
-      setShowVoiceDesigner(false);
-      await loadVoices();
-      setVoiceCreateSuccess(`Created and saved "${created.label}" to Voice Library!`);
-    } catch (err) {
-      setVoiceCreateError(err instanceof Error ? err.message : 'Failed to create custom voice');
-    } finally {
-      setIsCreatingVoice(false);
-    }
+  // Customize candidate in VoiceDesigner
+  const handleCustomizeCandidate = (label: string, description: string, suggestedFor: string) => {
+    setDesignerInitialValues({
+      label,
+      description,
+      tags: [suggestedFor],
+    });
+    setShowVoiceDesigner(true);
   };
 
   // Mode toggle with default label sync
@@ -373,6 +381,7 @@ export function VoiceStudioPanel({
   const handleSynthesize = async () => {
     const effectiveNarratorVoiceId =
       narratorVoiceId ||
+      initialNarratorVoiceId ||
       story.series_context?.preferred_voice_id ||
       voices.find((v) => v.id === 'prebuilt-kore')?.id ||
       voices[0]?.id;
@@ -396,7 +405,6 @@ export function VoiceStudioPanel({
     }, 1000);
 
     try {
-      // Save any pending edits before running synthesis
       if (onBeforeSynthesize) {
         await onBeforeSynthesize();
       }
@@ -405,6 +413,7 @@ export function VoiceStudioPanel({
         mode: castingMode,
         narrator_voice_id: effectiveNarratorVoiceId,
         character_voices: castingMode === 'cast' ? characterVoices : {},
+        ...(narrationPace !== 'inherit' && { pace: narrationPace as VoicePace }),
       };
 
       const updatedStory = await synthesizeStoryAudio(story.id, {
@@ -454,37 +463,26 @@ export function VoiceStudioPanel({
     }
   };
 
-  // Format seconds to mm:ss
-  const formatDuration = (sec: number) => {
-    const mins = Math.floor(sec / 60);
-    const rem = sec % 60;
-    return `${mins}m ${rem < 10 ? '0' : ''}${rem}s`;
-  };
+  const selectedNarratorVoice = voices.find((v) => v.id === narratorVoiceId);
 
   return (
-    <section className="card-tactile voice-studio-panel" style={{ padding: '1.25rem', marginBottom: '1.5rem' }}>
-      <header style={{ marginBottom: '1.25rem', borderBottom: '1px solid var(--ink-muted)', paddingBottom: '0.75rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
-          <div>
-            <h3 style={{ margin: 0, fontFamily: 'var(--font-heading)', fontSize: '1.3rem' }}>
-              🎙️ Step 3: Voice Audition, Synthesis &amp; Versions
-            </h3>
-            <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.85rem', color: 'var(--ink-muted)' }}>
-              Audition voices with Gemini 3.8 Flash-Lite TTS, cast characters, and synthesize full studio audio.
-            </p>
-          </div>
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-            <span className="badge-mono" style={{ fontSize: '0.8rem' }}>
-              {story.audio_versions.length} {story.audio_versions.length === 1 ? 'VERSION' : 'VERSIONS'}
-            </span>
-            <span className="badge-mono" style={{ fontSize: '0.8rem', backgroundColor: story.status === 'published' ? 'var(--accent-root-bg)' : 'var(--accent-state-bg)', color: story.status === 'published' ? 'var(--accent-root)' : 'var(--accent-state)' }}>
-              {story.status.toUpperCase()}
-            </span>
-          </div>
-        </div>
-      </header>
+    <section id="step-3-voice-studio" className="card-tactile voice-studio-panel" style={{ padding: '1.25rem', marginBottom: '1.5rem', marginTop: '2rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+        <h3 style={{ margin: 0, fontFamily: 'var(--font-heading)', fontSize: '1.35rem' }}>
+          Step 3: Voice Audition, Synthesis &amp; Versions
+        </h3>
+        {onNavigateToVoiceLibrary && (
+          <button
+            type="button"
+            className="btn-tactile"
+            onClick={onNavigateToVoiceLibrary}
+            style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem', minHeight: '38px' }}
+          >
+            🎙️ Open Voice Library →
+          </button>
+        )}
+      </div>
 
-      {/* Global Notice / Error Banners */}
       {voicesError && (
         <div className="card-tactile" style={{ padding: '0.5rem 0.75rem', marginBottom: '1rem', backgroundColor: 'var(--accent-state-bg)', borderColor: 'var(--accent-state)', color: 'var(--accent-state)', fontSize: '0.85rem' }}>
           ⚠️ Voices error: {voicesError}
@@ -522,78 +520,42 @@ export function VoiceStudioPanel({
             className="btn-tactile"
             style={{ fontSize: '0.8rem', padding: '0.25rem 0.65rem' }}
             disabled={isSynthesizing}
-            onClick={() => setShowVoiceDesigner(!showVoiceDesigner)}
+            onClick={() => {
+              if (showVoiceDesigner) {
+                setShowVoiceDesigner(false);
+                setDesignerInitialValues(null);
+              } else {
+                setDesignerInitialValues(null);
+                setShowVoiceDesigner(true);
+              }
+            }}
           >
             {showVoiceDesigner ? '✕ Cancel Voice Design' : '✨ Design Custom Voice'}
           </button>
         </div>
 
-        {/* Custom Voice Designer Form */}
+        {/* Upgraded Staged Voice Designer */}
         {showVoiceDesigner && (
-          <form
-            onSubmit={handleCreateCustomVoice}
-            className="card-tactile"
-            style={{ padding: '1rem', marginBottom: '1rem', backgroundColor: 'var(--bg-well)' }}
-          >
-            <h5 style={{ margin: '0 0 0.5rem 0', fontFamily: 'var(--font-heading)', fontSize: '1rem' }}>
-              Design Custom Prompted Voice
-            </h5>
-            <div style={{ marginBottom: '0.75rem' }}>
-              <label style={{ display: 'block', fontSize: '0.8rem', fontFamily: 'var(--font-mono)', marginBottom: '0.2rem' }}>
-                Voice Label
-              </label>
-              <input
-                type="text"
-                className="input-tactile"
-                style={{ width: '100%', boxSizing: 'border-box' }}
-                placeholder="e.g. Grandma Willow"
-                value={newVoiceLabel}
-                onChange={(e) => setNewVoiceLabel(e.target.value)}
-                disabled={isSynthesizing || isCreatingVoice}
-                required
-              />
-            </div>
-            <div style={{ marginBottom: '0.75rem' }}>
-              <label style={{ display: 'block', fontSize: '0.8rem', fontFamily: 'var(--font-mono)', marginBottom: '0.2rem' }}>
-                Natural-Language Voice Description Prompt
-              </label>
-              <textarea
-                className="input-tactile"
-                style={{ width: '100%', minHeight: '60px', boxSizing: 'border-box' }}
-                placeholder="e.g. Warm, elderly grandmother who speaks in a gentle, reassuring tone with expressive storytelling cadence."
-                value={newVoiceDescription}
-                onChange={(e) => setNewVoiceDescription(e.target.value)}
-                disabled={isSynthesizing || isCreatingVoice}
-                required
-              />
-            </div>
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                className="btn-tactile"
-                disabled={isSynthesizing || !newVoiceDescription.trim()}
-                onClick={() =>
-                  handlePlayAudition('custom-design-preview', {
-                    description: newVoiceDescription.trim(),
-                  })
-                }
-              >
-                {auditioningKey === 'custom-design-preview' ? '⏹ Stop' : '🔊 5s Preview'}
-              </button>
-              <button
-                type="submit"
-                className="btn-tactile btn-tactile-primary"
-                disabled={isSynthesizing || isCreatingVoice || !newVoiceLabel.trim() || !newVoiceDescription.trim()}
-              >
-                {isCreatingVoice ? '💾 Creating Voice...' : '💾 Save to Voice Library'}
-              </button>
-            </div>
-          </form>
+          <VoiceDesigner
+            compact
+            initialValues={designerInitialValues}
+            onVoiceCreated={async (newVoice) => {
+              await loadVoices();
+              setNarratorVoiceId(newVoice.id);
+              setShowVoiceDesigner(false);
+              setDesignerInitialValues(null);
+              setVoiceCreateSuccess(`Created and saved "${newVoice.label}" to Voice Library!`);
+            }}
+            onCancel={() => {
+              setShowVoiceDesigner(false);
+              setDesignerInitialValues(null);
+            }}
+          />
         )}
 
         {/* Story Voice Candidates Grid */}
         {story.voice_candidates && story.voice_candidates.length > 0 ? (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '0.75rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '0.75rem' }}>
             {story.voice_candidates.map((vc, idx) => {
               const auditionKey = `candidate-${idx}`;
               const isSaved = savedCandidateLabels.has(vc.label) || voices.some((v) => v.label.toLowerCase() === vc.label.toLowerCase());
@@ -616,7 +578,7 @@ export function VoiceStudioPanel({
                     <button
                       type="button"
                       className="btn-tactile"
-                      style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }}
+                      style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', minHeight: '34px' }}
                       disabled={isSynthesizing}
                       onClick={() => handlePlayAudition(auditionKey, { description: vc.description })}
                     >
@@ -625,11 +587,21 @@ export function VoiceStudioPanel({
                     <button
                       type="button"
                       className="btn-tactile"
-                      style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }}
+                      style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', minHeight: '34px' }}
                       disabled={isSynthesizing || isSaved}
                       onClick={() => handleSaveCandidate(vc.label, vc.description, vc.suggested_for)}
                     >
                       {isSaved ? '✓ In Library' : '💾 Save to Library'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-tactile"
+                      style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', minHeight: '34px' }}
+                      disabled={isSynthesizing}
+                      onClick={() => handleCustomizeCandidate(vc.label, vc.description, vc.suggested_for)}
+                      title="Open in Custom Voice Designer to tweak prompt or pace"
+                    >
+                      ✨ Customize
                     </button>
                   </div>
                 </div>
@@ -676,10 +648,14 @@ export function VoiceStudioPanel({
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1rem' }}>
             {/* Narrator Voice Picker */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-              <label style={{ minWidth: '120px', fontWeight: 600, fontSize: '0.85rem', fontFamily: 'var(--font-mono)' }}>
+              <label
+                htmlFor="narrator-voice-select"
+                style={{ minWidth: '120px', fontWeight: 600, fontSize: '0.85rem', fontFamily: 'var(--font-mono)' }}
+              >
                 Narrator Voice:
               </label>
               <select
+                id="narrator-voice-select"
                 className="select-tactile"
                 style={{ flex: '1', minWidth: '220px' }}
                 value={narratorVoiceId}
@@ -702,6 +678,107 @@ export function VoiceStudioPanel({
                 {auditioningKey === 'audition-narrator' ? '⏹ Stop' : '🔊 Preview'}
               </button>
             </div>
+
+            {/* Full Prompt & Details of Selected Narrator Voice */}
+            {selectedNarratorVoice && (
+              <div
+                className="card-tactile"
+                style={{
+                  padding: '0.75rem',
+                  backgroundColor: 'var(--bg-canvas)',
+                  borderLeft:
+                    selectedNarratorVoice.source === 'designed'
+                      ? '3px solid var(--accent-module)'
+                      : '3px solid var(--accent-root)',
+                  marginBottom: '0.5rem',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '0.4rem',
+                    marginBottom: '0.35rem',
+                  }}
+                >
+                  <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span
+                      className="badge-mono"
+                      style={{
+                        fontSize: '0.7rem',
+                        backgroundColor:
+                          selectedNarratorVoice.source === 'designed'
+                            ? 'var(--accent-module-bg)'
+                            : 'var(--accent-root-bg)',
+                        color:
+                          selectedNarratorVoice.source === 'designed'
+                            ? 'var(--accent-module)'
+                            : 'var(--accent-root)',
+                        fontWeight: 700,
+                      }}
+                    >
+                      {selectedNarratorVoice.source === 'designed' ? 'CUSTOM DESIGNED' : 'PREBUILT'}
+                    </span>
+                    <span
+                      className="badge-mono"
+                      style={{ fontSize: '0.7rem', backgroundColor: 'var(--bg-well)' }}
+                    >
+                      {PACE_BADGES[selectedNarratorVoice.default_pace || 'natural'].label}
+                    </span>
+                    {selectedNarratorVoice.tags?.map((t, idx) => (
+                      <span key={idx} style={{ fontSize: '0.7rem', color: 'var(--ink-muted)', fontFamily: 'var(--font-mono)' }}>
+                        #{t}
+                      </span>
+                    ))}
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '0.3rem', alignItems: 'center' }}>
+                    <button
+                      type="button"
+                      className="btn-tactile"
+                      onClick={async () => {
+                        try {
+                          if (navigator.clipboard?.writeText) {
+                            await navigator.clipboard.writeText(selectedNarratorVoice.description);
+                          }
+                        } catch {
+                          // ignore
+                        }
+                        setCopiedPrompt(true);
+                        setTimeout(() => setCopiedPrompt(false), 2000);
+                      }}
+                      style={{ fontSize: '0.7rem', padding: '0.15rem 0.45rem', minHeight: '28px' }}
+                    >
+                      {copiedPrompt ? '✓ Copied' : '📋 Copy Prompt'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-tactile"
+                      onClick={() => setShowFullNarratorPrompt(!showFullNarratorPrompt)}
+                      style={{ fontSize: '0.7rem', padding: '0.15rem 0.45rem', minHeight: '28px' }}
+                    >
+                      {showFullNarratorPrompt ? '👁️ Collapse' : '👁️ View Prompt'}
+                    </button>
+                  </div>
+                </div>
+
+                {showFullNarratorPrompt && (
+                  <p
+                    style={{
+                      margin: 0,
+                      fontSize: '0.8rem',
+                      color: 'var(--ink-primary)',
+                      lineHeight: '1.45',
+                      fontFamily: 'var(--font-prose)',
+                    }}
+                  >
+                    {selectedNarratorVoice.description}
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* Character Pickers (in Cast Mode) */}
             {castingMode === 'cast' && (
@@ -765,6 +842,39 @@ export function VoiceStudioPanel({
             )}
           </div>
         )}
+
+        {/* Narration Pace Selector */}
+        <div style={{ marginBottom: '1rem', borderTop: '1px dashed var(--ink-muted)', paddingTop: '0.75rem' }}>
+          <label style={{ display: 'block', fontSize: '0.8rem', fontFamily: 'var(--font-mono)', fontWeight: 600, marginBottom: '0.35rem' }}>
+            Narration Pace (Story Step 3):
+          </label>
+          <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className={`btn-tactile ${narrationPace === 'inherit' ? 'btn-tactile-primary' : ''}`}
+              onClick={() => setNarrationPace('inherit')}
+              disabled={isSynthesizing}
+              style={{ fontSize: '0.8rem', padding: '0.3rem 0.65rem', minHeight: '38px' }}
+            >
+              Inherit Voice Default ({selectedNarratorVoice ? PACE_BADGES[selectedNarratorVoice.default_pace || 'natural'].label : '✨ Natural'})
+            </button>
+            {(['slow', 'calm', 'natural', 'lively'] as VoicePace[]).map((p) => {
+              const isSelected = narrationPace === p;
+              return (
+                <button
+                  key={p}
+                  type="button"
+                  className={`btn-tactile ${isSelected ? 'btn-tactile-primary' : ''}`}
+                  onClick={() => setNarrationPace(p)}
+                  disabled={isSynthesizing}
+                  style={{ fontSize: '0.8rem', padding: '0.3rem 0.65rem', minHeight: '38px' }}
+                >
+                  {PACE_BADGES[p].label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
         {/* Synthesis Options & Action */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', borderTop: '1px solid var(--ink-muted)', paddingTop: '0.75rem' }}>
@@ -882,6 +992,11 @@ export function VoiceStudioPanel({
                       <span className="badge-mono" style={{ fontSize: '0.7rem' }}>
                         {ver.casting.mode.toUpperCase()}
                       </span>
+                      {ver.casting.pace && (
+                        <span className="badge-mono" style={{ fontSize: '0.7rem' }}>
+                          {PACE_BADGES[ver.casting.pace].label}
+                        </span>
+                      )}
                       <span className="badge-mono" style={{ fontSize: '0.7rem' }}>
                         {formatDuration(ver.duration_sec)}
                       </span>
@@ -956,9 +1071,9 @@ export function VoiceStudioPanel({
 
                   <audio
                     controls
-                    preload="metadata"
                     src={ver.audio_url}
                     style={{ width: '100%', height: '36px', marginTop: '0.25rem' }}
+                    preload="none"
                   />
                 </div>
               );
@@ -968,4 +1083,11 @@ export function VoiceStudioPanel({
       </div>
     </section>
   );
+}
+
+function formatDuration(seconds: number): string {
+  if (isNaN(seconds) || seconds < 0) return '00:00';
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
 }

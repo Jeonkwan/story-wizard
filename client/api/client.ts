@@ -387,9 +387,17 @@ export async function deleteAudioVersion(
   return handleResponse<Story>(res);
 }
 
+export interface UpdateVoicePatch {
+  label?: string;
+  description?: string;
+  tags?: string[];
+  defaultPace?: VoicePace;
+  default_pace?: VoicePace;
+}
+
 export async function updateVoice(
   voiceId: string,
-  patch: Partial<VoiceEntry>
+  patch: UpdateVoicePatch | Partial<VoiceEntry>
 ): Promise<VoiceEntry> {
   const res = await fetch(`/api/admin/voices/${encodeURIComponent(voiceId)}`, {
     method: 'PATCH',
