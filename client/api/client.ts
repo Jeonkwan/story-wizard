@@ -4,11 +4,16 @@ import type {
   JobProgress,
   ScriptTurn,
   Story,
+  StoryAgeRange,
+  StoryVocabularyLevel,
+  StoryPromptMetadata,
   VoiceCasting,
   VoiceDesignCandidate,
   VoiceEntry,
   VoicePace,
 } from '../../shared/types';
+
+export type { StoryAgeRange, StoryVocabularyLevel, StoryPromptMetadata };
 
 export class ApiError extends Error {
   constructor(
@@ -143,6 +148,9 @@ export interface WriteStoryDraftPayload {
   referenceText?: string;
   seriesId?: string;
   previousStoryId?: string;
+  ageRange?: StoryAgeRange;
+  vocabularyLevel?: StoryVocabularyLevel;
+  genrePreset?: string;
   async?: boolean;
   onProgress?: (job: JobProgress) => void;
   pollIntervalMs?: number;

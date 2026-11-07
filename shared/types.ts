@@ -1,5 +1,34 @@
 export type StoryStatus = 'draft' | 'published';
 
+export type StoryAgeRange = 'toddler' | 'early-reader' | 'elementary' | 'young-reader';
+export type StoryVocabularyLevel = 'simple' | 'standard' | 'enriched' | 'advanced';
+
+export const VALID_AGE_RANGES: readonly StoryAgeRange[] = [
+  'toddler',
+  'early-reader',
+  'elementary',
+  'young-reader',
+] as const;
+
+export const VALID_VOCABULARY_LEVELS: readonly StoryVocabularyLevel[] = [
+  'simple',
+  'standard',
+  'enriched',
+  'advanced',
+] as const;
+
+export const DEFAULT_AGE_RANGE: StoryAgeRange = 'early-reader';
+export const DEFAULT_VOCABULARY_LEVEL: StoryVocabularyLevel = 'standard';
+
+export interface StoryPromptMetadata {
+  original_prompt: string;
+  reference_text?: string;
+  age_range?: StoryAgeRange;
+  vocabulary_level?: StoryVocabularyLevel;
+  genre_preset?: string;
+  created_at: string;
+}
+
 export type VoicePace = 'slow' | 'calm' | 'natural' | 'lively';
 
 export interface VoiceSamplePreset {
@@ -98,6 +127,7 @@ export interface Story {
   script_turns: ScriptTurn[];
   voice_candidates: VoiceDesignCandidate[]; // Populated by Director LLM
   audio_versions: AudioVersion[];
+  prompt_metadata?: StoryPromptMetadata;
   active_job?: ActiveJobSummary | null;
   created_at: string;
   updated_at: string;

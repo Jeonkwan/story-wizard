@@ -16,13 +16,25 @@ import type {
   GenerateWriterDraftInput,
   DirectScriptInput,
 } from '../server/services/geminiStory.js';
-import { parseLLMJson } from '../server/services/geminiStory.js';
+import {
+  parseLLMJson,
+  storyToCatalogItem,
+  GoogleGenAIStoryLLMProvider,
+} from '../server/services/geminiStory.js';
 import type {
   WriterOutputInput,
   DirectorOutputInput,
 } from '../server/lib/validators.js';
 import { ValidationError } from '../server/lib/validators.js';
 import { StorageNotFoundError } from '../server/storage/storageAdapter.js';
+import {
+  DEFAULT_AGE_RANGE,
+  DEFAULT_VOCABULARY_LEVEL,
+  VALID_AGE_RANGES,
+  VALID_VOCABULARY_LEVELS,
+  type Story,
+  type CatalogItem,
+} from '../shared/types.js';
 
 describe('Phase 3: Admin Studio & Writer-Director Pipeline Integration Tests', () => {
   let tmpDir: string;
@@ -643,5 +655,300 @@ describe('Phase 3: Admin Studio & Writer-Director Pipeline Integration Tests', (
       }
       attempts++;
     }
+  });
+
+  /* -------------------------------------------------------------------------
+   * Phase 12: Backend Age-Vocab Prompt Engine & Prompt Metadata Persistence
+   * ----------------------------------------------------------------------- */
+  describe('Phase 12: Backend Age-Vocab Prompt Engine & Prompt Metadata Persistence', () => {
+    it('exports VALID_AGE_RANGES and VALID_VOCABULARY_LEVELS constants matching spec', () => {
+      expect(VALID_AGE_RANGES).toEqual(['toddler', 'early-reader', 'elementary', 'young-reader']);
+      expect(VALID_VOCABULARY_LEVELS).toEqual(['simple', 'standard', 'enriched', 'advanced']);
+      expect(DEFAULT_AGE_RANGE).toBe('early-reader');
+      expect(DEFAULT_VOCABULARY_LEVEL).toBe('standard');
+    });
+
+    it('POST /api/admin/stories/write passes ageRange and vocabularyLevel to StoryLLMProvider and returns prompt_metadata', async () => {
+      const app = createTestApp();
+      const adminCookie = getAdminCookie();
+
+      const res = await request(app)
+        .post('/api/admin/stories/write')
+        .set('Cookie', [adminCookie])
+        .send({
+          mode: 'fresh',
+          prompt: 'A brave little otter exploring a river',
+          referenceText: 'Otter loves shiny blue pebbles.',
+          ageRange: 'toddler',
+          vocabularyLevel: 'simple',
+          genrePreset: 'whimsical',
+        });
+
+      expect(res.status).toBe(201);
+      const story = res.body;
+
+      // Verify mock LLM spy captured the parameters
+      expect(lastWriterDraftInput).not.toBeNull();
+      expect(lastWriterDraftInput?.ageRange).toBe('toddler');
+      expect(lastWriterDraftInput?.vocabularyLevel).toBe('simple');
+      expect(lastWriterDraftInput?.genrePreset).toBe('whimsical');
+      expect(lastWriterDraftInput?.prompt).toBe('A brave little otter exploring a river');
+      expect(lastWriterDraftInput?.referenceText).toBe('Otter loves shiny blue pebbles.');
+
+      // Verify response story.prompt_metadata
+      expect(story.prompt_metadata).toBeDefined();
+      expect(story.prompt_metadata.original_prompt).toBe('A brave little otter exploring a river');
+      expect(story.prompt_metadata.reference_text).toBe('Otter loves shiny blue pebbles.');
+      expect(story.prompt_metadata.age_range).toBe('toddler');
+      expect(story.prompt_metadata.vocabulary_level).toBe('simple');
+      expect(story.prompt_metadata.genre_preset).toBe('whimsical');
+      expect(story.prompt_metadata.created_at).toBe(story.created_at);
+
+      // Verify stored story.json on disk includes identical prompt_metadata
+      const storedStory = await storage.getStory(story.id);
+      expect(storedStory.prompt_metadata).toEqual(story.prompt_metadata);
+    });
+
+    it('POST /api/admin/stories/write defaults ageRange to early-reader and vocabularyLevel to standard when omitted', async () => {
+      const app = createTestApp();
+      const adminCookie = getAdminCookie();
+
+      const res = await request(app)
+        .post('/api/admin/stories/write')
+        .set('Cookie', [adminCookie])
+        .send({
+          mode: 'fresh',
+          prompt: 'A gentle bear who loves counting stars',
+        });
+
+      expect(res.status).toBe(201);
+      const story = res.body;
+
+      // Verify LLM spy received default values
+      expect(lastWriterDraftInput?.ageRange).toBe(DEFAULT_AGE_RANGE);
+      expect(lastWriterDraftInput?.vocabularyLevel).toBe(DEFAULT_VOCABULARY_LEVEL);
+
+      // Verify story prompt_metadata has defaults
+      expect(story.prompt_metadata).toBeDefined();
+      expect(story.prompt_metadata.age_range).toBe('early-reader');
+      expect(story.prompt_metadata.vocabulary_level).toBe('standard');
+      expect(story.prompt_metadata.original_prompt).toBe('A gentle bear who loves counting stars');
+      expect(story.prompt_metadata.reference_text).toBeUndefined();
+      expect(story.prompt_metadata.genre_preset).toBeUndefined();
+
+      // Check on disk
+      const storedStory = await storage.getStory(story.id);
+      expect(storedStory.prompt_metadata).toEqual(story.prompt_metadata);
+    });
+
+    it('POST /api/admin/stories/write validates ageRange and vocabularyLevel values with 400 Bad Request', async () => {
+      const app = createTestApp();
+      const adminCookie = getAdminCookie();
+
+      // Invalid ageRange
+      const resInvalidAge = await request(app)
+        .post('/api/admin/stories/write')
+        .set('Cookie', [adminCookie])
+        .send({
+          mode: 'fresh',
+          prompt: 'Story prompt',
+          ageRange: 'adult',
+        });
+      expect(resInvalidAge.status).toBe(400);
+      expect(resInvalidAge.body.error).toContain('Invalid ageRange');
+
+      // Invalid vocabularyLevel
+      const resInvalidVocab = await request(app)
+        .post('/api/admin/stories/write')
+        .set('Cookie', [adminCookie])
+        .send({
+          mode: 'fresh',
+          prompt: 'Story prompt',
+          vocabularyLevel: 'postgraduate',
+        });
+      expect(resInvalidVocab.status).toBe(400);
+      expect(resInvalidVocab.body.error).toContain('Invalid vocabularyLevel');
+    });
+
+    it('Backward compatibility: legacy stories without prompt_metadata load cleanly via GET /api/stories/:id and GET /api/admin/stories', async () => {
+      const app = createTestApp();
+      const adminCookie = getAdminCookie();
+
+      const legacyStoryId = '2026-01-01-legacy-fixture-story';
+      const legacyStory: Story = {
+        id: legacyStoryId,
+        status: 'published',
+        title: 'The Ancient Owl Story',
+        summary: 'Created in an older version of Storyteller Studio without prompt_metadata.',
+        tags: ['classic', 'owl'],
+        series_context: null,
+        characters: [{ name: 'Old Owl', traits: 'Wise and quiet' }],
+        script_turns: [
+          { turn_id: 1, speaker: 'Narrator', style: '', text: 'Long before prompt metadata was added.' },
+          { turn_id: 2, speaker: 'Old Owl', style: '', text: 'Hoo hoo, I am timeless.' },
+        ],
+        voice_candidates: [],
+        audio_versions: [],
+        created_at: '2026-01-01T12:00:00.000Z',
+        updated_at: '2026-01-01T12:00:00.000Z',
+      };
+
+      // Directly persist legacy story to disk without prompt_metadata
+      await storage.saveStory(legacyStory);
+      await storage.updateJsonAtomic<CatalogItem[]>('catalog.json', (current) => [
+        storyToCatalogItem(legacyStory),
+        ...(current || []),
+      ]);
+
+      // Public GET /api/stories/:id
+      const resPublic = await request(app).get(`/api/stories/${legacyStoryId}`);
+      expect(resPublic.status).toBe(200);
+      expect(resPublic.body.id).toBe(legacyStoryId);
+      expect(resPublic.body.title).toBe('The Ancient Owl Story');
+      expect(resPublic.body.prompt_metadata).toBeUndefined();
+
+      // Admin GET /api/stories/:id
+      const resAdmin = await request(app)
+        .get(`/api/stories/${legacyStoryId}`)
+        .set('Cookie', [adminCookie]);
+      expect(resAdmin.status).toBe(200);
+      expect(resAdmin.body.prompt_metadata).toBeUndefined();
+
+      // Admin GET /api/admin/stories
+      const resAdminList = await request(app)
+        .get('/api/admin/stories')
+        .set('Cookie', [adminCookie]);
+      expect(resAdminList.status).toBe(200);
+      const foundInList = resAdminList.body.find((item: CatalogItem) => item.id === legacyStoryId);
+      expect(foundInList).toBeDefined();
+      expect(foundInList.title).toBe('The Ancient Owl Story');
+    });
+
+    it('Re-verifies DELETE /api/admin/stories/:id cleans up story with prompt_metadata and audio files', async () => {
+      const app = createTestApp();
+      const adminCookie = getAdminCookie();
+
+      // Create story with prompt_metadata
+      const resWrite = await request(app)
+        .post('/api/admin/stories/write')
+        .set('Cookie', [adminCookie])
+        .send({
+          mode: 'fresh',
+          prompt: 'A story to be deleted with prompt_metadata',
+          ageRange: 'elementary',
+          vocabularyLevel: 'enriched',
+        });
+      expect(resWrite.status).toBe(201);
+      const storyId = resWrite.body.id;
+      expect(resWrite.body.prompt_metadata.age_range).toBe('elementary');
+
+      // Attach audio version
+      const { wav } = wrapPcmAsWav(Buffer.alloc(48000, 0));
+      await storage.saveAudio(storyId, 'v1-test-p12', wav);
+
+      const story = await storage.getStory(storyId);
+      story.audio_versions.push({
+        version_id: 'v1-test-p12',
+        label: 'Test P12 Audio',
+        casting: { mode: 'solo', narrator_voice_id: 'kore', character_voices: {} },
+        is_default: true,
+        duration_sec: 1,
+        audio_url: `/api/stories/${storyId}/audios/v1-test-p12.wav`,
+        created_at: new Date().toISOString(),
+      });
+      await storage.saveStory(story);
+
+      // DELETE /api/admin/stories/:id
+      const resDelete = await request(app)
+        .delete(`/api/admin/stories/${storyId}`)
+        .set('Cookie', [adminCookie]);
+
+      expect(resDelete.status).toBe(200);
+      expect(resDelete.body).toEqual({ ok: true, deletedId: storyId });
+
+      // Story JSON must not exist
+      await expect(storage.getStory(storyId)).rejects.toThrow(StorageNotFoundError);
+
+      // Audio stream must not exist
+      await expect(storage.getAudioStream(storyId, 'v1-test-p12')).rejects.toThrow(StorageNotFoundError);
+
+      // Catalog must not contain deleted story
+      const catalog = await storage.getCatalog();
+      expect(catalog.some((c) => c.id === storyId)).toBe(false);
+    });
+
+    it('GoogleGenAIStoryLLMProvider.generateWriterDraft calibrates systemInstruction for all age ranges and vocabulary levels', async () => {
+      let capturedSystemInstruction = '';
+      const mockAi = {
+        models: {
+          generateContent: async (args: any) => {
+            capturedSystemInstruction = args.config.systemInstruction;
+            return {
+              text: JSON.stringify({
+                title: 'Test Title',
+                summary: 'Test summary.',
+                tags: ['test'],
+                characters: [{ name: 'Hero', traits: 'Bold' }],
+                script_turns: [
+                  { turn_id: 1, speaker: 'Narrator', text: 'Once.' },
+                  { turn_id: 2, speaker: 'Hero', text: 'Hello.' },
+                ],
+              }),
+            };
+          },
+        },
+      };
+
+      const provider = new GoogleGenAIStoryLLMProvider('test-key');
+      (provider as any).ai = mockAi;
+
+      // Test Toddler + Simple
+      await provider.generateWriterDraft({
+        mode: 'fresh',
+        prompt: 'Little duck',
+        ageRange: 'toddler',
+        vocabularyLevel: 'simple',
+        genrePreset: 'bedtime',
+      });
+      expect(capturedSystemInstruction).toContain('Target Audience: Toddlers (Ages 2–4)');
+      expect(capturedSystemInstruction).toContain('very short sentences (4–8 words)');
+      expect(capturedSystemInstruction).toContain('Vocabulary Level: Simple');
+      expect(capturedSystemInstruction).toContain('Genre Preset: bedtime');
+
+      // Test Early Reader + Standard
+      await provider.generateWriterDraft({
+        mode: 'fresh',
+        prompt: 'Playful puppy',
+        ageRange: 'early-reader',
+        vocabularyLevel: 'standard',
+      });
+      expect(capturedSystemInstruction).toContain('Target Audience: Early Readers (Ages 5–7)');
+      expect(capturedSystemInstruction).toContain('phonics-friendly');
+      expect(capturedSystemInstruction).toContain('Vocabulary Level: Standard');
+
+      // Test Elementary + Enriched
+      await provider.generateWriterDraft({
+        mode: 'fresh',
+        prompt: 'Mystery cabin',
+        ageRange: 'elementary',
+        vocabularyLevel: 'enriched',
+      });
+      expect(capturedSystemInstruction).toContain('Target Audience: Elementary (Ages 8–10)');
+      expect(capturedSystemInstruction).toContain('witty character banter');
+      expect(capturedSystemInstruction).toContain('Vocabulary Level: Enriched');
+      expect(capturedSystemInstruction).toContain('Introduce 3 to 5 colorful');
+
+      // Test Young Reader + Advanced
+      await provider.generateWriterDraft({
+        mode: 'fresh',
+        prompt: 'Space exploration',
+        ageRange: 'young-reader',
+        vocabularyLevel: 'advanced',
+      });
+      expect(capturedSystemInstruction).toContain('Target Audience: Young Readers (Ages 11+)');
+      expect(capturedSystemInstruction).toContain('complex sentence structures');
+      expect(capturedSystemInstruction).toContain('Vocabulary Level: Advanced');
+      expect(capturedSystemInstruction).toContain('Sophisticated, literary expressions');
+    });
   });
 });

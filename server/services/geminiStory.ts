@@ -15,12 +15,23 @@ import type {
   ScriptTurn,
   SeriesContext,
   Story,
+  StoryAgeRange,
+  StoryVocabularyLevel,
+} from '../../shared/types.js';
+import {
+  DEFAULT_AGE_RANGE,
+  DEFAULT_VOCABULARY_LEVEL,
+  VALID_AGE_RANGES,
+  VALID_VOCABULARY_LEVELS,
 } from '../../shared/types.js';
 
 export interface GenerateWriterDraftInput {
   mode: 'fresh' | 'sequel';
   prompt: string;
   referenceText?: string;
+  ageRange?: StoryAgeRange;
+  vocabularyLevel?: StoryVocabularyLevel;
+  genrePreset?: string;
   seriesContext?: {
     seriesId: string;
     episodeNumber: number;
@@ -150,12 +161,57 @@ export class GoogleGenAIStoryLLMProvider implements StoryLLMProvider {
 
   async generateWriterDraft(input: GenerateWriterDraftInput): Promise<WriterOutputInput> {
     const ai = this.getClient();
+    const age = input.ageRange || DEFAULT_AGE_RANGE;
+    const vocab = input.vocabularyLevel || DEFAULT_VOCABULARY_LEVEL;
+
     let systemInstruction =
       'You are a master storytelling author for Storyteller Studio. Write engaging, vivid, immersive narratives ' +
       'matching whatever genre, tone, mood, and pace the user requests (e.g. comedic, adventurous, sci-fi, dramatic, mystery, whimsical, or bedtime). ' +
       'Maintain natural, punchy dialogue where each character speaks with a distinct personality. ' +
       'Structure the narrative into title, a 1-2 sentence summary, 2 to 5 relevant genre/mood tags, character profiles (never named "Narrator"), and at least 2 script turns. ' +
       'Script turns alternate between "Narrator" and character speakers. Do not emit vocal sound-effect tags like <sigh> or <pause> at this stage; write pure narrative prose and dialogue.';
+
+    switch (age) {
+      case 'toddler':
+        systemInstruction +=
+          '\nTarget Audience: Toddlers (Ages 2–4). Use very short sentences (4–8 words), rhythmic repetition, sound effects, concrete sensory concepts (animals, toys, food, bedtime).';
+        break;
+      case 'early-reader':
+        systemInstruction +=
+          '\nTarget Audience: Early Readers (Ages 5–7). Use phonics-friendly, playful narrative, simple cause-and-effect, engaging dialogue.';
+        break;
+      case 'elementary':
+        systemInstruction +=
+          '\nTarget Audience: Elementary (Ages 8–10). Use dynamic plot, witty character banter, figurative language, problem-solving.';
+        break;
+      case 'young-reader':
+        systemInstruction +=
+          '\nTarget Audience: Young Readers (Ages 11+). Use complex sentence structures, subtle humor, literary expressions, multi-layered themes.';
+        break;
+    }
+
+    switch (vocab) {
+      case 'simple':
+        systemInstruction +=
+          '\nVocabulary Level: Simple. High-frequency, easy-to-read vocabulary with soothing repetition.';
+        break;
+      case 'standard':
+        systemInstruction +=
+          '\nVocabulary Level: Standard. Natural, expressive, age-appropriate storytelling vocabulary.';
+        break;
+      case 'enriched':
+        systemInstruction +=
+          '\nVocabulary Level: Enriched. Introduce 3 to 5 colorful, descriptive vocabulary words whose meanings are clear from context.';
+        break;
+      case 'advanced':
+        systemInstruction +=
+          '\nVocabulary Level: Advanced. Sophisticated, literary expressions with clever wordplay and descriptive flair.';
+        break;
+    }
+
+    if (input.genrePreset && input.genrePreset.trim()) {
+      systemInstruction += `\nGenre Preset: ${input.genrePreset.trim()}.`;
+    }
 
     let promptText = `Story Prompt: ${input.prompt}`;
 
@@ -311,6 +367,9 @@ export interface GenerateStoryDraftRequest {
   referenceText?: string;
   seriesId?: string;
   previousStoryId?: string;
+  ageRange?: StoryAgeRange;
+  vocabularyLevel?: StoryVocabularyLevel;
+  genrePreset?: string;
 }
 
 export class GeminiStoryService {
@@ -344,6 +403,16 @@ export class GeminiStoryService {
       throw new ValidationError('Mode must be either "fresh" or "sequel"');
     }
 
+    const ageRange: StoryAgeRange = input.ageRange ?? DEFAULT_AGE_RANGE;
+    const vocabularyLevel: StoryVocabularyLevel = input.vocabularyLevel ?? DEFAULT_VOCABULARY_LEVEL;
+
+    if (input.ageRange && !VALID_AGE_RANGES.includes(input.ageRange)) {
+      throw new ValidationError(`Invalid ageRange: "${input.ageRange}"`);
+    }
+    if (input.vocabularyLevel && !VALID_VOCABULARY_LEVELS.includes(input.vocabularyLevel)) {
+      throw new ValidationError(`Invalid vocabularyLevel: "${input.vocabularyLevel}"`);
+    }
+
     let seriesContext: SeriesContext | null = null;
     let rawWriter: WriterOutputInput;
 
@@ -366,6 +435,9 @@ export class GeminiStoryService {
         mode: 'fresh',
         prompt,
         referenceText: input.referenceText,
+        ageRange,
+        vocabularyLevel,
+        genrePreset: input.genrePreset,
         seriesContext: seriesContext
           ? {
               seriesId: seriesContext.series_id,
@@ -409,6 +481,9 @@ export class GeminiStoryService {
         mode: 'sequel',
         prompt,
         referenceText: input.referenceText,
+        ageRange,
+        vocabularyLevel,
+        genrePreset: input.genrePreset,
         seriesContext: {
           seriesId,
           episodeNumber,
@@ -438,6 +513,14 @@ export class GeminiStoryService {
       script_turns: validated.script_turns,
       voice_candidates: [],
       audio_versions: [],
+      prompt_metadata: {
+        original_prompt: prompt,
+        reference_text: input.referenceText,
+        age_range: ageRange,
+        vocabulary_level: vocabularyLevel,
+        genre_preset: input.genrePreset,
+        created_at: now,
+      },
       created_at: now,
       updated_at: now,
     };

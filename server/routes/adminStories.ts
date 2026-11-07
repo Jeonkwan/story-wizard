@@ -12,7 +12,14 @@ import {
 } from '../services/geminiStory.js';
 import { GeminiTtsService } from '../services/geminiTts.js';
 import { JobManager, defaultJobManager } from '../services/jobManager.js';
-import type { CatalogItem, VoiceDesignCandidate } from '../../shared/types.js';
+import {
+  type CatalogItem,
+  type VoiceDesignCandidate,
+  type StoryAgeRange,
+  type StoryVocabularyLevel,
+  VALID_AGE_RANGES,
+  VALID_VOCABULARY_LEVELS,
+} from '../../shared/types.js';
 
 export function createAdminStoriesRouter(
   config: AppConfig,
@@ -69,7 +76,16 @@ export function createAdminStoriesRouter(
   router.post(
     '/stories/write',
     asyncHandler(async (req: Request, res: Response) => {
-      const { mode, prompt, referenceText, seriesId, previousStoryId } = req.body || {};
+      const {
+        mode,
+        prompt,
+        referenceText,
+        seriesId,
+        previousStoryId,
+        ageRange,
+        vocabularyLevel,
+        genrePreset,
+      } = req.body || {};
 
       if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
         res.status(400).json({ error: 'Story prompt is required' });
@@ -80,6 +96,28 @@ export function createAdminStoriesRouter(
         res.status(400).json({ error: 'Mode must be either "fresh" or "sequel"' });
         return;
       }
+
+      if (ageRange !== undefined && !VALID_AGE_RANGES.includes(ageRange as StoryAgeRange)) {
+        res.status(400).json({
+          error: `Invalid ageRange: "${ageRange}". Allowed values: ${VALID_AGE_RANGES.join(', ')}`,
+        });
+        return;
+      }
+
+      if (
+        vocabularyLevel !== undefined &&
+        !VALID_VOCABULARY_LEVELS.includes(vocabularyLevel as StoryVocabularyLevel)
+      ) {
+        res.status(400).json({
+          error: `Invalid vocabularyLevel: "${vocabularyLevel}". Allowed values: ${VALID_VOCABULARY_LEVELS.join(', ')}`,
+        });
+        return;
+      }
+
+      const validatedGenrePreset =
+        typeof genrePreset === 'string' && genrePreset.trim()
+          ? genrePreset.trim()
+          : undefined;
 
       const isAsync = req.query.async === 'true';
       const storyTarget = mode === 'sequel' && previousStoryId ? String(previousStoryId).trim() : 'new';
@@ -96,6 +134,9 @@ export function createAdminStoriesRouter(
               typeof previousStoryId === 'string' && previousStoryId.trim()
                 ? previousStoryId.trim()
                 : undefined,
+            ageRange: ageRange as StoryAgeRange | undefined,
+            vocabularyLevel: vocabularyLevel as StoryVocabularyLevel | undefined,
+            genrePreset: validatedGenrePreset,
           });
 
           await jobManager.updateJobAsync(job.job_id, {
