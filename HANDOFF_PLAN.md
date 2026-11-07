@@ -783,6 +783,9 @@ Use your interactive browser capabilities (`/browser`) on `http://localhost:8080
 - [x] **Phase 6:** Multi-Genre Freedom, Real-time Generation Progress State, & Compact Mobile Audio Player (`phase-6-verified`)
 - [x] **Phase 7:** Zero-DB Asynchronous Job Manager & Refresh-Resilient Generation State (`phase-7-verified`)
 - [x] **Phase 8:** Production GCP Cloud Run & GCS Deployment Orchestration (`phase-8-verified`)
+- [ ] **Phase 9:** Backend Voice Lifecycle (Staged Draft Voices & CRUD), Emotion-Preserving Pacing Guardrails, & Multimodal Dictation STT API (`phase-9-verified`)
+- [ ] **Phase 10:** Mobile Focus Composer, `MediaRecorder` Voice Dictation UI, & Fine-Grained Player Speeds (`phase-10-verified`)
+- [ ] **Phase 11:** Standalone `🎙️ Voice Library` Tab, Upgraded Staged Voice Designer, Pace Controls & Story Narration Workflow (`phase-11-verified`)
 
 ---
 
@@ -893,3 +896,222 @@ Prepare and execute production deployment to Google Cloud Platform using serverl
 - `deploy.sh --dry-run` succeeds without errors.
 - Builder subagent authors `docs/audits/phase-8-audit.md`.
 - Lead Architect verifies all changes firsthand and commits/tags `phase-8-verified`.
+
+
+---
+
+## 15. Phase 9: Backend Voice Lifecycle (Staged Draft Voices & CRUD), Emotion-Preserving Pacing Guardrails, & Multimodal Dictation STT API
+
+### Context & Root-Cause Findings from Production Mobile QA
+1. **Unsaved Voice Preview Fidelity Bug (`server/services/geminiTts.ts`):**
+   - Previously, `previewVoice()` without a `voiceId` never called `ai.voices.create`; it hardcoded `prebuiltVoiceConfig: { voiceName: 'Kore' }` (soft female voice) and stuffed `description` into `speechMetadata.style`. Every custom prompt sounded female during preview and completely different after saving.
+   - Because `@google/genai` (`v2.32.0`) requires `store: true` on `ai.voices.create({ voice: { type: 'prompted', ... } })` and `ai.voices.create` is stochastic, calling `create` once on preview and a second time on save would still produce two slightly different voices.
+   - **Solution — Staged Draft Voice Lifecycle:** Create the real prompted voice (`voice_...`) during preview, return `X-Draft-Voice-Name: voice_...` alongside the `audio/wav` stream, allow reusing that exact `voice_...` across sample presets/paces or regenerating a fresh take (`ai.voices.delete` on the old unsaved draft), and **promote `stagedGeminiVoiceName` directly into `voices.json` on Save** (plus cache its preview WAV) so **What You Hear Is 100% What You Save**.
+2. **Specific Dialogue/Action Lines Racing Too Fast (`geminiStory.ts` + `geminiTts.ts`):**
+   - Inspection of production GCS stories (*The Great Floor-Is-Lava Breakfast Quest*, *The Golden Banana of Kindness*) revealed that turn-level `speechMetadata.style` overrides base voice pacing in Gemini TTS. The Director LLM emitted literal rate commands like `"Chaotic rhythmic countdown, nonsensical monkey babble at high speed"`, `"Dynamic, action-packed rush conveying physical motion and cartoonish speed"`, `"Fast-paced..."`, and `"runs full speed"`. Combined with 12-turn batching, autoregressive prosody caused those turns (and neighboring turns) to race unintelligibly even when the voice prompt said `"never too quick"`.
+   - **Solution — Emotion-Preserving Two-Layer Pacing Guardrail (1 LLM Call, Zero Aggressive Emotion Stripping):**
+     - **Single-Call Director Prompt Tuning (`geminiStory.ts`):** Keep `directScript` as **1 single LLM call** and do **not** strip emotional words (`excited`, `frantic`, `breathless`, `chaotic`, `urgent`) in `validators.ts`. Instead, tune `directScript`'s `systemInstruction` to separate **high theatrical energy** from **speaking speed**: encourage vivid character mimicry, playful pitch, comedic drama, and `<short pause>` / `<breath>` timing while explicitly forbidding fast speaking-rate directives (`at high speed`, `cartoonish speed`, `fast-paced`, `full speed`, `rapid-fire`, `speaking rapidly`) so every word stays intelligible for children ages 3–8.
+     - **Non-Destructive TTS Assembly (`geminiTts.ts`):** (a) Surgically rewrite *only* literal rate/tempo phrases (`at high speed` -> `with high animated energy`, `cartoonish speed` -> `animated cartoon energy`, `runs full speed` -> `with playful urgency`, `fast-paced` -> `lively, energetic`, `rapid-fire` -> `bouncy, spirited`, `speaking rapidly/fast/quickly` -> `speaking animatedly`) so **already-saved stories** in GCS also stop racing when re-synthesized without losing any emotional acting; (b) append a structured `VoicePace` + clear-articulation anchor to `speechMetadata.style`; and (c) lower batch limits from `12 turns / 3,000 chars` to **`6 turns / 1,500 chars`** to prevent autoregressive tempo drift.
+3. **Voice CRUD & Multimodal Dictation Backend:**
+   - Add `PATCH /api/admin/voices/:id`, `DELETE /api/admin/voices/:id`, `DELETE /api/admin/voices/draft/:geminiVoiceName`, cached preview streaming `GET /api/voices/:id/preview.wav`, and `POST /api/admin/transcribe` (`gemini-3.8-flash` multimodal audio-to-text for mobile mic dictation).
+
+### Exact Shared Contracts (`shared/types.ts` & `shared/voiceSamples.ts`)
+1. **`shared/types.ts` Additions (Additive & Backward-Compatible with Existing JSON Data):**
+   ```ts
+   export type VoicePace = 'slow' | 'calm' | 'natural' | 'lively';
+
+   export interface VoiceSamplePreset {
+     id: string;
+     label: string;
+     styleHint: string;
+     text: string;
+   }
+   ```
+   - Extend `VoiceEntry` with optional `default_pace?: VoicePace` (defaulting at runtime to `'natural'` when absent on legacy entries in `voices.json`). Keep `preview_audio_url?: string`.
+   - Extend `VoiceCasting` with optional `pace?: VoicePace`.
+2. **`shared/voiceSamples.ts` (New Shared Module — Remember Explicit `.js` Relative Imports in Server/Shared!):**
+   - Export `MAX_VOICE_PREVIEW_CHARS = 320` (increased from `220` so 2-sentence expressive story + dialogue samples never truncate mid-word).
+   - Export `VOICE_SAMPLE_PRESETS: VoiceSamplePreset[]` with 4 expressive kids-story audition presets containing both narration and character dialogue + approved inline vocal tags:
+     1. `playful-dialogue` (*"Playful Dialogue (Default)"*): `"Little Pip peeked under the giant polka-dot mushroom and gasped. <gasp> \"Whoa, Captain Whiskers! Is that a glowing goldenberry, or a giggling bumble-frog?\" <chuckle>"`
+     2. `magical-wonder` (*"Magical Wonder"*): `"Soft silver starlight drifted across the quiet treetops like warm snow. <short pause> \"Listen closely,\" whispered Grandpa Owl, <breath> \"the sleepy forest is singing goodnight.\""`
+     3. `action-adventure` (*"Bouncy Adventure"*): `"Sir Barnaby adjusted his cardboard helmet and pointed his wooden spoon toward the pillow fortress! <breath> \"Steady now, crew! Watch out for the tickle-dragon'sfizzy bubbles!\""` (clean spacing: `"tickle-dragon's fizzy bubbles!"`)
+     4. `silly-comedy` (*"Silly Character Mimicry"*): `"\"Bananas?!\" grumbled Boss Gruff, squinting through his shiny goggles. <sigh> \"I specifically said zero bouncing monkeys in the pancake laboratory!\" <laugh> \"Oopsie!\" squeaked tiny Bobo."`
+   - Export `DEFAULT_VOICE_SAMPLE = VOICE_SAMPLE_PRESETS[0].text`.
+
+### Exact Storage & Route Contracts (`server/**`)
+1. **`StorageAdapter` (`server/storage/storageAdapter.ts`, `localStorage.ts`, `gcsStorage.ts`):**
+   - Add voice preview audio persistence methods stored at relative path `voices/${voiceId}/preview.wav` (validating `voiceId` via `validateSlug(voiceId, 'voiceId')`):
+     - `saveVoicePreview(voiceId: string, wavBuffer: Buffer): Promise<void>`
+     - `deleteVoicePreview(voiceId: string): Promise<void>` (idempotent if file/object does not exist)
+     - `getVoicePreviewStream(voiceId: string): Promise<AudioStreamDescriptor>` (throws `StorageNotFoundError` if absent)
+2. **Public Cached Voice Preview Route (`server/routes/public.ts`):**
+   - `GET /api/voices/:id/preview.wav`: Validates `:id` slug, streams `storage.getVoicePreviewStream(id)` with `Content-Type: audio/wav`, `Accept-Ranges: bytes` (supporting standard 200 + HTTP 206 Range requests via shared helper with story audio), and `Cache-Control: public, max-age=3600` (returns `404` if no cached preview exists).
+3. **Voices API Runtime Delete Rule & Safety Guard (`server/services/geminiTts.ts`):**
+   - Extend `TtsProvider` with `deleteCustomVoice?(geminiVoiceName: string): Promise<void>`.
+   - In `GoogleGenAITtsProvider.deleteCustomVoice(geminiVoiceName)`:
+     - **CRITICAL SDK RULE:** Strip any `"voices/"` prefix first (`const bareId = geminiVoiceName.trim().replace(/^voices\//, '')`), validate `/^voice_[a-zA-Z0-9_-]+$/`, and call `await ai.voices.delete(bareId)` (swallowing 404 / not-found errors gracefully so cleanup never crashes user flows).
+   - **Saved-Voice Protection Invariant:** Before deleting *any* draft voice ID via preview cleanup or `DELETE /api/admin/voices/draft/:geminiVoiceName`, load `listVoices()` and verify **no** saved `VoiceEntry` has `v.gemini_voice_name === bareId`. If it belongs to a saved voice, refuse deletion (`409 Conflict` on explicit draft delete route, or no-op during preview replacement).
+4. **Upgraded `GeminiTtsService` (`server/services/geminiTts.ts`):**
+   - **Pace Mapping Helpers:**
+     - `PACE_VOICE_PROMPT_CLAUSE: Record<VoicePace, string>` appended when creating a new prompted voice if `pace` is specified.
+     - `PACE_SYNTHESIS_ANCHOR: Record<VoicePace, string>`:
+       - `slow`: `'Pace: slow, soothing, unhurried cadence with gentle pauses and crystal-clear word-by-word articulation.'`
+       - `calm`: `'Pace: calm, relaxed, measured storytelling cadence with clear, unhurried articulation.'`
+       - `natural`: `'Pace: natural, balanced storytelling rhythm with clear, intelligible word articulation—never rushed.'`
+       - `lively`: `'Pace: lively, upbeat, animated storytelling energy while keeping every word crisp, clear, and unhurried for young children.'`
+     - `sanitizeLiteralTempoPhrases(style: string): string`: Surgically replaces literal speaking-rate phrases (`\bat high speed\b` -> `'with high animated energy'`, `\bcartoonish speed\b` -> `'animated cartoon energy'`, `\b(?:runs|running)\s+full speed\b` -> `'with playful urgency'`, `\bfull speed\b` -> `'full enthusiasm'`, `\bfast[- ]paced\b` -> `'lively, energetic'`, `\brapid[- ]fire\b` -> `'bouncy, spirited'`, `\bspeaking\s+(?:very\s+)?(?:fast|rapidly|quickly)\b` -> `'speaking animatedly'`, `^fast,\s*` -> `'Energetic, '`) while preserving all emotional descriptors (`excited`, `frantic`, `breathless`, `chaotic`, `urgent`, `whispered`, etc.) and clamping total `speechMetadata.style` length cleanly (`<= 280` chars).
+   - **Batching Cap Reduction (`buildTtsBatches`):**
+     - Export constants `MAX_TTS_BATCH_TURNS = 6` and `MAX_TTS_BATCH_CHARS = 1500` (replacing hardcoded `12` and `3000` in both `solo` and `cast` branches of `buildTtsBatches`).
+     - Thread `effectivePace: VoicePace = casting.pace || narratorVoice.default_pace || 'natural'` (and per-speaker `voice.default_pace` fallback when `casting.pace` is unset in `cast` mode) into every turn's `speechMetadata.style` via `sanitizeLiteralTempoPhrases` + `PACE_SYNTHESIS_ANCHOR[pace]`.
+     - Preserve the **Gemini 3.8 TTS Multi-Speaker Exact-2 Rule** (`speakerVoiceConfigs.length === 2` for `multiSpeakerVoiceConfig`, single-speaker `voiceConfig` when a sub-batch has 1 speaker).
+   - **Staged Draft `previewVoice(input)` -> `{ wav: Buffer; draftGeminiVoiceName?: string }`:**
+     - Input: `{ voiceId?, description?, sampleText?, pace?, draftGeminiVoiceName?, previousDraftGeminiVoiceName?, regenerateTake? }`.
+     - Sample clamped to `MAX_VOICE_PREVIEW_CHARS` (`320`).
+     - Case A (`voiceId` provided): Look up saved voice in `listVoices()`, synthesize sample with `toGeminiVoiceConfig(voice)` + pace anchor (`input.pace || voice.default_pace || 'natural'`). Return `{ wav }`.
+     - Case B (`!voiceId && description` provided):
+       1. Validate any `draftGeminiVoiceName` / `previousDraftGeminiVoiceName` matches `/^voice_[a-zA-Z0-9_-]+$/`.
+       2. If `previousDraftGeminiVoiceName` is provided and (`regenerateTake` is true OR `previousDraftGeminiVoiceName !== draftGeminiVoiceName`), best-effort delete `previousDraftGeminiVoiceName` (subject to Saved-Voice Protection Invariant).
+       3. Determine `activeDraftVoiceName`: if `draftGeminiVoiceName && !regenerateTake`, reuse `draftGeminiVoiceName`; otherwise call `ttsProvider.createPromptedVoice({ label: 'Draft Voice Preview', description: buildPromptedVoiceDescription(description, pace) })` to create a real `voice_...` ID!
+       4. Synthesize `clampedSample` via `ttsProvider.synthesizeBatch` using `voiceConfig: { voice: activeDraftVoiceName }` (NEVER `'Kore'`) and `speechMetadata: { speaker: 'Narrator', style: buildPreviewStyle(description, pace) }`.
+       5. Return `{ wav, draftGeminiVoiceName: activeDraftVoiceName }`.
+   - **Promote Staged Voice in `createAndSaveVoice(input)`:**
+     - Input extended with `{ defaultPace?: VoicePace; stagedGeminiVoiceName?: string; previewWavBuffer?: Buffer }`.
+     - If `stagedGeminiVoiceName` (validated `/^voice_[a-zA-Z0-9_-]+$/` and not already colliding with another saved voice in `voices.json`) is supplied, **skip `ttsProvider.createPromptedVoice`** and promote `stagedGeminiVoiceName` directly! Otherwise call `ttsProvider.createPromptedVoice(...)`.
+     - Obtain preview WAV buffer to cache: prefer `input.previewWavBuffer` (validated RIFF WAV header / extracted & wrapped cleanly via `extractPcmFromWavOrRaw` + `wrapPcmAsWav`), else `created?.sampleAudioWav` if present, else best-effort synthesize default sample once and save via `storage.saveVoicePreview(voiceId, wavBuf)`, setting `preview_audio_url: "/api/voices/${voiceId}/preview.wav"` and `default_pace: input.defaultPace || 'natural'`.
+   - **Voice Management Methods:**
+     - `updateVoice(voiceId: string, patch: { label?: string; description?: string; tags?: string[]; defaultPace?: VoicePace }): Promise<VoiceEntry>`: Atomically updates `voices.json` (allowing label/tags/default_pace updates; for `prebuilt` voices, persists customization override in `voices.json` while keeping `source: 'prebuilt'` and `gemini_voice_name` immutable).
+     - `deleteVoice(voiceId: string): Promise<{ deletedId: string }>`: Rejects `prebuilt` voices (`ValidationError('Prebuilt system voices cannot be deleted')`); for `designed` voices, removes from `voices.json`, calls `storage.deleteVoicePreview(voiceId)`, and best-effort calls `ttsProvider.deleteCustomVoice(voice.gemini_voice_name)`.
+     - `discardDraftVoice(geminiVoiceName: string): Promise<void>`: Validates `/^voice_[a-zA-Z0-9_-]+$/`, enforces Saved-Voice Protection Invariant, and calls `ttsProvider.deleteCustomVoice(geminiVoiceName)`.
+5. **Admin Voice & Transcription Routes (`server/routes/adminVoices.ts`, `server/routes/adminTranscribe.ts`, `server/app.ts`):**
+   - `POST /api/admin/voices/preview`: Sets `X-Draft-Voice-Name` header (and `Access-Control-Expose-Headers: X-Draft-Voice-Name`) whenever `draftGeminiVoiceName` is returned, sending binary `audio/wav`.
+   - `POST /api/admin/voices`: Accepts `defaultPace`, `stagedGeminiVoiceName`, and optional `previewAudioBase64` (`<= 2MB` base64 WAV from the exact preview blob the user just listened to, decoded into `previewWavBuffer` so zero extra TTS call is needed on Save!). Note: mount `express.json({ limit: '4mb' })` on `/api/admin/voices` (or raise JSON limit selectively before global `1mb` parser).
+   - `PATCH /api/admin/voices/:id`: Updates `label`, `description`, `tags`, `defaultPace`.
+   - `DELETE /api/admin/voices/:id`: Deletes custom voice (`200 { ok: true, deletedId }`).
+   - `DELETE /api/admin/voices/draft/:geminiVoiceName`: Discards unsaved staged draft voice (`200 { ok: true }`).
+   - `POST /api/admin/transcribe` (New `server/routes/adminTranscribe.ts` with `requireAdmin` + route-specific `express.json({ limit: '12mb' })` registered in `server/app.ts` *before* global `express.json({ limit: '1mb' })`):
+     - Injectable `AudioTranscriber` / `StoryLLMProvider.transcribeAudio({ audioBase64, mimeType, contextHint })` in `server/services/geminiStory.ts` using `gemini-3.8-flash` (`config.geminiTextModel`).
+     - Validates `audioBase64` (strips optional `data:...;base64,` prefix, checks non-empty, decoded byte length `<= 8 * 1024 * 1024`), validates `mimeType` starts with `audio/` (`audio/webm`, `audio/mp4`, `audio/ogg`, `audio/wav`, `audio/mpeg`, `audio/mp3`, `audio/aac`; strips codec suffix like `;codecs=opus` to base IANA MIME type for Gemini `inlineData.mimeType`!).
+     - Returns `200 { text: string }`.
+
+### Phase 9 Validation Gate & Mandatory Lead Architect Audit
+- **Builder Subagent Gate:**
+  - Explicit `.js` extensions on all relative imports across `shared/**` and `server/**`.
+  - Unit & integration tests covering:
+    1. Staged draft voice preview (`createPromptedVoice` called instead of `'Kore'`, `X-Draft-Voice-Name` header returned, reusing `draftGeminiVoiceName` skips re-creation, `regenerateTake` deletes old draft with bare `voice_...` ID, Saved-Voice Protection prevents deleting saved voices).
+    2. Promoting `stagedGeminiVoiceName` + `previewAudioBase64` on `POST /api/admin/voices` without calling `createPromptedVoice` twice, plus `GET /api/voices/:id/preview.wav` 200 & 206 Range streaming.
+    3. `PATCH /api/admin/voices/:id` and `DELETE /api/admin/voices/:id` (including `400` rejection when attempting to delete `prebuilt-kore`).
+    4. Director prompt instructions (`directScript` contains anti-rush kids comprehension directive, remains 1 LLM call, and `validators.ts` preserves emotional adjectives).
+    5. `sanitizeLiteralTempoPhrases`, `VoicePace` anchors (`slow` / `calm` / `natural` / `lively`), `<= 6` turns / `<= 1,500` chars batch splitting, and Cast Mode Exact-2 Speaker rule.
+    6. `POST /api/admin/transcribe` auth gate, MIME codec stripping (`audio/webm;codecs=opus` -> `audio/webm`), payload validation, large payload (>1MB, <=8MB) handling, and mocked Gemini STT output.
+  - `npm run typecheck`, `npx tsc -p tsconfig.server.json`, `npm test` (including `tests/esm-build.test.ts`), and `npm run build` all exit `0`.
+  - Write `docs/audits/phase-9-audit.md` and commit `feat(phase-9): staged voice lifecycle, pacing guardrails, and multimodal transcribe api`.
+- **Lead Architect Firsthand Verification (Mandatory):**
+  - Read every modified/added file in `shared/`, `server/`, and `tests/` line-by-line via `read_file` / `git diff`.
+  - Verify `ai.voices.delete` strips `voices/`, `express.json` route body limits work for >1MB audio payloads,Saved-Voice Protection cannot be bypassed, and zero extensionless imports exist.
+  - Execute `npm run typecheck`, `npx tsc -p tsconfig.server.json`, `npm test`, and `npm run build` firsthand in WSL before tagging `phase-9-verified`.
+
+---
+
+## 16. Phase 10: Mobile Focus Composer, `MediaRecorder` Voice Dictation UI, & Fine-Grained Player Speeds
+
+### Context & Mobile Ergonomics Goals
+Typing multi-sentence story prompts, custom voice descriptions, or editing dialogue turns inside small `<textarea>` boxes on a smartphone (`375x812`) feels cramped, while mobile dictation and finer playback speeds make both authoring and listening effortless.
+
+### Deliverables Specification
+1. **Typed Client API Layer (`client/api/client.ts`):**
+   - Add full typed helpers matching Phase 9 endpoints:
+     - `previewVoiceAudio(params)` returning `{ blob: Blob; draftGeminiVoiceName: string | null }` (reading `res.headers.get('X-Draft-Voice-Name')`—keep backward-compatible or update callers cleanly).
+     - `createCustomVoice(payload)` supporting `defaultPace`, `stagedGeminiVoiceName`, and `previewAudioBase64` (with `blobToBase64` helper).
+     - `updateVoice(voiceId, patch)`, `deleteVoice(voiceId)`, `discardDraftVoice(geminiVoiceName)`.
+     - `transcribeAudioBlob(blob: Blob, contextHint?: 'story_prompt' | 'voice_prompt' | 'script_dialogue'): Promise<string>`.
+2. **Reusable Multimodal `MicDictationButton` (`client/components/MicDictationButton.tsx`):**
+   - Uses browser `navigator.mediaDevices.getUserMedia({ audio: true })` + `MediaRecorder` with automatic cross-platform MIME negotiation (`MediaRecorder.isTypeSupported('audio/webm;codecs=opus')`, `'audio/webm'`, `'audio/mp4'`, `'audio/ogg'` — critical so both iOS Safari `audio/mp4` and Android Chrome `audio/webm` work natively!).
+   - States: `idle` (`🎤 Dictate` / compact `🎤`), `recording` (tactile crimson pulse + live `0:04` timer + `⏹ Done` button; auto-stops safely at `120s`), `transcribing` (`⏳ Transcribing...`), and inline accessible error message if mic permission is denied or `MediaRecorder` is unsupported (degrading gracefully without crashing).
+   - Always stops all `MediaStreamTrack`s (`stream.getTracks().forEach(t => t.stop())`) on stop AND on component unmount so the phone's microphone indicator never stays stuck on!
+   - Calls `onTranscript(transcribedText)` which appends cleanly (with smart space separator) into the target field.
+3. **Reusable `ExpandableFocusComposer` (`client/components/ExpandableFocusComposer.tsx` + `client/styles/kinetic.css`):**
+   - Provides a compact `[⤢ Expand]` trigger button pairing cleanly beside `[🎤 Dictate]` on any multiline field header/toolbar.
+   - Opening `⤢ Expand` renders a mobile-first fullscreen/near-fullscreen Kinetic Construct sheet (`role="dialog"`, `aria-modal="true"`, Escape-to-close, `100dvh`-aware layout safe with mobile virtual keyboards via `visualViewport` / flex column layout):
+     - Top bar: Field title, live word/character counter, `🎤 Dictate` button right inside the expanded view, and `[✓ Done]` primary button.
+     - Spacious, comfortable typography (`font-size: 1.05rem`, `line-height: 1.6`, generous padding, zero horizontal overflow at `375px`).
+     - Optional quick-insert vocal tag pills (`<short pause>`, `<long pause>`, `<sigh>`, `<laugh>`, `<chuckle>`, `<gasp>`, `<breath>`, `<yawn>`) when `enableVocalTagPills={true}` (used when editing Script Turn `text`!).
+4. **Integrate `ExpandableFocusComposer` + `MicDictationButton` Across `DirectorStudio.tsx`:**
+   - Wire both `🎤 Dictate` and `⤢ Expand` into:
+     1. Step 1 Story Prompt (`contextHint="story_prompt"`).
+     2. Step 1 Optional Reference Text / Educational Material (`contextHint="story_prompt"`).
+     3. Step 2 Character Traits inputs & Script Turn `text` (`enableVocalTagPills={true}`, `contextHint="script_dialogue"`) and `style` notes (`contextHint="voice_prompt"`), keeping mobile card controls uncluttered and touch-friendly (`>= 44px` tap targets).
+5. **Upgraded `AudioPlayerBar.tsx` Fine-Grained Playback Speeds:**
+   - Replace the binary `1x <-> 0.9x` toggle with a crisp, mobile-friendly speed cycle/selector supporting **`[0.8x, 0.9x, 1.0x, 1.1x, 1.25x]`** (preserving current playback timestamp without pausing or resetting `currentTime` when changing speeds, and keeping the compact Phase 6 2-row mobile player height `<= 68px` with zero horizontal overflow at `375px`).
+
+### Phase 10 Validation Gate & Mandatory Lead Architect Audit
+- **Builder Subagent Gate:**
+  - Component & unit tests for `MicDictationButton` (mocked `MediaRecorder` + track cleanup on unmount + iOS `audio/mp4` / Chrome `audio/webm` fallback + error states), `ExpandableFocusComposer` (open/edit/vocal-tag-insert/Done sync), `DirectorStudio` prompt expansion & dictation insertion, and `AudioPlayerBar` multi-step playback rates (`0.8x`..`1.25x` without resetting `currentTime`).
+  - Playwright E2E tests (`tests/e2e/`) verifying Desktop (`1440x900`) and Mobile (`375x812`) Focus Composer modal, vocal tag insertion, and player speed cycling with visual screenshots saved to `qa-screenshots/phase10-*.png` in both Light and Dark themes.
+  - `npm run typecheck`, `npx tsc -p tsconfig.server.json`, `npm test`, `npm run build`, and `npm run test:e2e` exit `0`.
+  - Write `docs/audits/phase-10-audit.md` and commit `feat(phase-10): mobile focus composer, voice dictation ui, and fine-grained player speeds`.
+- **Lead Architect Firsthand Verification (Mandatory):**
+  - Read every line of `MicDictationButton.tsx`, `ExpandableFocusComposer.tsx`, `DirectorStudio.tsx`, `AudioPlayerBar.tsx`, `client.ts`, and `kinetic.css`.
+  - Check specifically for `MediaStreamTrack` leaks on unmount, mobile viewport overflow (`document.documentElement.scrollWidth <= window.innerWidth` at `375px`), and `playbackRate` `useEffect` regression traps.
+  - Inspect all `qa-screenshots/phase10-*.png` screenshots firsthand via `read_file` vision and run all test/build gates directly before tagging `phase-10-verified`.
+
+---
+
+## 17. Phase 11: Standalone `🎙️ Voice Library` Tab, Upgraded Staged Voice Designer, Pace Controls & Story Narration Workflow
+
+### Context & Product Goals
+Previously, custom voices could only be created inside Step 3 of a specific story, saved voice prompts (`description`) were truncated/hidden after saving, and there was no central place to manage voices or pick a voice and generate a new narration version for an existing story.
+
+### Deliverables Specification
+1. **Upgraded Reusable Voice Designer & Audition Controls (`VoiceStudioPanel.tsx` + Shared Subcomponents):**
+   - **Staged Draft Voice State Machine in Custom Voice Designer:**
+     - Tracks `stagedDraft: { geminiVoiceName: string; promptSnapshot: string; paceSnapshot: VoicePace; previewBlob: Blob } | null`.
+     - Includes `🎤 Dictate` + `⤢ Expand` on the Voice Prompt (`description`) field!
+     - Includes **`VoicePace` Selector** (`🐢 Slow` | `🌙 Calm` | `✨ Natural` | `⚡ Lively`, default `Natural`) for default voice pace.
+     - Includes **Expressive Sample Picker** (`VOICE_SAMPLE_PRESETS` pills + `"✏️ Custom Sample Text"` editable input up to `320` chars) so auditions test real children's storytelling emotion & character dialogue rather than flat filler text.
+     - **Preview Behavior:**
+       - First click on **`🔊 Preview Voice`** creates a real staged voice (`X-Draft-Voice-Name`) and plays the returned WAV blob. Displays a subtle badge: *"✓ Voice Take Staged — Saving will keep this exact voice"*.
+       - Changing sample preset/text while keeping the same prompt re-auditions using the **same** `stagedDraft.geminiVoiceName` (`!regenerateTake`).
+       - Clicking **`🎲 New Voice Take`** (visible once a draft is staged) calls preview with `regenerateTake: true` and `previousDraftGeminiVoiceName` to roll a fresh vocal identity and clean up the old draft.
+       - Editing the Voice Prompt text invalidates `stagedDraft` (remembering `previousDraftGeminiVoiceName` so the next preview or unmount cleans it up via `discardDraftVoice`).
+     - **Save Behavior:**
+       - Clicking **`💾 Save to Voice Library`** sends `stagedGeminiVoiceName` + `previewAudioBase64` (from `stagedDraft.previewBlob` if prompt matches `promptSnapshot`) + `defaultPace`. The saved voice is guaranteed 100% identical to the previewed voice and immediately has a cached `preview_audio_url`!
+   - **Synthesis Pace Control in Story Step 3 (`VoiceStudioPanel.tsx`):**
+     - Add a **Narration Pace** selector (`Inherit Voice Default`, `🐢 Slow`, `🌙 Calm`, `✨ Natural`, `⚡ Lively`) passed in `casting.pace` to `synthesizeStoryAudio`.
+   - **Full Prompt Visibility on Saved Voices:**
+     - Allow expanding/viewing the full `description` prompt and `default_pace` badge on any selected voice inside `VoiceStudioPanel.tsx` too.
+2. **Standalone `🎙️ Voice Library` Admin View (`client/components/VoiceLibraryPage.tsx` + `AdminLoginGate.tsx` / `DirectorStudio.tsx` / `Masthead.tsx`):**
+   - Support clean navigation between **`[📖 Stories Workbench]`** (`/admin`) and **`[🎙️ Voice Library]`** (`/admin/voices`) inside the authenticated Admin Studio (updating browser history cleanly via `App.tsx` / `AdminLoginGate.tsx` so direct refreshes on `/admin/voices` work seamlessly in SPA routing!).
+   - **Top Section — Standalone Custom Voice Designer:**
+     - Full Voice Designer (Label, Tags, Default Pace, Prompt with `🎤 Dictate` + `⤢ Expand`, Expressive Story Sample Presets + Custom Sample, `🔊 Preview Voice`, `🎲 New Voice Take`, `💾 Save to Voice Library`) usable anytime without opening a story!
+   - **Main Grid — Saved Voices Catalog (`Custom Designed Voices` + `Prebuilt System Voices`):**
+     - Search/filter by label, tag, or prompt text.
+     - Each Voice Card displays:
+       - Label, source badge (`Custom Designed` vs `Prebuilt`), `default_pace` badge, language code, tags, and creation date.
+       - **Full Saved Voice Prompt (`description`)** rendered cleanly (readable, copyable, never permanently hidden—long prompts can expand/collapse or show in full tactile quote block with a `[📋 Copy Prompt]` button).
+       - **Instant Audition:** Plays cached `preview_audio_url` (`/api/voices/:id/preview.wav`) instantly if available, or falls back to live `previewVoiceAudio({ voiceId: voice.id, sampleText, pace })` with selected sample preset!
+       - **Edit Metadata Inline:** Edit `label`, `tags`, `default_pace` (and `description` note) via `PATCH /api/admin/voices/:id`.
+       - **`🧬 Clone / Remix Prompt`:** Pre-fills the top Voice Designer with this voice's `description`, `default_pace`, and tags so the user can tweak a saved prompt (like `"Patty"`) and generate a refined variant in seconds!
+       - **`🗑️ Delete Voice`** (for `source === 'designed'`): Confirmation prompt explaining existing story audio recordings remain untouched, then calls `DELETE /api/admin/voices/:id`.
+   - **`🎬 Narrate a Story with This Voice` Workflow (Both Quick Solo & Open in Step 3!):**
+     - Clicking **`🎬 Narrate a Story`** on any Voice Card opens an inline drawer/modal listing existing stories (`fetchAdminStories()`):
+       - Select a target story + optional Audio Version Label (defaults to `"Solo — ${voice.label}"`) + Pace (`voice.default_pace || 'natural'`) + `"Set as default audio"` checkbox.
+       - Two clear action buttons:
+         1. **`⚡ Generate Solo Audio Now`** — Kicks off async `synthesizeStoryAudio(storyId, { casting: { mode: 'solo', narrator_voice_id: voice.id, character_voices: {}, pace }, label, makeDefault }, { async: true })` right there with a live elapsed-seconds progress indicator (resilient via Phase 7 `JobManager`) and a `[🎧 Listen in Reader]` link upon completion!
+         2. **`🎛️ Open in Story Step 3 (Full Cast / Advanced)`** — Navigates to `/admin` with that story opened directly at Step 3 (`VoiceStudioPanel`) and `voice.id` pre-selected as the Narrator voice!
+
+### Phase 11 Validation Gate, Full Release Regression & Mandatory Lead Architect Audit
+- **Builder Subagent Gate:**
+  - Comprehensive component & integration tests covering:
+    - Staged Draft Voice state machine (`🔊 Preview Voice` -> `X-Draft-Voice-Name` -> `💾 Save` sends `stagedGeminiVoiceName` + `previewAudioBase64`; `🎲 New Voice Take` sends `regenerateTake: true`; prompt edit triggers draft cleanup).
+    - `VoiceLibraryPage` rendering full saved `description` prompts, Copy/Clone-to-Designer, Edit pace/label/tags, Delete custom voice (and disabled/hidden delete on prebuilt voices), and `🎬 Narrate a Story` (both `⚡ Generate Solo Audio Now` async job flow and `🎛️ Open in Story Step 3` handoff).
+    - `/admin/voices` direct URL load and tab switching between `📖 Stories Workbench` and `🎙️ Voice Library`.
+  - End-to-End Playwright tests (`tests/e2e/`) across **both Desktop (`1440x900`) and Mobile (`375x812`) in Light & Dark modes**:
+    - Verifying zero horizontal overflow, >=44px mobile touch targets, Voice Library full prompt display, staged voice preview/save flow, clone-to-designer, and story narration version generation.
+    - Capture high-res screenshots to `qa-screenshots/phase11-*.png`.
+  - Full release verification: `npm run typecheck`, `npx tsc -p tsconfig.server.json`, `npm test` (including `tests/esm-build.test.ts`), `npm run build`, and `npm run test:e2e` all exit `0`.
+  - Write `docs/audits/phase-11-audit.md` and commit `feat(phase-11): standalone voice library, staged voice designer, and story narration workflow`.
+- **Lead Architect Firsthand Verification (Mandatory):**
+  - Read every modified/added file in `client/`, `server/`, `shared/`, and `tests/` line-by-line (`read_file` / `git diff`).
+  - Visually inspect every single Desktop & Mobile Light/Dark screenshot in `qa-screenshots/phase11-*.png` using multimodal vision (`read_file`), verifying contrast, mobile card spacing, expanded composer layout, and zero clipped text/buttons.
+  - Run `npm run typecheck`, `npx tsc -p tsconfig.server.json`, `npm test`, `npm run build`, and `npm run test:e2e` directly in WSL.
+  - Check off `[x]` Phases 9, 10, and 11 in Section 11 of `HANDOFF_PLAN.md`, commit `docs(plan): complete Phases 9-11 checklist items`, tag `phase-11-verified`, and push `main` + all tags to `origin`.
