@@ -786,6 +786,26 @@ Use your interactive browser capabilities (`/browser`) on `http://localhost:8080
 - [x] **Phase 9:** Backend Voice Lifecycle (Staged Draft Voices & CRUD), Emotion-Preserving Pacing Guardrails, & Multimodal Dictation STT API (`phase-9-verified`)
 - [x] **Phase 10:** Mobile Focus Composer, `MediaRecorder` Voice Dictation UI, & Fine-Grained Player Speeds (`phase-10-verified`)
 - [x] **Phase 11:** Standalone `🎙️ Voice Library` Tab, Upgraded Staged Voice Designer, Pace Controls & Story Narration Workflow (`phase-11-verified`)
+- [x] **Phase 12:** Library Deletion, Storybook Preview, Prompt Remix, and Age-Vocab Controls (`phase-12-verified`)
+
+---
+
+## 18. Phase 12: Library Deletion, Storybook Preview, Prompt Remix, and Age-Vocab Controls
+
+### Context & Product Goals
+Phase 12 unifies the public library, reader, and studio into an intuitive, tactile story crafting experience with:
+1. **Public Library & Reader Story Deletion:** Authenticated admins can delete stories directly from catalog cards and the reader admin panel with 2-step safe inline confirmation.
+2. **Dual-Tab Storybook Preview:** Seamless `[📖 Storybook Preview]` vs `[🎛️ Script Editor]` workbench tab switcher. Automatically opens the formatted storybook view (Fraunces drop-cap, dialogue cards, cleaned prose) upon drafting.
+3. **Prompt Metadata Persistence & 1-Click Remix:** Saves `original_prompt`, age, vocabulary, and reference text in `story.json`. Accessible in Reader and Workbench with `[📋 Copy Prompt]` and `[🧬 Clone / Tweak Prompt]` pre-filling Step 1.
+4. **Target Age Range & Vocabulary Calibration:** 4 tactile single-click age preset pills (`🐣 2–4`, `🎈 5–7`, `🚀 8–10`, `📚 11+`) with auto-paired vocabulary and optional `[⚙️ Custom Vocabulary]` fine-tuning, backed by calibrated Gemini 3.8 Flash developmental prompts.
+
+### Validation Gate
+- `npm run typecheck` passes with exit code 0.
+- `npx tsc -p tsconfig.server.json` succeeds and native ESM build verification passes (`tests/esm-build.test.ts`).
+- `npm test` passes with 230/230 tests across 12 test files.
+- `npm run build && npx playwright test` passes with 11/11 tests green.
+- All 4 high-resolution visual checkpoint screenshots verified in `qa-screenshots/phase12-*.png`.
+- Milestone tag: `phase-12-verified`.
 
 ---
 
