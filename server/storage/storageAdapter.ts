@@ -43,6 +43,10 @@ export interface StorageAdapter {
   deleteAudio(storyId: string, versionId: string): Promise<void>;
   getAudioStream(storyId: string, versionId: string): Promise<AudioStreamDescriptor>;
 
+  saveVoicePreview(voiceId: string, wavBuffer: Buffer): Promise<void>;
+  deleteVoicePreview(voiceId: string): Promise<void>;
+  getVoicePreviewStream(voiceId: string): Promise<AudioStreamDescriptor>;
+
   updateJsonAtomic<T>(
     relativePath: string,
     mutator: (current: T | null) => T | Promise<T>,

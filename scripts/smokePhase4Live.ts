@@ -49,10 +49,11 @@ async function runLiveTtsSmoke() {
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         console.log(`[smoke:live:tts] Calling Gemini 3.8 Flash-Lite TTS (previewVoice, attempt ${attempt}/3)...`);
-        wav = await ttsService.previewVoice({
+        const previewResult = await ttsService.previewVoice({
           voiceId: 'prebuilt-kore',
           sampleText: 'The sleepy moon smiled down on the quiet valley, whispering a gentle goodnight.',
         });
+        wav = previewResult.wav;
         break;
       } catch (err) {
         lastErr = err;

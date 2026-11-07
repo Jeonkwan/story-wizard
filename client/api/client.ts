@@ -7,6 +7,7 @@ import type {
   VoiceCasting,
   VoiceDesignCandidate,
   VoiceEntry,
+  VoicePace,
 } from '../../shared/types';
 
 export class ApiError extends Error {
@@ -239,11 +240,17 @@ export async function fetchVoices(): Promise<VoiceEntry[]> {
   return handleResponse<VoiceEntry[]>(res);
 }
 
-export async function previewVoiceAudio(params: {
+export interface PreviewVoiceAudioParams {
   voiceId?: string;
   description?: string;
   sampleText?: string;
-}): Promise<Blob> {
+  pace?: VoicePace;
+  draftGeminiVoiceName?: string;
+  previousDraftGeminiVoiceName?: string;
+  regenerateTake?: boolean;
+}
+
+export async function previewVoiceAudio(params: PreviewVoiceAudioParams): Promise<Blob> {
   const res = await fetch('/api/admin/voices/preview', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -269,6 +276,9 @@ export interface CreateCustomVoicePayload {
   description: string;
   languageCode?: string;
   tags?: string[];
+  defaultPace?: VoicePace;
+  stagedGeminiVoiceName?: string;
+  previewAudioBase64?: string;
 }
 
 export async function createCustomVoice(payload: CreateCustomVoicePayload): Promise<VoiceEntry> {

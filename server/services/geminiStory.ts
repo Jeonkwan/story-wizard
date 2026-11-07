@@ -37,9 +37,16 @@ export interface DirectScriptInput {
   script_turns: ScriptTurn[];
 }
 
+export interface TranscribeAudioRequest {
+  audioBase64: string;
+  mimeType: string;
+  contextHint?: string;
+}
+
 export interface StoryLLMProvider {
   generateWriterDraft(input: GenerateWriterDraftInput): Promise<WriterOutputInput>;
   directScript(input: DirectScriptInput): Promise<DirectorOutputInput>;
+  transcribeAudio?(req: TranscribeAudioRequest): Promise<string>;
 }
 
 /**
@@ -216,10 +223,11 @@ export class GoogleGenAIStoryLLMProvider implements StoryLLMProvider {
 
   async directScript(input: DirectScriptInput): Promise<DirectorOutputInput> {
     const systemInstruction =
-      'You are an expert audio drama voice director for Storyteller Studio. Your job is to direct pacing, emotion, and vocal expressions matching the specific scene context and emotional beat of the story: ' +
+      'You are an expert audio drama voice director for Storyteller Studio. Your job is to direct pacing, emotion, and vocal expressions matching the specific scene context and emotional beat of the story for young listeners ages 3–8: ' +
       '1. KEEP SPOKEN WORDS VERBATIM. Do not alter story prose or drop dialogue. ' +
       '2. Insert natural inline vocal tags strictly from the approved list: <sigh>, <laugh>, <chuckle>, <gasp>, <yawn>, <breath>, <short pause>, <long pause>. ' +
-      '3. For each turn, provide a sustained acting note in "style" (max 200 chars), reflecting character emotions in that moment, vocal pacing (e.g. whispered, excited, cautious, booming), or dramatic mood. ' +
+      '3. For each turn, provide a sustained acting note in "style" (max 200 chars), reflecting character emotions in that moment, vocal acting (e.g. whispered, excited, cautious, booming), comedic drama, playful pitch, or dramatic mood. ' +
+      'CRITICAL PACING & ANTI-RUSH RULE FOR CHILDREN: Separate high theatrical energy from speaking speed. Encourage vivid character mimicry, playful pitch, comedic drama, and dramatic pauses (<short pause> / <breath>), while NEVER emitting fast speaking-rate directives (such as "at high speed", "cartoonish speed", "fast-paced", "full speed", "rapid-fire", or "speaking rapidly") so every word stays clear, intelligible, and unhurried for children ages 3–8. ' +
       '4. Propose 1 to 3 distinct voice design candidates (label, description, suggested_for) suitable for audio synthesis matching the genre and character personalities.';
 
     const promptText = `Story Title: ${input.title}\nSummary: ${input.summary}\nCharacters:\n${JSON.stringify(
@@ -270,6 +278,30 @@ export class GoogleGenAIStoryLLMProvider implements StoryLLMProvider {
     });
 
     return parseLLMJson<DirectorOutputInput>(response.text, 'Director script');
+  }
+
+  async transcribeAudio(req: TranscribeAudioRequest): Promise<string> {
+    const ai = this.getClient();
+    let prompt =
+      'Transcribe the spoken audio accurately with natural punctuation. Output ONLY the transcribed text without commentary or quotes.';
+    if (req.contextHint) {
+      prompt += ` Context hint: this audio is spoken for a children's storytelling application (${req.contextHint}).`;
+    }
+
+    const response = await ai.models.generateContent({
+      model: this.model,
+      contents: [
+        {
+          inlineData: {
+            data: req.audioBase64,
+            mimeType: req.mimeType,
+          },
+        },
+        prompt,
+      ],
+    });
+
+    return (response.text || '').trim();
   }
 }
 
@@ -468,5 +500,12 @@ export class GeminiStoryService {
     );
 
     return story;
+  }
+
+  async transcribeAudio(req: TranscribeAudioRequest): Promise<string> {
+    if (!this.llmProvider.transcribeAudio) {
+      throw new Error('Audio transcription is not supported by the configured StoryLLMProvider');
+    }
+    return this.llmProvider.transcribeAudio(req);
   }
 }

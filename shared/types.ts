@@ -1,5 +1,14 @@
 export type StoryStatus = 'draft' | 'published';
 
+export type VoicePace = 'slow' | 'calm' | 'natural' | 'lively';
+
+export interface VoiceSamplePreset {
+  id: string;
+  label: string;
+  styleHint: string;
+  text: string;
+}
+
 export type JobType = 'draft' | 'direct' | 'synthesize';
 export type JobStatus = 'running' | 'completed' | 'failed';
 
@@ -58,6 +67,7 @@ export interface VoiceCasting {
   mode: 'solo' | 'cast';
   narrator_voice_id: string;       // References VoiceEntry.id in voices.json
   character_voices: Record<string, string>; // Used in 'cast' mode: { [characterName]: voiceEntryId }
+  pace?: VoicePace;
 }
 
 export interface AudioVersion {
@@ -101,6 +111,7 @@ export interface VoiceEntry {
   description: string;
   language_code: string;           // Default "en-US"
   tags: string[];
+  default_pace?: VoicePace;
   preview_audio_url?: string;      // Optional cached "/api/voices/{id}/preview.wav"
   created_at: string;
 }

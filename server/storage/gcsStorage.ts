@@ -175,4 +175,50 @@ export class GcsStorageAdapter implements StorageAdapter {
       },
     };
   }
+
+  async saveVoicePreview(voiceId: string, wavBuffer: Buffer): Promise<void> {
+    validateSlug(voiceId, 'voiceId');
+    const file = this.bucket.file(`voices/${voiceId}/preview.wav`);
+    await file.save(wavBuffer, {
+      contentType: 'audio/wav',
+      resumable: false,
+    });
+  }
+
+  async deleteVoicePreview(voiceId: string): Promise<void> {
+    validateSlug(voiceId, 'voiceId');
+    const file = this.bucket.file(`voices/${voiceId}/preview.wav`);
+    try {
+      await file.delete({ ignoreNotFound: true });
+    } catch (err: unknown) {
+      const error = err as { code?: number; status?: number };
+      if (error.code !== 404 && error.status !== 404) throw err;
+    }
+  }
+
+  async getVoicePreviewStream(voiceId: string): Promise<AudioStreamDescriptor> {
+    validateSlug(voiceId, 'voiceId');
+    const file = this.bucket.file(`voices/${voiceId}/preview.wav`);
+    let metadata;
+    try {
+      [metadata] = await file.getMetadata();
+    } catch (err: unknown) {
+      const error = err as { code?: number; status?: number };
+      if (error.code === 404 || error.status === 404) {
+        throw new StorageNotFoundError(`Voice preview not found: "${voiceId}"`);
+      }
+      throw err;
+    }
+
+    const totalBytes = Number(metadata.size);
+    return {
+      totalBytes,
+      createStream: (range?: { start: number; end: number }) => {
+        if (range) {
+          return file.createReadStream({ start: range.start, end: range.end });
+        }
+        return file.createReadStream();
+      },
+    };
+  }
 }

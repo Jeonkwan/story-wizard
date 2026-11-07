@@ -193,4 +193,46 @@ export class LocalStorageAdapter implements StorageAdapter {
       },
     };
   }
+
+  async saveVoicePreview(voiceId: string, wavBuffer: Buffer): Promise<void> {
+    validateSlug(voiceId, 'voiceId');
+    const filePath = this.resolveSafePath(path.join('voices', voiceId, 'preview.wav'));
+    await this.writeAtomic(filePath, wavBuffer);
+  }
+
+  async deleteVoicePreview(voiceId: string): Promise<void> {
+    validateSlug(voiceId, 'voiceId');
+    const filePath = this.resolveSafePath(path.join('voices', voiceId, 'preview.wav'));
+    try {
+      await fs.promises.unlink(filePath);
+    } catch (err: unknown) {
+      const error = err as NodeJS.ErrnoException;
+      if (error.code !== 'ENOENT') throw err;
+    }
+  }
+
+  async getVoicePreviewStream(voiceId: string): Promise<AudioStreamDescriptor> {
+    validateSlug(voiceId, 'voiceId');
+    const filePath = this.resolveSafePath(path.join('voices', voiceId, 'preview.wav'));
+    let stat: fs.Stats;
+    try {
+      stat = await fs.promises.stat(filePath);
+    } catch (err: unknown) {
+      const error = err as NodeJS.ErrnoException;
+      if (error.code === 'ENOENT') {
+        throw new StorageNotFoundError(`Voice preview not found: "${voiceId}"`);
+      }
+      throw err;
+    }
+
+    return {
+      totalBytes: stat.size,
+      createStream: (range?: { start: number; end: number }) => {
+        if (range) {
+          return fs.createReadStream(filePath, { start: range.start, end: range.end });
+        }
+        return fs.createReadStream(filePath);
+      },
+    };
+  }
 }

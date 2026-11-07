@@ -19,7 +19,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'PORT=8181 DEV_ADMIN_BYPASS=true npm start',
+    command: 'PORT=8181 GCS_BUCKET_NAME="" DEV_ADMIN_BYPASS=true npm start',
     url: 'http://localhost:8181',
     reuseExistingServer: !process.env.CI,
     timeout: 30000,

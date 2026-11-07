@@ -11,7 +11,12 @@ import type {
   Story,
   VoiceCasting,
   VoiceEntry,
+  VoicePace,
 } from '../../shared/types.js';
+import {
+  MAX_VOICE_PREVIEW_CHARS,
+  DEFAULT_VOICE_SAMPLE,
+} from '../../shared/voiceSamples.js';
 
 export interface SpeechMetadata {
   speaker: string;
@@ -62,6 +67,7 @@ export interface PromptedVoiceResponse {
 export interface TtsProvider {
   synthesizeBatch(req: SynthesizeBatchRequest): Promise<Buffer>;
   createPromptedVoice(req: PromptedVoiceRequest): Promise<PromptedVoiceResponse>;
+  deleteCustomVoice?(geminiVoiceName: string): Promise<void>;
 }
 
 export class GoogleGenAITtsProvider implements TtsProvider {
@@ -148,6 +154,26 @@ export class GoogleGenAITtsProvider implements TtsProvider {
       sampleAudioWav,
     };
   }
+
+  async deleteCustomVoice(geminiVoiceName: string): Promise<void> {
+    const bareId = (geminiVoiceName || '').trim().replace(/^voices\//, '');
+    if (!/^voice_[a-zA-Z0-9_-]+$/.test(bareId)) {
+      throw new ValidationError(`Invalid Gemini custom voice ID format: "${geminiVoiceName}"`);
+    }
+    const ai = this.getClient();
+    try {
+      await ai.voices.delete(bareId);
+    } catch (err: unknown) {
+      const error = err as { status?: number; code?: number; message?: string };
+      const isNotFound =
+        error.status === 404 ||
+        error.code === 404 ||
+        (typeof error.message === 'string' && error.message.toLowerCase().includes('not found'));
+      if (!isNotFound) {
+        throw err;
+      }
+    }
+  }
 }
 
 export function toGeminiVoiceConfig(voice: VoiceEntry): VoiceConfigPayload {
@@ -157,10 +183,78 @@ export function toGeminiVoiceConfig(voice: VoiceEntry): VoiceConfigPayload {
   return { voice: voice.gemini_voice_name };
 }
 
+export const MAX_TTS_BATCH_TURNS = 6;
+export const MAX_TTS_BATCH_CHARS = 1500;
+
+export const PACE_VOICE_PROMPT_CLAUSE: Record<VoicePace, string> = {
+  slow: 'Speaking pace should be slow, soothing, gentle, and unhurried with clear word articulation.',
+  calm: 'Speaking pace should be calm, relaxed, balanced, and unhurried with clear storytelling articulation.',
+  natural: 'Speaking pace should be natural, engaging, and balanced with clear articulation.',
+  lively: 'Speaking pace should be lively, upbeat, animated, and bouncy while keeping every word clear and crisp.',
+};
+
+export const PACE_SYNTHESIS_ANCHOR: Record<VoicePace, string> = {
+  slow: 'Pace: slow, soothing, unhurried cadence with gentle pauses and crystal-clear word-by-word articulation.',
+  calm: 'Pace: calm, relaxed, measured storytelling cadence with clear, unhurried articulation.',
+  natural: 'Pace: natural, balanced storytelling rhythm with clear, intelligible word articulation—never rushed.',
+  lively: 'Pace: lively, upbeat, animated storytelling energy while keeping every word crisp, clear, and unhurried for young children.',
+};
+
+export function sanitizeLiteralTempoPhrases(style: string): string {
+  if (!style) return '';
+  let s = style
+    .replace(/^fast,\s*/i, 'Energetic, ')
+    .replace(/\b(?:runs|running)\s+full speed\b/gi, 'with playful urgency')
+    .replace(/\bfull speed\b/gi, 'full enthusiasm')
+    .replace(/\bat high speed\b/gi, 'with high animated energy')
+    .replace(/\bcartoonish speed\b/gi, 'animated cartoon energy')
+    .replace(/\bfast[- ]paced\b/gi, 'lively, energetic')
+    .replace(/\brapid[- ]fire\b/gi, 'bouncy, spirited')
+    .replace(/\bspeaking\s+(?:very\s+)?(?:fast|rapidly|quickly)\b/gi, 'speaking animatedly');
+
+  s = s.replace(/\s{2,}/g, ' ').trim();
+  if (s.length > 280) {
+    s = s.slice(0, 280).trim();
+  }
+  return s;
+}
+
+export function buildTurnStyle(baseStyle: string, pace: VoicePace): string {
+  const anchor = PACE_SYNTHESIS_ANCHOR[pace] || PACE_SYNTHESIS_ANCHOR.natural;
+  const sanitized = sanitizeLiteralTempoPhrases(baseStyle);
+  if (!sanitized) {
+    return anchor;
+  }
+  const maxBase = 280 - anchor.length - 2;
+  const trimmedBase = sanitized.length > maxBase ? sanitized.slice(0, maxBase).trim() : sanitized;
+  return trimmedBase ? `${trimmedBase}. ${anchor}` : anchor;
+}
+
+export function buildPromptedVoiceDescription(description: string, pace?: VoicePace): string {
+  const cleanDesc = description.trim();
+  if (pace && PACE_VOICE_PROMPT_CLAUSE[pace]) {
+    return `${cleanDesc}. ${PACE_VOICE_PROMPT_CLAUSE[pace]}`;
+  }
+  return cleanDesc;
+}
+
+export function buildPreviewStyle(description: string, pace: VoicePace): string {
+  return buildTurnStyle(description || 'Warm, clear, expressive storytelling cadence', pace);
+}
+
 export interface PreviewVoiceInput {
   voiceId?: string;
   description?: string;
   sampleText?: string;
+  pace?: VoicePace;
+  draftGeminiVoiceName?: string;
+  previousDraftGeminiVoiceName?: string;
+  regenerateTake?: boolean;
+}
+
+export interface PreviewVoiceResult {
+  wav: Buffer;
+  draftGeminiVoiceName?: string;
 }
 
 export interface CreateVoiceInput {
@@ -168,6 +262,9 @@ export interface CreateVoiceInput {
   description: string;
   languageCode?: string;
   tags?: string[];
+  defaultPace?: VoicePace;
+  stagedGeminiVoiceName?: string;
+  previewWavBuffer?: Buffer;
 }
 
 export interface SynthesizeStoryInput {
@@ -176,8 +273,7 @@ export interface SynthesizeStoryInput {
   makeDefault?: boolean;
 }
 
-export const DEFAULT_VOICE_SAMPLE =
-  'The warm morning sun peeked over the emerald hills, welcoming adventurers to a brand new chapter full of wonder, humor, and discovery.';
+export { DEFAULT_VOICE_SAMPLE };
 
 export const DEFAULT_PREBUILT_VOICES: VoiceEntry[] = [
   {
@@ -188,6 +284,7 @@ export const DEFAULT_PREBUILT_VOICES: VoiceEntry[] = [
     description: 'Warm, clear, expressive storytelling voice',
     language_code: 'en-US',
     tags: ['warm', 'expressive', 'storytelling'],
+    default_pace: 'natural',
     created_at: '2026-11-04T00:00:00.000Z',
   },
   {
@@ -198,6 +295,7 @@ export const DEFAULT_PREBUILT_VOICES: VoiceEntry[] = [
     description: 'Gentle, curious, melodic voice',
     language_code: 'en-US',
     tags: ['curious', 'gentle'],
+    default_pace: 'natural',
     created_at: '2026-11-04T00:00:00.000Z',
   },
   {
@@ -208,6 +306,7 @@ export const DEFAULT_PREBUILT_VOICES: VoiceEntry[] = [
     description: 'Soft whispery bedtime timbre',
     language_code: 'en-US',
     tags: ['soft', 'whisper'],
+    default_pace: 'calm',
     created_at: '2026-11-04T00:00:00.000Z',
   },
 ];
@@ -249,16 +348,14 @@ export class GeminiTtsService {
 
   /**
    * Preview a voice (either an existing saved voice or a candidate natural-language prompt)
-   * clamped to <= 220 characters. Returns canonical 44-byte RIFF WAV Buffer.
+   * clamped to <= MAX_VOICE_PREVIEW_CHARS (320).
+   * For unsaved prompts, creates a staged voice take via ai.voices.create and returns draftGeminiVoiceName.
    */
-  async previewVoice(input: PreviewVoiceInput): Promise<Buffer> {
+  async previewVoice(input: PreviewVoiceInput): Promise<PreviewVoiceResult> {
     const rawSample = input.sampleText && input.sampleText.trim()
       ? input.sampleText.trim()
       : DEFAULT_VOICE_SAMPLE;
-    const clampedSample = rawSample.slice(0, 220);
-
-    let speechConfig: SpeechConfigPayload;
-    let parts: TtsTurnPart[];
+    const clampedSample = rawSample.slice(0, MAX_VOICE_PREVIEW_CHARS);
 
     if (input.voiceId && input.voiceId.trim()) {
       const voices = await this.listVoices();
@@ -266,54 +363,106 @@ export class GeminiTtsService {
       if (!voice) {
         throw new ValidationError(`Voice not found: "${input.voiceId}"`);
       }
-      const style = (input.description || voice.description || 'Warm, clear, expressive storytelling cadence').slice(0, 200);
-      speechConfig = {
-        voiceConfig: toGeminiVoiceConfig(voice),
-      };
-      parts = [
-        {
-          text: clampedSample,
-          speechMetadata: {
-            speaker: 'Narrator',
-            style,
+      const effectivePace: VoicePace = input.pace || voice.default_pace || 'natural';
+      const style = buildTurnStyle(
+        input.description || voice.description || 'Warm, clear, expressive storytelling cadence',
+        effectivePace
+      );
+
+      const rawBuffer = await this.ttsProvider.synthesizeBatch({
+        model: this.config.geminiTtsLiteModel,
+        parts: [
+          {
+            text: clampedSample,
+            speechMetadata: {
+              speaker: 'Narrator',
+              style,
+            },
           },
+        ],
+        speechConfig: {
+          voiceConfig: toGeminiVoiceConfig(voice),
         },
-      ];
+      });
+
+      const pcm = extractPcmFromWavOrRaw(rawBuffer);
+      const { wav } = wrapPcmAsWav(pcm);
+      return { wav };
     } else if (input.description && input.description.trim()) {
-      // Preview candidate natural-language prompt using prebuilt Kore as base voice
-      const style = input.description.trim().slice(0, 200);
-      speechConfig = {
-        voiceConfig: {
-          prebuiltVoiceConfig: { voiceName: 'Kore' },
-        },
-      };
-      parts = [
-        {
-          text: clampedSample,
-          speechMetadata: {
-            speaker: 'Narrator',
-            style,
+      const draftId = input.draftGeminiVoiceName
+        ? input.draftGeminiVoiceName.trim().replace(/^voices\//, '')
+        : undefined;
+      const prevDraftId = input.previousDraftGeminiVoiceName
+        ? input.previousDraftGeminiVoiceName.trim().replace(/^voices\//, '')
+        : undefined;
+
+      if (draftId && !/^voice_[a-zA-Z0-9_-]+$/.test(draftId)) {
+        throw new ValidationError(`Invalid draft voice ID format: "${input.draftGeminiVoiceName}"`);
+      }
+      if (prevDraftId && !/^voice_[a-zA-Z0-9_-]+$/.test(prevDraftId)) {
+        throw new ValidationError(`Invalid previous draft voice ID format: "${input.previousDraftGeminiVoiceName}"`);
+      }
+
+      // Saved-Voice Protection Invariant for draft cleanup:
+      // If previousDraftGeminiVoiceName is provided and (regenerateTake or previousDraft !== draft),
+      // verify it does NOT belong to a saved voice before deleting.
+      if (prevDraftId && (input.regenerateTake || prevDraftId !== draftId)) {
+        const savedVoices = await this.listVoices();
+        const isSaved = savedVoices.some(
+          (v) => (v.gemini_voice_name || '').replace(/^voices\//, '') === prevDraftId
+        );
+        if (!isSaved && this.ttsProvider.deleteCustomVoice) {
+          try {
+            await this.ttsProvider.deleteCustomVoice(prevDraftId);
+          } catch {
+            // Swallow error during background draft cleanup
+          }
+        }
+      }
+
+      const effectivePace: VoicePace = input.pace || 'natural';
+
+      let activeDraftVoiceName: string;
+      if (draftId && !input.regenerateTake) {
+        activeDraftVoiceName = draftId;
+      } else {
+        const promptDescription = buildPromptedVoiceDescription(input.description, effectivePace);
+        const created = await this.ttsProvider.createPromptedVoice({
+          label: 'Draft Voice Preview',
+          description: promptDescription,
+        });
+        activeDraftVoiceName = created.geminiVoiceName.trim().replace(/^voices\//, '');
+      }
+
+      const style = buildPreviewStyle(input.description, effectivePace);
+
+      const rawBuffer = await this.ttsProvider.synthesizeBatch({
+        model: this.config.geminiTtsLiteModel,
+        parts: [
+          {
+            text: clampedSample,
+            speechMetadata: {
+              speaker: 'Narrator',
+              style,
+            },
           },
+        ],
+        speechConfig: {
+          voiceConfig: { voice: activeDraftVoiceName },
         },
-      ];
+      });
+
+      const pcm = extractPcmFromWavOrRaw(rawBuffer);
+      const { wav } = wrapPcmAsWav(pcm);
+      return { wav, draftGeminiVoiceName: activeDraftVoiceName };
     } else {
       throw new ValidationError('Either voiceId or description is required for voice preview');
     }
-
-    const rawBuffer = await this.ttsProvider.synthesizeBatch({
-      model: this.config.geminiTtsLiteModel,
-      parts,
-      speechConfig,
-    });
-
-    const pcm = extractPcmFromWavOrRaw(rawBuffer);
-    const { wav } = wrapPcmAsWav(pcm);
-    return wav;
   }
 
   /**
-   * Creates a custom prompted voice via the Google Voices API, generates a unique slug ID,
-   * and atomically appends it to voices.json.
+   * Creates a custom prompted voice via the Google Voices API (or promotes an existing staged draft voice),
+   * generates a unique slug ID, caches preview WAV audio, and atomically appends it to voices.json.
    */
   async createAndSaveVoice(input: CreateVoiceInput): Promise<VoiceEntry> {
     const label = input.label ? input.label.trim() : '';
@@ -326,14 +475,42 @@ export class GeminiTtsService {
       throw new ValidationError('Voice description is required');
     }
 
-    const created = await this.ttsProvider.createPromptedVoice({
-      label,
-      description,
-      languageCode: input.languageCode,
-    });
+    if (input.defaultPace && !['slow', 'calm', 'natural', 'lively'].includes(input.defaultPace)) {
+      throw new ValidationError(`Invalid default pace: "${input.defaultPace}"`);
+    }
+
+    const defaultPace: VoicePace = input.defaultPace || 'natural';
 
     const existingVoices = await this.listVoices();
     const existingIds = new Set(existingVoices.map((v) => v.id));
+
+    let geminiVoiceName: string;
+    let fallbackSampleAudioWav: Buffer | undefined;
+
+    if (input.stagedGeminiVoiceName && input.stagedGeminiVoiceName.trim()) {
+      const bareStagedId = input.stagedGeminiVoiceName.trim().replace(/^voices\//, '');
+      if (!/^voice_[a-zA-Z0-9_-]+$/.test(bareStagedId)) {
+        throw new ValidationError(`Invalid staged voice ID format: "${input.stagedGeminiVoiceName}"`);
+      }
+
+      const isAlreadySaved = existingVoices.some(
+        (v) => (v.gemini_voice_name || '').replace(/^voices\//, '') === bareStagedId
+      );
+      if (isAlreadySaved) {
+        throw new ValidationError(`Staged voice ID already exists as a saved voice: "${bareStagedId}"`);
+      }
+
+      geminiVoiceName = bareStagedId;
+    } else {
+      const promptDesc = buildPromptedVoiceDescription(description, defaultPace);
+      const created = await this.ttsProvider.createPromptedVoice({
+        label,
+        description: promptDesc,
+        languageCode: input.languageCode,
+      });
+      geminiVoiceName = created.geminiVoiceName.trim().replace(/^voices\//, '');
+      fallbackSampleAudioWav = created.sampleAudioWav;
+    }
 
     const kebab = label
       .toLowerCase()
@@ -352,16 +529,40 @@ export class GeminiTtsService {
 
     validateSlug(voiceId, 'voiceId');
 
+    // Obtain preview WAV buffer to cache
+    let previewWav: Buffer;
+    if (input.previewWavBuffer && input.previewWavBuffer.length > 0) {
+      const pcm = extractPcmFromWavOrRaw(input.previewWavBuffer);
+      const { wav } = wrapPcmAsWav(pcm);
+      previewWav = wav;
+    } else if (fallbackSampleAudioWav && fallbackSampleAudioWav.length > 0) {
+      const pcm = extractPcmFromWavOrRaw(fallbackSampleAudioWav);
+      const { wav } = wrapPcmAsWav(pcm);
+      previewWav = wav;
+    } else {
+      const previewRes = await this.previewVoice({
+        description,
+        sampleText: DEFAULT_VOICE_SAMPLE,
+        pace: defaultPace,
+        draftGeminiVoiceName: geminiVoiceName,
+      });
+      previewWav = previewRes.wav;
+    }
+
+    await this.storage.saveVoicePreview(voiceId, previewWav);
+
     const newVoice: VoiceEntry = {
       id: voiceId,
       label,
       source: 'designed',
-      gemini_voice_name: created.geminiVoiceName,
+      gemini_voice_name: geminiVoiceName,
       description,
       language_code: input.languageCode?.trim() || 'en-US',
       tags: Array.isArray(input.tags)
         ? input.tags.map((t) => String(t).trim()).filter(Boolean)
         : [],
+      default_pace: defaultPace,
+      preview_audio_url: `/api/voices/${voiceId}/preview.wav`,
       created_at: new Date().toISOString(),
     };
 
@@ -376,6 +577,135 @@ export class GeminiTtsService {
     );
 
     return newVoice;
+  }
+
+  /**
+   * Updates an existing voice's metadata (label, description, tags, defaultPace).
+   * For prebuilt voices, persists overrides while keeping id, source, and gemini_voice_name immutable.
+   */
+  async updateVoice(
+    voiceId: string,
+    patch: { label?: string; description?: string; tags?: string[]; defaultPace?: VoicePace }
+  ): Promise<VoiceEntry> {
+    validateSlug(voiceId, 'voiceId');
+
+    if (patch.defaultPace && !['slow', 'calm', 'natural', 'lively'].includes(patch.defaultPace)) {
+      throw new ValidationError(`Invalid default pace: "${patch.defaultPace}"`);
+    }
+
+    let updatedEntry: VoiceEntry | null = null;
+
+    await this.storage.updateJsonAtomic<VoiceEntry[]>(
+      'voices.json',
+      (current) => {
+        const list = current && current.length > 0 ? [...current] : [...DEFAULT_PREBUILT_VOICES];
+        const idx = list.findIndex((v) => v.id === voiceId);
+        let existing: VoiceEntry;
+
+        if (idx >= 0) {
+          existing = list[idx];
+        } else {
+          const prebuilt = DEFAULT_PREBUILT_VOICES.find((v) => v.id === voiceId);
+          if (!prebuilt) {
+            throw new ValidationError(`Voice not found: "${voiceId}"`);
+          }
+          existing = { ...prebuilt };
+          list.push(existing);
+        }
+
+        const targetIdx = list.findIndex((v) => v.id === voiceId);
+        updatedEntry = {
+          ...existing,
+          label: typeof patch.label === 'string' && patch.label.trim() ? patch.label.trim() : existing.label,
+          description:
+            typeof patch.description === 'string' && patch.description.trim()
+              ? patch.description.trim()
+              : existing.description,
+          tags: Array.isArray(patch.tags)
+            ? patch.tags.map((t) => String(t).trim()).filter(Boolean)
+            : existing.tags,
+          default_pace: patch.defaultPace || existing.default_pace || 'natural',
+        };
+
+        // Source, id, and gemini_voice_name remain strictly immutable
+        updatedEntry.id = existing.id;
+        updatedEntry.source = existing.source;
+        updatedEntry.gemini_voice_name = existing.gemini_voice_name;
+
+        list[targetIdx] = updatedEntry;
+        return list;
+      },
+      []
+    );
+
+    if (!updatedEntry) {
+      throw new ValidationError(`Voice not found: "${voiceId}"`);
+    }
+
+    return updatedEntry;
+  }
+
+  /**
+   * Deletes a custom designed voice from voices.json and deletes its preview audio.
+   * Prebuilt system voices cannot be deleted.
+   */
+  async deleteVoice(voiceId: string): Promise<{ deletedId: string }> {
+    validateSlug(voiceId, 'voiceId');
+
+    const voices = await this.listVoices();
+    const voice = voices.find((v) => v.id === voiceId);
+    if (!voice) {
+      throw new ValidationError(`Voice not found: "${voiceId}"`);
+    }
+
+    if (voice.source === 'prebuilt') {
+      throw new ValidationError('Prebuilt system voices cannot be deleted');
+    }
+
+    await this.storage.updateJsonAtomic<VoiceEntry[]>(
+      'voices.json',
+      (current) => {
+        return current ? current.filter((v) => v.id !== voiceId) : [];
+      },
+      []
+    );
+
+    await this.storage.deleteVoicePreview(voiceId);
+
+    if (this.ttsProvider.deleteCustomVoice && voice.gemini_voice_name) {
+      try {
+        await this.ttsProvider.deleteCustomVoice(voice.gemini_voice_name);
+      } catch {
+        // Best-effort cleanup
+      }
+    }
+
+    return { deletedId: voiceId };
+  }
+
+  /**
+   * Discards an unsaved staged draft voice ID after verifying it does not belong to any saved voice.
+   */
+  async discardDraftVoice(geminiVoiceName: string): Promise<void> {
+    const bareId = (geminiVoiceName || '').trim().replace(/^voices\//, '');
+    if (!/^voice_[a-zA-Z0-9_-]+$/.test(bareId)) {
+      throw new ValidationError(`Invalid draft voice ID format: "${geminiVoiceName}"`);
+    }
+
+    // Saved-Voice Protection Invariant
+    const voices = await this.listVoices();
+    const isSaved = voices.some(
+      (v) => (v.gemini_voice_name || '').replace(/^voices\//, '') === bareId
+    );
+    if (isSaved) {
+      throw new ValidationError(
+        `Cannot delete voice "${bareId}": it is currently saved in the voice library`
+      );
+    }
+
+    if (this.ttsProvider.deleteCustomVoice) {
+      await this.ttsProvider.deleteCustomVoice(bareId);
+    }
   }
 
   /**
@@ -434,7 +764,8 @@ export class GeminiTtsService {
     const characterMap = new Map(story.characters.map((c) => [c.name, c.traits]));
 
     if (casting.mode === 'solo') {
-      // Solo mode: contiguous batches of <= 12 turns and <= 3,000 characters
+      const effectivePace: VoicePace = casting.pace || narratorVoice.default_pace || 'natural';
+      // Solo mode: contiguous batches of <= 6 turns and <= 1,500 characters
       let currentTurns: typeof story.script_turns = [];
       let currentChars = 0;
 
@@ -442,12 +773,12 @@ export class GeminiTtsService {
         const turnLen = turn.text.length;
         if (
           currentTurns.length > 0 &&
-          (currentTurns.length >= 12 || currentChars + turnLen > 3000)
+          (currentTurns.length >= MAX_TTS_BATCH_TURNS || currentChars + turnLen > MAX_TTS_BATCH_CHARS)
         ) {
           // Commit current batch
           const parts: TtsTurnPart[] = currentTurns.map((t) => {
             const charTrait = characterMap.get(t.speaker);
-            const effectiveStyle =
+            const baseStyle =
               t.speaker === 'Narrator'
                 ? t.style || 'Warm, clear, expressive storytelling cadence'
                 : `Speaking dialogue as ${t.speaker}${charTrait ? ` (${charTrait})` : ''}: ${t.style || 'expressive, dynamic'}`;
@@ -455,7 +786,7 @@ export class GeminiTtsService {
               text: t.text,
               speechMetadata: {
                 speaker: 'Narrator',
-                style: effectiveStyle,
+                style: buildTurnStyle(baseStyle, effectivePace),
               },
             };
           });
@@ -478,7 +809,7 @@ export class GeminiTtsService {
       if (currentTurns.length > 0) {
         const parts: TtsTurnPart[] = currentTurns.map((t) => {
           const charTrait = characterMap.get(t.speaker);
-          const effectiveStyle =
+          const baseStyle =
             t.speaker === 'Narrator'
               ? t.style || 'Warm, clear, expressive storytelling cadence'
               : `Speaking dialogue as ${t.speaker}${charTrait ? ` (${charTrait})` : ''}: ${t.style || 'expressive, dynamic'}`;
@@ -486,7 +817,7 @@ export class GeminiTtsService {
             text: t.text,
             speechMetadata: {
               speaker: 'Narrator',
-              style: effectiveStyle,
+              style: buildTurnStyle(baseStyle, effectivePace),
             },
           };
         });
@@ -499,7 +830,7 @@ export class GeminiTtsService {
         });
       }
     } else {
-      // Cast mode: contiguous turns sharing <= 2 distinct speakers, <= 12 turns, <= 3,000 chars
+      // Cast mode: contiguous turns sharing <= 2 distinct speakers, <= 6 turns, <= 1,500 chars
       let currentTurns: typeof story.script_turns = [];
       let currentSpeakers = new Set<string>();
       let currentChars = 0;
@@ -512,8 +843,8 @@ export class GeminiTtsService {
         if (
           currentTurns.length > 0 &&
           (potentialSpeakers.size > 2 ||
-            currentTurns.length >= 12 ||
-            currentChars + turnLen > 3000)
+            currentTurns.length >= MAX_TTS_BATCH_TURNS ||
+            currentChars + turnLen > MAX_TTS_BATCH_CHARS)
         ) {
           // Commit current sub-batch
           const distinctSpeakers = Array.from(currentSpeakers);
@@ -543,13 +874,22 @@ export class GeminiTtsService {
             };
           }
 
-          const parts: TtsTurnPart[] = currentTurns.map((t) => ({
-            text: t.text,
-            speechMetadata: {
-              speaker: t.speaker,
-              style: t.style || 'Warm, clear, expressive storytelling cadence',
-            },
-          }));
+          const parts: TtsTurnPart[] = currentTurns.map((t) => {
+            const turnVoice =
+              t.speaker === 'Narrator'
+                ? narratorVoice
+                : voiceMap.get(casting.character_voices[t.speaker]);
+            const turnPace: VoicePace =
+              casting.pace || turnVoice?.default_pace || 'natural';
+            const baseStyle = t.style || 'Warm, clear, expressive storytelling cadence';
+            return {
+              text: t.text,
+              speechMetadata: {
+                speaker: t.speaker,
+                style: buildTurnStyle(baseStyle, turnPace),
+              },
+            };
+          });
 
           batches.push({ parts, speechConfig });
 
@@ -590,13 +930,22 @@ export class GeminiTtsService {
           };
         }
 
-        const parts: TtsTurnPart[] = currentTurns.map((t) => ({
-          text: t.text,
-          speechMetadata: {
-            speaker: t.speaker,
-            style: t.style || 'Warm, clear, expressive storytelling cadence',
-          },
-        }));
+        const parts: TtsTurnPart[] = currentTurns.map((t) => {
+          const turnVoice =
+            t.speaker === 'Narrator'
+              ? narratorVoice
+              : voiceMap.get(casting.character_voices[t.speaker]);
+          const turnPace: VoicePace =
+            casting.pace || turnVoice?.default_pace || 'natural';
+          const baseStyle = t.style || 'Warm, clear, expressive storytelling cadence';
+          return {
+            text: t.text,
+            speechMetadata: {
+              speaker: t.speaker,
+              style: buildTurnStyle(baseStyle, turnPace),
+            },
+          };
+        });
 
         batches.push({ parts, speechConfig });
       }
@@ -667,6 +1016,7 @@ export class GeminiTtsService {
       narrator_voice_id: casting.narrator_voice_id.trim(),
       character_voices:
         casting.mode === 'cast' ? { ...(casting.character_voices || {}) } : {},
+      pace: casting.pace,
     };
 
     const newVersion: AudioVersion = {

@@ -14,6 +14,7 @@ import type {
   PromptedVoiceResponse,
 } from '../server/services/geminiTts.js';
 import type { Story, VoiceEntry } from '../shared/types.js';
+import { DEFAULT_VOICE_SAMPLE } from '../shared/voiceSamples.js';
 
 class MockTtsProvider implements TtsProvider {
   public synthesizeCalls: SynthesizeBatchRequest[] = [];
@@ -166,11 +167,13 @@ describe('Phase 4: Gemini 3.8 TTS Engine, Voice Studio & Version Management', ()
     expect(res.status).toBe(201);
     const synthesizedStory: Story = res.body;
 
-    // 1. Assert provider calls: 28 turns divided into batches of <= 12 -> 3 calls (12 + 12 + 4)
-    expect(mockTts.synthesizeCalls).toHaveLength(3);
-    expect(mockTts.synthesizeCalls[0].parts).toHaveLength(12);
-    expect(mockTts.synthesizeCalls[1].parts).toHaveLength(12);
-    expect(mockTts.synthesizeCalls[2].parts).toHaveLength(4);
+    // 1. Assert provider calls: 28 turns divided into batches of <= 6 -> 5 calls (6 + 6 + 6 + 6 + 4)
+    expect(mockTts.synthesizeCalls).toHaveLength(5);
+    expect(mockTts.synthesizeCalls[0].parts).toHaveLength(6);
+    expect(mockTts.synthesizeCalls[1].parts).toHaveLength(6);
+    expect(mockTts.synthesizeCalls[2].parts).toHaveLength(6);
+    expect(mockTts.synthesizeCalls[3].parts).toHaveLength(6);
+    expect(mockTts.synthesizeCalls[4].parts).toHaveLength(4);
 
     // In solo mode, every turn part's speaker MUST be "Narrator"
     for (const call of mockTts.synthesizeCalls) {
@@ -200,8 +203,8 @@ describe('Phase 4: Gemini 3.8 TTS Engine, Voice Studio & Version Management', ()
     expect(savedWav.subarray(0, 4).toString('ascii')).toBe('RIFF');
     expect(savedWav.indexOf('RIFF', 4)).toBe(-1); // Zero mid-stream embedded RIFF headers!
 
-    // Exact byte size: 44 header + 3 * batchPcm (9600) + 2 * silence150ms (7200)
-    const expectedByteSize = 44 + 3 * 9600 + 2 * 7200;
+    // Exact byte size: 44 header + 5 * batchPcm (9600) + 4 * silence150ms (7200)
+    const expectedByteSize = 44 + 5 * 9600 + 4 * 7200;
     expect(savedWav.length).toBe(expectedByteSize);
     expect(version.duration_sec).toBeGreaterThan(0);
     expect(synthesizedStory.status).toBe('published');
@@ -612,7 +615,7 @@ describe('Phase 4: Gemini 3.8 TTS Engine, Voice Studio & Version Management', ()
 
     expect(previewRes.status).toBe(200);
     const lastPreviewCall = mockTts.synthesizeCalls[mockTts.synthesizeCalls.length - 1];
-    expect(lastPreviewCall.parts[0].text).toContain('The warm morning sun peeked over the emerald hills');
+    expect(lastPreviewCall.parts[0].text).toBe(DEFAULT_VOICE_SAMPLE);
     expect(lastPreviewCall.parts[0].speechMetadata?.style).toContain('expressive');
 
     // 2. Synthesize story turn with undefined style -> fallback to expressive storytelling cadence
@@ -648,7 +651,8 @@ describe('Phase 4: Gemini 3.8 TTS Engine, Voice Studio & Version Management', ()
 
     expect(synthRes.status).toBe(201);
     const soloSynthCall = mockTts.synthesizeCalls[mockTts.synthesizeCalls.length - 1];
-    expect(soloSynthCall.parts[0].speechMetadata?.style).toBe('Warm, clear, expressive storytelling cadence');
+    expect(soloSynthCall.parts[0].speechMetadata?.style).toContain('Warm, clear, expressive storytelling cadence');
+    expect(soloSynthCall.parts[0].speechMetadata?.style).toContain('Pace: natural');
     expect(soloSynthCall.parts[1].speechMetadata?.style).toContain('expressive, dynamic');
   });
 });
