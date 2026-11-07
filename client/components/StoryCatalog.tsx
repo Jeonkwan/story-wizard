@@ -5,16 +5,22 @@ export interface StoryCatalogProps {
   catalog: CatalogItem[];
   onSelectStory: (storyId: string) => void;
   loading?: boolean;
+  isAdmin?: boolean;
+  onDeleteStory?: (storyId: string) => Promise<void>;
 }
 
 export function StoryCatalog({
   catalog,
   onSelectStory,
   loading = false,
+  isAdmin = false,
+  onDeleteStory,
 }: StoryCatalogProps): React.JSX.Element {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTag, setSelectedTag] = useState('All');
   const [selectedSeries, setSelectedSeries] = useState('all');
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // Extract unique tags and series
   const uniqueTags = useMemo(() => {
@@ -166,13 +172,56 @@ export function StoryCatalog({
                   🎧 {story.audio_versions_count}{' '}
                   {story.audio_versions_count === 1 ? 'audio version' : 'audio versions'}
                 </span>
-                <button
-                  type="button"
-                  className="btn-tactile btn-tactile-primary"
-                  onClick={() => onSelectStory(story.id)}
-                >
-                  Read &amp; Listen
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  {isAdmin && (
+                    confirmDeleteId === story.id ? (
+                      <div style={{ display: 'inline-flex', gap: '0.35rem', alignItems: 'center' }}>
+                        <span>Delete permanently?</span>
+                        <button
+                          type="button"
+                          className="btn-tactile"
+                          style={{ color: 'var(--accent-state)' }}
+                          disabled={deletingId === story.id}
+                          onClick={async () => {
+                            if (!onDeleteStory) return;
+                            setDeletingId(story.id);
+                            try {
+                              await onDeleteStory(story.id);
+                            } finally {
+                              setDeletingId(null);
+                              setConfirmDeleteId(null);
+                            }
+                          }}
+                        >
+                          {deletingId === story.id ? 'Deleting...' : 'Confirm'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-tactile"
+                          disabled={deletingId === story.id}
+                          onClick={() => setConfirmDeleteId(null)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn-tactile"
+                        onClick={() => setConfirmDeleteId(story.id)}
+                      >
+                        🗑 Delete
+                      </button>
+                    )
+                  )}
+                  <button
+                    type="button"
+                    className="btn-tactile btn-tactile-primary"
+                    onClick={() => onSelectStory(story.id)}
+                  >
+                    Read &amp; Listen
+                  </button>
+                </div>
               </div>
             </article>
           ))}

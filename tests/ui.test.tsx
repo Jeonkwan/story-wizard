@@ -462,6 +462,9 @@ describe('Phase 3 Admin Studio & UI Components', () => {
 
     fireEvent.click(screen.getByText('Test Story'));
 
+    const editorTab = await screen.findByRole('tab', { name: /Script Editor/i });
+    fireEvent.click(editorTab);
+
     // Wait for turns to load in workbench
     await waitFor(() => {
       expect(screen.getByDisplayValue('Hello world.')).toBeInTheDocument();
@@ -552,6 +555,9 @@ describe('Phase 3 Admin Studio & UI Components', () => {
 
     fireEvent.click(screen.getByText('Initial Title'));
 
+    const editorTab = await screen.findByRole('tab', { name: /Script Editor/i });
+    fireEvent.click(editorTab);
+
     await waitFor(() => {
       expect(screen.getByDisplayValue('Initial Title')).toBeInTheDocument();
     });
@@ -632,6 +638,9 @@ describe('Phase 3 Admin Studio & UI Components', () => {
     });
 
     fireEvent.click(screen.getByText('Character Sync Story'));
+
+    const editorTab = await screen.findByRole('tab', { name: /Script Editor/i });
+    fireEvent.click(editorTab);
 
     await waitFor(() => {
       expect(screen.getByPlaceholderText('Character Name')).toHaveValue('Bibi');
@@ -1308,6 +1317,306 @@ describe('Phase 3 Admin Studio & UI Components', () => {
 
       const synthBtn = screen.getByRole('button', { name: /Synthesizing\.\.\./i });
       expect(synthBtn).toBeDisabled();
+    });
+  });
+
+  /* =========================================================================
+   * Phase 12: Library Deletion, Storybook Preview, Prompt Remix & Age-Vocab
+   * ========================================================================= */
+  describe('Phase 12: Library Deletion, Storybook Preview, Prompt Remix & Age-Vocab Controls', () => {
+    const adminSessionFixture: clientApi.AdminSession = {
+      authenticated: true,
+      email: 'curator@storyteller.studio',
+      devBypassEnabled: true,
+    };
+
+    const phase12CatalogItem: CatalogItem = {
+      id: 'phase12-story-1',
+      status: 'published',
+      title: 'The Starlight Dragon',
+      summary: 'A tiny dragon who lights stars in the night sky.',
+      tags: ['fantasy', 'bedtime'],
+      series_id: null,
+      episode_number: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      default_audio_url: '/api/stories/phase12-story-1/audios/v1.wav',
+      audio_versions_count: 1,
+    };
+
+    const phase12StoryFixture: Story = {
+      id: 'phase12-story-1',
+      status: 'published',
+      title: 'The Starlight Dragon',
+      summary: 'A tiny dragon who lights stars in the night sky.',
+      tags: ['fantasy', 'bedtime'],
+      series_context: null,
+      characters: [
+        { name: 'Sparky', traits: 'Playful baby dragon with gentle chime voice' },
+      ],
+      script_turns: [
+        {
+          turn_id: 1,
+          speaker: 'Narrator',
+          style: 'Warm and magical bedtime tone',
+          text: 'High above the sleeping hills, a little dragon named Sparky woke up with a gentle yawn. <short pause>',
+        },
+        {
+          turn_id: 2,
+          speaker: 'Sparky',
+          style: 'Excited chirp',
+          text: 'Time to sprinkle starlight! <chuckle>',
+        },
+      ],
+      voice_candidates: [],
+      audio_versions: [
+        {
+          version_id: 'v1-dragon-solo',
+          label: 'Default Solo',
+          casting: {
+            mode: 'solo',
+            narrator_voice_id: 'prebuilt-kore',
+            character_voices: {},
+          },
+          is_default: true,
+          duration_sec: 45,
+          audio_url: '/api/stories/phase12-story-1/audios/v1.wav',
+          created_at: new Date().toISOString(),
+        },
+      ],
+      prompt_metadata: {
+        original_prompt: 'A tiny dragon lighting stars across the evening sky for sleepy animals.',
+        age_range: 'early-reader',
+        vocabulary_level: 'standard',
+        genre_preset: 'bedtime',
+        created_at: new Date().toISOString(),
+      },
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    beforeEach(() => {
+      if (!navigator.clipboard) {
+        Object.defineProperty(navigator, 'clipboard', {
+          value: { writeText: vi.fn().mockResolvedValue(undefined) },
+          configurable: true,
+        });
+      } else {
+        vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined);
+      }
+    });
+
+    it('StoryCatalog renders admin delete button and completes inline confirmation flow', async () => {
+      const onDeleteStory = vi.fn().mockImplementation(async () => {
+        await new Promise((r) => setTimeout(r, 50));
+      });
+
+      // 1. Non-admin mode: delete button must NOT be present
+      const { rerender } = render(
+        <StoryCatalog
+          catalog={[phase12CatalogItem]}
+          onSelectStory={() => {}}
+          isAdmin={false}
+        />
+      );
+      expect(screen.queryByRole('button', { name: /🗑 Delete/i })).not.toBeInTheDocument();
+
+      // 2. Admin mode: delete button IS present
+      rerender(
+        <StoryCatalog
+          catalog={[phase12CatalogItem]}
+          onSelectStory={() => {}}
+          isAdmin={true}
+          onDeleteStory={onDeleteStory}
+        />
+      );
+
+      const deleteBtn = screen.getByRole('button', { name: /🗑 Delete/i });
+      expect(deleteBtn).toBeInTheDocument();
+
+      // Click delete -> shows inline confirmation
+      fireEvent.click(deleteBtn);
+      expect(screen.getByText(/Delete permanently\?/i)).toBeInTheDocument();
+      const confirmBtn = screen.getByRole('button', { name: /Confirm/i });
+      const cancelBtn = screen.getByRole('button', { name: /Cancel/i });
+      expect(confirmBtn).toBeInTheDocument();
+      expect(cancelBtn).toBeInTheDocument();
+
+      // Click cancel -> cancels confirmation
+      fireEvent.click(cancelBtn);
+      expect(screen.queryByText(/Delete permanently\?/i)).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /🗑 Delete/i })).toBeInTheDocument();
+
+      // Click delete again -> confirm deletion
+      fireEvent.click(screen.getByRole('button', { name: /🗑 Delete/i }));
+      fireEvent.click(screen.getByRole('button', { name: /Confirm/i }));
+
+      expect(onDeleteStory).toHaveBeenCalledWith('phase12-story-1');
+      await waitFor(() => {
+        expect(screen.queryByText(/Deleting\.\.\./i)).not.toBeInTheDocument();
+      });
+    });
+
+    it('StoryReader renders admin delete story button and prompt card copy feedback', async () => {
+      const onDeleteStory = vi.fn().mockResolvedValue(undefined);
+      const onRemixStory = vi.fn();
+      const onBack = vi.fn();
+
+      render(
+        <StoryReader
+          story={phase12StoryFixture}
+          onBack={onBack}
+          isAdmin={true}
+          onDeleteStory={onDeleteStory}
+          onRemixStory={onRemixStory}
+        />
+      );
+
+      // Verify Prompt Inspector card is rendered
+      expect(screen.getByText(/💡 Story Prompt & Inspiration/i)).toBeInTheDocument();
+      expect(screen.getByText(/A tiny dragon lighting stars/i)).toBeInTheDocument();
+      expect(screen.getByText(/🎯 Ages: early-reader/i)).toBeInTheDocument();
+      expect(screen.getByText(/📖 Vocab: standard/i)).toBeInTheDocument();
+      expect(screen.getByText(/✨ Genre: bedtime/i)).toBeInTheDocument();
+
+      // Click Copy Prompt
+      const copyBtn = screen.getByRole('button', { name: /📋 Copy Prompt/i });
+      fireEvent.click(copyBtn);
+      expect(await screen.findByRole('button', { name: /✓ Copied!/i })).toBeInTheDocument();
+
+      // Click Remix in Studio
+      const remixBtn = screen.getByRole('button', { name: /✨ Remix in Studio/i });
+      fireEvent.click(remixBtn);
+      expect(onRemixStory).toHaveBeenCalledWith(phase12StoryFixture);
+
+      // In admin panel: delete entire story flow
+      const deleteStoryBtn = screen.getByRole('button', { name: /🗑 Delete Entire Story/i });
+      fireEvent.click(deleteStoryBtn);
+      expect(screen.getByText(/Delete story and all audio permanently\?/i)).toBeInTheDocument();
+
+      const confirmDeleteBtn = screen.getByRole('button', { name: /Confirm/i });
+      fireEvent.click(confirmDeleteBtn);
+      expect(onDeleteStory).toHaveBeenCalledWith('phase12-story-1');
+    });
+
+    it('DirectorStudio provides Age Range & Vocabulary preset pills and pairs defaults correctly', async () => {
+      vi.spyOn(clientApi, 'fetchAdminStories').mockResolvedValue([]);
+      vi.spyOn(clientApi, 'fetchActiveJobs').mockResolvedValue([]);
+
+      render(
+        <DirectorStudio
+          session={adminSessionFixture}
+          onLogout={() => {}}
+          onNavigateHome={() => {}}
+        />
+      );
+
+      // Verify all 4 age range pills are rendered
+      const toddlerPill = screen.getByRole('button', { name: /Ages 2–4 · Toddler/i });
+      const earlyReaderPill = screen.getByRole('button', { name: /Ages 5–7 · Early Reader/i });
+      const elementaryPill = screen.getByRole('button', { name: /Ages 8–10 · Elementary/i });
+      const youngReaderPill = screen.getByRole('button', { name: /Ages 11\+ · Young Reader/i });
+
+      expect(toddlerPill).toBeInTheDocument();
+      expect(earlyReaderPill).toBeInTheDocument();
+      expect(elementaryPill).toBeInTheDocument();
+      expect(youngReaderPill).toBeInTheDocument();
+
+      // Early Reader is default
+      expect(earlyReaderPill).toHaveClass('active');
+      expect(screen.getByText(/VOCABULARY COMPLEXITY:/i)).toHaveTextContent('standard');
+
+      // Click Elementary -> automatically pairs enriched vocabulary
+      fireEvent.click(elementaryPill);
+      expect(elementaryPill).toHaveClass('active');
+      expect(earlyReaderPill).not.toHaveClass('active');
+      expect(screen.getByText(/VOCABULARY COMPLEXITY:/i)).toHaveTextContent('enriched');
+
+      // Click Custom Vocabulary toggle to fine-tune
+      const customVocabToggle = screen.getByRole('button', { name: /Custom Vocabulary/i });
+      fireEvent.click(customVocabToggle);
+
+      // Verify 4 vocabulary pills appear
+      const advancedVocabPill = screen.getByRole('button', { name: /🎓 Advanced/i });
+      expect(advancedVocabPill).toBeInTheDocument();
+
+      // Click Advanced vocabulary
+      fireEvent.click(advancedVocabPill);
+      expect(screen.getByText(/VOCABULARY COMPLEXITY:/i)).toHaveTextContent('advanced');
+    });
+
+    it('DirectorStudio supports dual-tab workbench switcher between Storybook Preview and Script Editor', async () => {
+      vi.spyOn(clientApi, 'fetchAdminStories').mockResolvedValue([phase12CatalogItem]);
+      vi.spyOn(clientApi, 'fetchStory').mockResolvedValue(phase12StoryFixture);
+      vi.spyOn(clientApi, 'fetchActiveJobs').mockResolvedValue([]);
+
+      render(
+        <DirectorStudio
+          session={adminSessionFixture}
+          onLogout={() => {}}
+          onNavigateHome={() => {}}
+          currentPath="/admin?storyId=phase12-story-1"
+        />
+      );
+
+      // Wait for story to load into workbench
+      await waitFor(() => {
+        expect(screen.getByRole('tab', { name: /📖 Storybook Preview/i })).toBeInTheDocument();
+      });
+
+      const previewTab = screen.getByRole('tab', { name: /📖 Storybook Preview/i });
+      const editorTab = screen.getByRole('tab', { name: /🎛️ Script Editor/i });
+      expect(previewTab).toHaveClass('active');
+
+      // In Preview mode: storybook reader layout is visible
+      expect(screen.getByText(/🎉 Story drafted! Preview your storybook below before directing voices\./i)).toBeInTheDocument();
+      expect(screen.getByText(/High above the sleeping hills/i)).toBeInTheDocument();
+      expect(screen.getByText('Sparky', { selector: '.speaker-badge' })).toBeInTheDocument();
+      expect(screen.getByText(/“Time to sprinkle starlight!”/i)).toBeInTheDocument();
+
+      // Switch to Script Editor tab
+      fireEvent.click(editorTab);
+      expect(editorTab).toHaveClass('active');
+      expect(previewTab).not.toHaveClass('active');
+
+      // In Editor mode: turn-by-turn textareas and characters bible are visible
+      expect(screen.getByText(/Turn-by-Turn Script/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /💾 Save Script/i })).toBeInTheDocument();
+
+      // Switch back to Storybook Preview tab
+      fireEvent.click(previewTab);
+      expect(previewTab).toHaveClass('active');
+      expect(screen.getByText(/🎉 Story drafted! Preview your storybook below/i)).toBeInTheDocument();
+    });
+
+    it('DirectorStudio prompt clone/remix pre-fills Step 1 creation inputs', async () => {
+      vi.spyOn(clientApi, 'fetchAdminStories').mockResolvedValue([phase12CatalogItem]);
+      vi.spyOn(clientApi, 'fetchStory').mockResolvedValue(phase12StoryFixture);
+      vi.spyOn(clientApi, 'fetchActiveJobs').mockResolvedValue([]);
+
+      render(
+        <DirectorStudio
+          session={adminSessionFixture}
+          onLogout={() => {}}
+          onNavigateHome={() => {}}
+          currentPath="/admin?storyId=phase12-story-1"
+        />
+      );
+
+      // Wait for story workbench
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /🧬 Clone \/ Tweak Prompt/i })).toBeInTheDocument();
+      });
+
+      // Click Clone / Tweak Prompt
+      const cloneBtn = screen.getByRole('button', { name: /🧬 Clone \/ Tweak Prompt/i });
+      fireEvent.click(cloneBtn);
+
+      // Assert redirected to Step 1 Creation form with pre-filled prompt
+      expect(screen.getByRole('heading', { name: /Step 1: Write Story Draft/i })).toBeInTheDocument();
+      const promptTextarea = screen.getByPlaceholderText(/A comedic sci-fi adventure/i);
+      expect(promptTextarea).toHaveValue('A tiny dragon lighting stars across the evening sky for sleepy animals.');
+      expect(screen.getByRole('button', { name: /Ages 5–7 · Early Reader/i })).toHaveClass('active');
     });
   });
 });

@@ -1149,4 +1149,155 @@ body {
   }
 }
 
+/* ==========================================================================
+   Phase 12: Dual-Tab Workbench, Storybook Preview, Age/Vocab & Delete
+   ========================================================================== */
+
+/* Dual-Tab Workbench Segmented Controls */
+.workbench-tab-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+  border-bottom: 2px solid var(--ink-primary);
+  padding-bottom: 0.75rem;
+}
+
+.workbench-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  font-weight: 600;
+  padding: 0.55rem 1.15rem;
+  background-color: var(--bg-surface);
+  color: var(--ink-muted);
+  border: var(--border-tactile);
+  border-radius: var(--radius-tactile);
+  box-shadow: var(--shadow-tactile);
+  cursor: pointer;
+  transition: all 0.15s ease-out;
+}
+
+.workbench-tab-btn:hover {
+  background-color: var(--bg-well);
+  color: var(--ink-primary);
+  transform: translate(-1px, -1px);
+  box-shadow: var(--shadow-tactile-hover);
+}
+
+.workbench-tab-btn:active {
+  transform: translate(2px, 2px);
+  box-shadow: var(--shadow-tactile-active);
+}
+
+.workbench-tab-btn.active {
+  background-color: var(--accent-module);
+  color: #FFFFFF;
+  border-color: var(--ink-primary);
+}
+
+:root[data-theme="dark"] .workbench-tab-btn.active,
+body[data-theme="dark"] .workbench-tab-btn.active {
+  background-color: var(--accent-module);
+  color: #0E131B;
+}
+
+/* Age & Vocabulary Preset Pills */
+.age-preset-pills,
+.vocab-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.age-preset-pill,
+.vocab-pill {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.35rem 0.75rem;
+  background-color: var(--bg-surface);
+  color: var(--ink-prose);
+  border: var(--border-tactile);
+  border-radius: var(--radius-tactile);
+  box-shadow: var(--shadow-tactile);
+  cursor: pointer;
+  transition: all 0.12s ease-out;
+}
+
+.age-preset-pill:hover,
+.vocab-pill:hover {
+  background-color: var(--bg-well);
+  transform: translate(-1px, -1px);
+}
+
+.age-preset-pill.active,
+.vocab-pill.active {
+  background-color: var(--accent-module);
+  color: #FFFFFF;
+}
+
+:root[data-theme="dark"] .age-preset-pill.active,
+:root[data-theme="dark"] .vocab-pill.active,
+body[data-theme="dark"] .age-preset-pill.active,
+body[data-theme="dark"] .vocab-pill.active {
+  background-color: var(--accent-module);
+  color: #0E131B;
+}
+
+/* Storybook Preview Pane in Workbench */
+.storybook-preview-pane {
+  max-width: 780px;
+  margin: 0 auto 1.5rem auto;
+  padding: 2rem 2.25rem;
+  background-color: var(--bg-surface);
+  border: var(--border-tactile);
+  border-radius: var(--radius-tactile);
+  box-shadow: var(--shadow-tactile);
+}
+
+.storybook-preview-actions-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.5rem;
+  background-color: var(--accent-root-bg);
+  border: var(--border-tactile);
+  border-radius: var(--radius-tactile);
+  box-shadow: var(--shadow-tactile);
+}
+
+.inline-delete-confirm {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+@media (max-width: 640px) {
+  .storybook-preview-pane {
+    padding: 1.25rem 1rem;
+  }
+  .storybook-preview-actions-banner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 375px) {
+  .storybook-preview-pane {
+    padding: 1rem 0.75rem;
+  }
+  .workbench-tab-btn {
+    font-size: 0.85rem;
+    padding: 0.45rem 0.75rem;
+  }
+}
+
+
 

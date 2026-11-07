@@ -226,6 +226,10 @@ test.describe('Phase 3 Admin Director Studio E2E', () => {
 
     // Verify workbench is loaded
     await expect(page.locator('.studio-workbench')).toBeVisible();
+
+    // Switch to Script Editor tab
+    await page.getByRole('tab', { name: /Script Editor/i }).click();
+
     const saveScriptBtn = page.getByRole('button', { name: /Save Script/i });
     await expect(saveScriptBtn).toBeVisible();
 
@@ -254,6 +258,7 @@ test.describe('Phase 3 Admin Director Studio E2E', () => {
     // 6. Reload page and assert persisted value
     await page.reload();
     await seededStoryItem.click();
+    await page.getByRole('tab', { name: /Script Editor/i }).click();
     const reloadedTextarea = page.locator('.turn-card').first().locator('textarea');
     await expect(reloadedTextarea).toBeVisible();
     await expect(reloadedTextarea).toHaveValue(expectedEditedText);
@@ -334,6 +339,9 @@ test.describe('Phase 4 Voice Audition Studio & Versions E2E', () => {
     const seededStoryItem = page.locator('.studio-story-item', { hasText: 'The Sleepy Little Train' });
     await expect(seededStoryItem).toBeVisible();
     await seededStoryItem.click();
+
+    // Switch to Script Editor tab to inspect Voice Studio
+    await page.getByRole('tab', { name: /Script Editor/i }).click();
 
     // 4. Verify VoiceStudioPanel rendered
     const voicePanel = page.locator('.voice-studio-panel');
@@ -521,6 +529,9 @@ test.describe('Phase 4 Voice Audition Studio & Versions E2E', () => {
     const storyItem = page.locator('.studio-story-item', { hasText: 'The Sleepy Little Train' }).first();
     await storyItem.click();
 
+    // Switch to Script Editor tab
+    await page.getByRole('tab', { name: /Script Editor/i }).click();
+
     // Verify Step 2 header & subtext
     await expect(page.getByRole('heading', { name: /Step 2: Auto-Direct Voices & Pacing/i })).toBeVisible();
     await expect(page.getByText(/matching the story's genre/i)).toBeVisible();
@@ -679,12 +690,170 @@ test.describe('Phase 4 Voice Audition Studio & Versions E2E', () => {
     await page.screenshot({ path: 'qa-screenshots/phase7-active-job-recovery.png', fullPage: false });
 
     // Wait for polling to automatically detect completion and load the story into workbench
+    await expect(page.getByRole('tab', { name: /Storybook Preview/i })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(/Story drafted! Preview your storybook below/i)).toBeVisible();
+
+    // Switch to Script Editor tab to inspect metadata and capture completed workbench
+    await page.getByRole('tab', { name: /Script Editor/i }).click();
     await expect(page.getByRole('heading', { name: /Story Metadata/i })).toBeVisible({ timeout: 10000 });
     const titleInput = page.locator('input[value="The Sleepy Little Train"]');
     await expect(titleInput).toBeVisible();
 
     // Capture Phase 7 Completed Workbench Screenshot
     await page.screenshot({ path: 'qa-screenshots/phase7-workbench-completed.png', fullPage: false });
+
+    expect(pageErrors).toEqual([]);
+    expect(consoleErrors).toEqual([]);
+  });
+
+  test('Phase 12: Dual-Tab Workbench Preview, Age/Vocab Controls, Library Deletion & Prompt Remix', async ({
+    page,
+  }) => {
+    const pageErrors: Error[] = [];
+    const consoleErrors: string[] = [];
+
+    await setupExternalMocks(page);
+
+    page.on('pageerror', (err) => {
+      pageErrors.push(err);
+    });
+
+    page.on('console', (msg) => {
+      if (msg.type() === 'error') {
+        consoleErrors.push(msg.text());
+      }
+    });
+
+    // 1. Initial Desktop Viewport
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/admin', { waitUntil: 'domcontentloaded' });
+
+    // Dev bypass login if needed
+    const newStoryBtn = page.getByRole('button', { name: /➕ New Story/i });
+    const bypassBtn = page.getByRole('button', { name: /Dev Sandbox Login/i });
+    await expect(newStoryBtn.or(bypassBtn)).toBeVisible({ timeout: 10000 });
+    if (await bypassBtn.isVisible()) {
+      await bypassBtn.click();
+    }
+    await expect(newStoryBtn).toBeVisible({ timeout: 10000 });
+    await newStoryBtn.click();
+
+    // 2. Test Step 1 Age Range & Vocabulary Level Controls
+    const toddlerPill = page.getByRole('button', { name: /Ages 2–4 · Toddler/i });
+    const earlyReaderPill = page.getByRole('button', { name: /Ages 5–7 · Early Reader/i });
+    const elementaryPill = page.getByRole('button', { name: /Ages 8–10 · Elementary/i });
+    const youngReaderPill = page.getByRole('button', { name: /Ages 11\+ · Young Reader/i });
+
+    await expect(toddlerPill).toBeVisible();
+    await expect(earlyReaderPill).toBeVisible();
+    await expect(elementaryPill).toBeVisible();
+    await expect(youngReaderPill).toBeVisible();
+
+    // Verify early-reader default
+    await expect(earlyReaderPill).toHaveClass(/active/);
+    await expect(page.getByText(/VOCABULARY COMPLEXITY:/i)).toContainText('standard');
+
+    // Select Elementary -> automatically pairs enriched vocabulary
+    await elementaryPill.click();
+    await expect(elementaryPill).toHaveClass(/active/);
+    await expect(page.getByText(/VOCABULARY COMPLEXITY:/i)).toContainText('enriched');
+
+    // Toggle custom vocabulary
+    const customVocabToggle = page.getByRole('button', { name: /Custom Vocabulary/i });
+    await customVocabToggle.click();
+
+    // Verify fine-tuning pills
+    const advancedPill = page.getByRole('button', { name: /🎓 Advanced/i });
+    await expect(advancedPill).toBeVisible();
+    await advancedPill.click();
+    await expect(page.getByText(/VOCABULARY COMPLEXITY:/i)).toContainText('advanced');
+
+    // Capture screenshot of Age & Vocabulary Controls
+    await page.screenshot({ path: 'qa-screenshots/phase12-age-vocab-controls.png', fullPage: false });
+
+    // 3. Load story into Workbench & test Dual-Tab Switcher
+    const sleepyStoryItem = page.locator('.studio-story-item', { hasText: 'The Sleepy Little Train' });
+    await expect(sleepyStoryItem).toBeVisible();
+    await sleepyStoryItem.click();
+
+    // Verify dual tabs are present and Storybook Preview is active
+    const previewTab = page.getByRole('tab', { name: /Storybook Preview/i });
+    const editorTab = page.getByRole('tab', { name: /Script Editor/i });
+    await expect(previewTab).toBeVisible();
+    await expect(previewTab).toHaveClass(/active/);
+    await expect(editorTab).toBeVisible();
+
+    // Verify Storybook Preview action banner and pane
+    const previewBanner = page.locator('.storybook-preview-actions-banner');
+    await expect(previewBanner).toBeVisible();
+    await expect(previewBanner.getByRole('button', { name: /Step 2: Auto-Direct Voices & Pacing/i })).toBeVisible();
+    await expect(previewBanner.getByRole('button', { name: /Switch to Script Editor/i })).toBeVisible();
+    await expect(previewBanner.getByRole('button', { name: /View in Public Reader/i })).toBeVisible();
+
+    // Verify formatted reader elements
+    const previewPane = page.locator('.storybook-preview-pane');
+    await expect(previewPane).toBeVisible();
+    await expect(previewPane.locator('.first-letter-dropcap')).toBeVisible();
+    await expect(previewPane.locator('.dialogue-turn')).toBeVisible();
+
+    // Capture Light Theme Storybook Preview Screenshot
+    await page.screenshot({ path: 'qa-screenshots/phase12-workbench-preview-light.png', fullPage: false });
+
+    // Switch to Dark Theme & Capture Dark Theme Screenshot
+    const themeBtn = page.getByRole('button', { name: /Dark Mode|Light Mode/i });
+    await themeBtn.click();
+    await expect(page.locator('body')).toHaveAttribute('data-theme', 'dark');
+    await page.screenshot({ path: 'qa-screenshots/phase12-workbench-preview-dark.png', fullPage: false });
+
+    // Switch back to light theme
+    await themeBtn.click();
+
+    // Switch to Script Editor tab
+    await editorTab.click();
+    await expect(editorTab).toHaveClass(/active/);
+    await expect(page.getByRole('heading', { name: /Story Metadata/i })).toBeVisible();
+
+    // 4. Test Public Library Deletion with Inline Confirmation
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    const catalogStoryCard = page.locator('.story-card', { hasText: 'The Sleepy Little Train' });
+    await expect(catalogStoryCard).toBeVisible();
+
+    // Admin delete button on card footer
+    const deleteCardBtn = catalogStoryCard.getByRole('button', { name: /🗑 Delete/i });
+    await expect(deleteCardBtn).toBeVisible();
+    await deleteCardBtn.click();
+
+    // Verify inline confirmation
+    await expect(catalogStoryCard.getByText('Delete permanently?')).toBeVisible();
+    const confirmDeleteBtn = catalogStoryCard.getByRole('button', { name: 'Confirm' });
+    const cancelDeleteBtn = catalogStoryCard.getByRole('button', { name: 'Cancel' });
+    await expect(confirmDeleteBtn).toBeVisible();
+    await expect(cancelDeleteBtn).toBeVisible();
+
+    // Capture Library Delete Confirmation Screenshot
+    await page.screenshot({ path: 'qa-screenshots/phase12-library-delete-confirm.png', fullPage: false });
+
+    // Dismiss deletion
+    await cancelDeleteBtn.click();
+    await expect(catalogStoryCard.getByText('Delete permanently?')).not.toBeVisible();
+
+    // 5. Test StoryReader Prompt Inspector & Remix Action
+    const readBtn = catalogStoryCard.getByRole('button', { name: /Read & Listen/i });
+    await readBtn.click();
+    await expect(page).toHaveURL(/\/stories\/2026-11-04-sleepy-little-train/);
+
+    // Prompt card
+    const promptCard = page.locator('.reader-prompt-card');
+    await expect(promptCard).toBeVisible();
+    await expect(promptCard.getByText(/Story Prompt & Inspiration/i)).toBeVisible();
+
+    const remixBtn = promptCard.getByRole('button', { name: /✨ Remix in Studio/i });
+    await expect(remixBtn).toBeVisible();
+    await remixBtn.click();
+
+    // Verify redirected to admin studio with remix prefill
+    await expect(page).toHaveURL(/\/admin\?remixStoryId=/);
+    await expect(page.getByRole('heading', { name: /Step 1: Write Story Draft/i })).toBeVisible();
 
     expect(pageErrors).toEqual([]);
     expect(consoleErrors).toEqual([]);

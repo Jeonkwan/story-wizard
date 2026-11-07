@@ -1,5 +1,13 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import type { CharacterProfile, ScriptTurn, Story, CatalogItem } from '../../shared/types';
+import type {
+  CharacterProfile,
+  ScriptTurn,
+  Story,
+  CatalogItem,
+  StoryAgeRange,
+  StoryVocabularyLevel,
+} from '../../shared/types';
+import { cleanTextForReader } from '../../shared/textClean';
 import {
   fetchAdminStories,
   fetchStory,
@@ -42,6 +50,31 @@ export const GENRE_PRESETS: GenrePreset[] = [
   { id: 'fable', label: '🧚 Whimsical Fable', promptPrefix: 'A charming, magical fairy tale fable with enchanted creatures and heart: ' },
 ];
 
+export interface AgeRangePreset {
+  id: StoryAgeRange;
+  label: string;
+  defaultVocab: StoryVocabularyLevel;
+}
+
+export const AGE_RANGE_PRESETS: AgeRangePreset[] = [
+  { id: 'toddler', label: '🐣 Ages 2–4 · Toddler', defaultVocab: 'simple' },
+  { id: 'early-reader', label: '🎈 Ages 5–7 · Early Reader', defaultVocab: 'standard' },
+  { id: 'elementary', label: '🚀 Ages 8–10 · Elementary', defaultVocab: 'enriched' },
+  { id: 'young-reader', label: '📚 Ages 11+ · Young Reader', defaultVocab: 'advanced' },
+];
+
+export interface VocabularyLevelPreset {
+  id: StoryVocabularyLevel;
+  label: string;
+}
+
+export const VOCABULARY_LEVEL_PRESETS: VocabularyLevelPreset[] = [
+  { id: 'simple', label: '🌱 Simple' },
+  { id: 'standard', label: '🌟 Standard' },
+  { id: 'enriched', label: '💎 Enriched (Word Power)' },
+  { id: 'advanced', label: '🎓 Advanced' },
+];
+
 export interface DirectorStudioProps {
   session: AdminSession;
   onLogout: () => void;
@@ -72,10 +105,14 @@ export function DirectorStudio({
   // Mode A / B Creation state
   const [createMode, setCreateMode] = useState<'fresh' | 'sequel'>('fresh');
   const [selectedGenrePreset, setSelectedGenrePreset] = useState<string>('any');
+  const [selectedAgeRange, setSelectedAgeRange] = useState<StoryAgeRange>('early-reader');
+  const [selectedVocabularyLevel, setSelectedVocabularyLevel] = useState<StoryVocabularyLevel>('standard');
+  const [showCustomVocabulary, setShowCustomVocabulary] = useState<boolean>(false);
   const [freshPrompt, setFreshPrompt] = useState<string>('');
   const [freshReferenceText, setFreshReferenceText] = useState<string>('');
   const [freshSeriesId, setFreshSeriesId] = useState<string>('');
   const [sequelPreviousStoryId, setSequelPreviousStoryId] = useState<string>('');
+  const [sequelPreviousStory, setSequelPreviousStory] = useState<Story | null>(null);
   const [sequelPrompt, setSequelPrompt] = useState<string>('');
   const [sequelReferenceText, setSequelReferenceText] = useState<string>('');
   const [isWriting, setIsWriting] = useState<boolean>(false);
@@ -85,6 +122,8 @@ export function DirectorStudio({
   const draftPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Workbench Edit state
+  const [workbenchTab, setWorkbenchTab] = useState<'preview' | 'editor'>('preview');
+  const [copiedWorkbenchPrompt, setCopiedWorkbenchPrompt] = useState<boolean>(false);
   const [editedTitle, setEditedTitle] = useState<string>('');
   const [editedSummary, setEditedSummary] = useState<string>('');
   const [editedTags, setEditedTags] = useState<string>('');
@@ -154,6 +193,8 @@ export function DirectorStudio({
   const loadStoryIntoWorkbench = useCallback(async (id: string) => {
     setSelectedStoryId(id);
     setViewMode('edit');
+    setWorkbenchTab('preview');
+    setCopiedWorkbenchPrompt(false);
     setLoadingStory(true);
     setStoryLoadError(null);
     setSaveSuccess(false);
@@ -178,7 +219,7 @@ export function DirectorStudio({
     }
   }, []);
 
-  // Inspect URL query params on mount or when currentPath changes (e.g. handoff from Voice Library)
+  // Inspect URL query params on mount or when currentPath changes (e.g. handoff from Voice Library or Remix prompt)
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const search = currentPath && currentPath.includes('?')
@@ -188,6 +229,24 @@ export function DirectorStudio({
     const storyId = params.get('storyId');
     const narratorVoice = params.get('narratorVoiceId');
     const step = params.get('step');
+    const remixStoryId = params.get('remixStoryId');
+
+    if (remixStoryId) {
+      fetchStory(remixStoryId)
+        .then((story) => {
+          setFreshPrompt(story.prompt_metadata?.original_prompt || story.summary || '');
+          setSelectedAgeRange(story.prompt_metadata?.age_range || 'early-reader');
+          setSelectedVocabularyLevel(story.prompt_metadata?.vocabulary_level || 'standard');
+          setFreshReferenceText(story.prompt_metadata?.reference_text || '');
+          setSelectedGenrePreset(story.prompt_metadata?.genre_preset || 'any');
+          setViewMode('create');
+          setCreateMode('fresh');
+        })
+        .catch(() => {
+          // ignore error if story not found
+        });
+      return;
+    }
 
     if (storyId) {
       loadStoryIntoWorkbench(storyId);
@@ -339,6 +398,16 @@ export function DirectorStudio({
     checkActiveJobs();
   }, [checkActiveJobs]);
 
+  useEffect(() => {
+    if (createMode === 'sequel' && sequelPreviousStoryId) {
+      fetchStory(sequelPreviousStoryId)
+        .then((s) => setSequelPreviousStory(s))
+        .catch(() => setSequelPreviousStory(null));
+    } else {
+      setSequelPreviousStory(null);
+    }
+  }, [createMode, sequelPreviousStoryId]);
+
   const handleSelectGenrePreset = (preset: GenrePreset) => {
     setSelectedGenrePreset(preset.id);
     if (preset.id === 'any') return;
@@ -355,18 +424,58 @@ export function DirectorStudio({
     });
   };
 
+  const handleSelectAgeRange = (preset: AgeRangePreset) => {
+    setSelectedAgeRange(preset.id);
+    setSelectedVocabularyLevel(preset.defaultVocab);
+  };
+
+  const handleSelectVocabularyLevel = (level: StoryVocabularyLevel) => {
+    setSelectedVocabularyLevel(level);
+  };
+
+  const handleClonePrompt = () => {
+    if (!activeStory?.prompt_metadata) return;
+    const meta = activeStory.prompt_metadata;
+    setFreshPrompt(meta.original_prompt || '');
+    setSelectedAgeRange(meta.age_range || 'early-reader');
+    setSelectedVocabularyLevel(meta.vocabulary_level || 'standard');
+    setFreshReferenceText(meta.reference_text || '');
+    setSelectedGenrePreset(meta.genre_preset || 'any');
+    setViewMode('create');
+    setCreateMode('fresh');
+  };
+
+  const handleCopyWorkbenchPrompt = async () => {
+    const prompt = activeStory?.prompt_metadata?.original_prompt;
+    if (!prompt) return;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(prompt);
+      }
+      setCopiedWorkbenchPrompt(true);
+      setTimeout(() => setCopiedWorkbenchPrompt(false), 2500);
+    } catch {
+      setCopiedWorkbenchPrompt(true);
+      setTimeout(() => setCopiedWorkbenchPrompt(false), 2500);
+    }
+  };
+
   const handleStartNewStory = () => {
     setViewMode('create');
     setSelectedStoryId(null);
     setActiveStory(null);
     setWriteError(null);
     setSelectedGenrePreset('any');
+    setSelectedAgeRange('early-reader');
+    setSelectedVocabularyLevel('standard');
+    setShowCustomVocabulary(false);
     setFreshPrompt('');
     setFreshReferenceText('');
     setFreshSeriesId('');
     setSequelPrompt('');
     setSequelReferenceText('');
     setSequelPreviousStoryId(stories.length > 0 ? stories[0].id : '');
+    setSequelPreviousStory(null);
   };
 
   const handleStartSequel = (storyId: string) => {
@@ -404,6 +513,9 @@ export function DirectorStudio({
             prompt: freshPrompt.trim(),
             referenceText: freshReferenceText.trim() || undefined,
             seriesId: freshSeriesId.trim() || undefined,
+            ageRange: selectedAgeRange,
+            vocabularyLevel: selectedVocabularyLevel,
+            genrePreset: selectedGenrePreset !== 'any' ? selectedGenrePreset : undefined,
           },
           {
             async: true,
@@ -427,6 +539,9 @@ export function DirectorStudio({
             previousStoryId: sequelPreviousStoryId,
             prompt: sequelPrompt.trim(),
             referenceText: sequelReferenceText.trim() || undefined,
+            ageRange: selectedAgeRange,
+            vocabularyLevel: selectedVocabularyLevel,
+            genrePreset: selectedGenrePreset !== 'any' ? selectedGenrePreset : undefined,
           },
           {
             async: true,
@@ -437,6 +552,7 @@ export function DirectorStudio({
 
       await loadStories();
       onCatalogChanged?.();
+      setWorkbenchTab('preview');
       await loadStoryIntoWorkbench(created.id);
     } catch (err) {
       setWriteError(err instanceof Error ? err.message : 'Draft generation failed');
@@ -870,6 +986,59 @@ export function DirectorStudio({
               {createMode === 'fresh' ? (
                 <>
                   <div style={{ marginBottom: '1.25rem' }}>
+                    {/* Age Range & Vocabulary Presets */}
+                    <div style={{ marginBottom: '0.85rem' }}>
+                      <span style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--ink-muted)', marginBottom: '0.35rem' }}>
+                        TARGET AGE RANGE
+                      </span>
+                      <div className="age-preset-pills">
+                        {AGE_RANGE_PRESETS.map((preset) => (
+                          <button
+                            key={preset.id}
+                            type="button"
+                            className={`age-preset-pill ${selectedAgeRange === preset.id ? 'active' : ''}`}
+                            disabled={isWriting}
+                            onClick={() => handleSelectAgeRange(preset)}
+                          >
+                            {preset.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div style={{ marginBottom: '0.85rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.35rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+                        <span style={{ fontSize: '0.8rem', fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--ink-muted)' }}>
+                          VOCABULARY COMPLEXITY: <span style={{ color: 'var(--accent-module)', textTransform: 'capitalize' }}>{selectedVocabularyLevel}</span>
+                        </span>
+                        <button
+                          type="button"
+                          className="btn-tactile"
+                          style={{ fontSize: '0.75rem', padding: '0.15rem 0.45rem' }}
+                          disabled={isWriting}
+                          onClick={() => setShowCustomVocabulary((prev) => !prev)}
+                        >
+                          {showCustomVocabulary ? 'Hide Custom Vocab' : '⚙️ Custom Vocabulary'}
+                        </button>
+                      </div>
+
+                      {showCustomVocabulary && (
+                        <div className="vocab-pills" style={{ marginTop: '0.4rem' }}>
+                          {VOCABULARY_LEVEL_PRESETS.map((preset) => (
+                            <button
+                              key={preset.id}
+                              type="button"
+                              className={`vocab-pill ${selectedVocabularyLevel === preset.id ? 'active' : ''}`}
+                              disabled={isWriting}
+                              onClick={() => handleSelectVocabularyLevel(preset.id)}
+                            >
+                              {preset.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
                     <div style={{ marginBottom: '0.65rem' }}>
                       <span style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--ink-muted)', marginBottom: '0.35rem' }}>
                         GENRE &amp; MOOD PRESETS
@@ -994,6 +1163,95 @@ export function DirectorStudio({
                     <small style={{ color: 'var(--ink-muted)', display: 'block', marginTop: '0.25rem' }}>
                       Sequel advances to Episode #{((stories.find((s) => s.id === sequelPreviousStoryId)?.episode_number ?? 1) + 1)} and inherits the character bible and voice casting.
                     </small>
+                  </div>
+
+                  {/* Previous Episode Prompt Reference if available */}
+                  {sequelPreviousStory?.prompt_metadata?.original_prompt && (
+                    <div
+                      className="card-tactile"
+                      style={{
+                        marginBottom: '1.25rem',
+                        padding: '0.75rem 1rem',
+                        backgroundColor: 'var(--bg-well)',
+                        borderLeft: '4px solid var(--accent-module)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem', flexWrap: 'wrap', gap: '0.3rem' }}>
+                        <span style={{ fontSize: '0.8rem', fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--ink-muted)' }}>
+                          💡 Previous Episode Inspiration Prompt
+                        </span>
+                        <div style={{ display: 'flex', gap: '0.3rem' }}>
+                          {sequelPreviousStory.prompt_metadata.age_range && (
+                            <span className="badge-mono" style={{ fontSize: '0.7rem' }}>
+                              Ages: {sequelPreviousStory.prompt_metadata.age_range}
+                            </span>
+                          )}
+                          {sequelPreviousStory.prompt_metadata.vocabulary_level && (
+                            <span className="badge-mono" style={{ fontSize: '0.7rem' }}>
+                              Vocab: {sequelPreviousStory.prompt_metadata.vocabulary_level}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <p style={{ margin: 0, fontSize: '0.85rem', fontStyle: 'italic', color: 'var(--ink-prose)' }}>
+                        &ldquo;{sequelPreviousStory.prompt_metadata.original_prompt}&rdquo;
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Age Range & Vocabulary Presets for Sequel */}
+                  <div style={{ marginBottom: '1.25rem' }}>
+                    <div style={{ marginBottom: '0.85rem' }}>
+                      <span style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--ink-muted)', marginBottom: '0.35rem' }}>
+                        TARGET AGE RANGE
+                      </span>
+                      <div className="age-preset-pills">
+                        {AGE_RANGE_PRESETS.map((preset) => (
+                          <button
+                            key={preset.id}
+                            type="button"
+                            className={`age-preset-pill ${selectedAgeRange === preset.id ? 'active' : ''}`}
+                            disabled={isWriting}
+                            onClick={() => handleSelectAgeRange(preset)}
+                          >
+                            {preset.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div style={{ marginBottom: '0.85rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.35rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+                        <span style={{ fontSize: '0.8rem', fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--ink-muted)' }}>
+                          VOCABULARY COMPLEXITY: <span style={{ color: 'var(--accent-module)', textTransform: 'capitalize' }}>{selectedVocabularyLevel}</span>
+                        </span>
+                        <button
+                          type="button"
+                          className="btn-tactile"
+                          style={{ fontSize: '0.75rem', padding: '0.15rem 0.45rem' }}
+                          disabled={isWriting}
+                          onClick={() => setShowCustomVocabulary((prev) => !prev)}
+                        >
+                          {showCustomVocabulary ? 'Hide Custom Vocab' : '⚙️ Custom Vocabulary'}
+                        </button>
+                      </div>
+
+                      {showCustomVocabulary && (
+                        <div className="vocab-pills" style={{ marginTop: '0.4rem' }}>
+                          {VOCABULARY_LEVEL_PRESETS.map((preset) => (
+                            <button
+                              key={preset.id}
+                              type="button"
+                              className={`vocab-pill ${selectedVocabularyLevel === preset.id ? 'active' : ''}`}
+                              disabled={isWriting}
+                              onClick={() => handleSelectVocabularyLevel(preset.id)}
+                            >
+                              {preset.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   <div style={{ marginBottom: '1.25rem' }}>
@@ -1215,6 +1473,217 @@ export function DirectorStudio({
               )}
             </div>
 
+            {/* Original Prompt Card & 1-Click Remix in Workbench */}
+            {activeStory.prompt_metadata && (
+              <div
+                className="card-tactile workbench-prompt-card"
+                style={{
+                  padding: '1rem 1.25rem',
+                  marginBottom: '1.25rem',
+                  backgroundColor: 'var(--bg-surface)',
+                  borderLeft: '4px solid var(--accent-root)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.4rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', fontWeight: 600, color: 'var(--ink-primary)' }}>
+                    💡 Story Inspiration Prompt
+                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
+                    {activeStory.prompt_metadata.age_range && (
+                      <span className="badge-mono" style={{ fontSize: '0.75rem' }}>
+                        🎯 Ages: {activeStory.prompt_metadata.age_range}
+                      </span>
+                    )}
+                    {activeStory.prompt_metadata.vocabulary_level && (
+                      <span className="badge-mono" style={{ fontSize: '0.75rem' }}>
+                        📖 Vocab: {activeStory.prompt_metadata.vocabulary_level}
+                      </span>
+                    )}
+                    {activeStory.prompt_metadata.genre_preset && activeStory.prompt_metadata.genre_preset !== 'any' && (
+                      <span className="badge-mono" style={{ fontSize: '0.75rem' }}>
+                        ✨ Genre: {activeStory.prompt_metadata.genre_preset}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <p style={{ margin: '0 0 0.65rem 0', fontSize: '0.9rem', fontStyle: 'italic', color: 'var(--ink-prose)', lineHeight: 1.5 }}>
+                  &ldquo;{activeStory.prompt_metadata.original_prompt}&rdquo;
+                </p>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className="btn-tactile"
+                    style={{ fontSize: '0.75rem', padding: '0.2rem 0.55rem' }}
+                    onClick={handleCopyWorkbenchPrompt}
+                  >
+                    {copiedWorkbenchPrompt ? '✓ Copied!' : '📋 Copy Prompt'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-tactile btn-tactile-primary"
+                    style={{ fontSize: '0.75rem', padding: '0.2rem 0.55rem' }}
+                    onClick={handleClonePrompt}
+                  >
+                    🧬 Clone / Tweak Prompt
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Dual-Tab Segmented Tab Row */}
+            <div className="workbench-tab-row" role="tablist" aria-label="Workbench View Mode">
+              <button
+                type="button"
+                role="tab"
+                className={`workbench-tab-btn ${workbenchTab === 'preview' ? 'active' : ''}`}
+                aria-selected={workbenchTab === 'preview'}
+                onClick={() => setWorkbenchTab('preview')}
+              >
+                📖 Storybook Preview
+              </button>
+              <button
+                type="button"
+                role="tab"
+                className={`workbench-tab-btn ${workbenchTab === 'editor' ? 'active' : ''}`}
+                aria-selected={workbenchTab === 'editor'}
+                onClick={() => setWorkbenchTab('editor')}
+              >
+                🎛️ Script Editor
+              </button>
+            </div>
+
+            {workbenchTab === 'preview' ? (
+              <div className="workbench-preview-view">
+                {/* Action banner */}
+                <div className="storybook-preview-actions-banner">
+                  <div>
+                    <strong style={{ display: 'block', fontSize: '0.95rem', color: 'var(--accent-root)' }}>
+                      🎉 Story drafted! Preview your storybook below before directing voices.
+                    </strong>
+                    <span style={{ fontSize: '0.85rem', color: 'var(--ink-muted)' }}>
+                      Read through the narrative flow, character dialogue, and tone before synthesizing audio.
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      className="btn-tactile btn-tactile-primary"
+                      onClick={handleAutoDirect}
+                      disabled={isDirecting}
+                    >
+                      {isDirecting
+                        ? `🎬 Directing Script... (${directingElapsedSeconds}s)`
+                        : '🎬 Step 2: Auto-Direct Voices & Pacing'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-tactile"
+                      onClick={() => setWorkbenchTab('editor')}
+                    >
+                      ✏️ Switch to Script Editor
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-tactile"
+                      onClick={() => {
+                        if (onNavigate) {
+                          onNavigate(`/stories/${encodeURIComponent(activeStory.id)}`);
+                        } else if (typeof window !== 'undefined') {
+                          window.location.assign(`/stories/${encodeURIComponent(activeStory.id)}`);
+                        }
+                      }}
+                    >
+                      📖 View in Public Reader
+                    </button>
+                  </div>
+                </div>
+
+                {isDirecting && (
+                  <div
+                    className="card-tactile tactile-progress-card"
+                    role="status"
+                    aria-live="polite"
+                    style={{
+                      marginBottom: '1.5rem',
+                      padding: '1.25rem',
+                      border: '2px solid var(--accent-module)',
+                      backgroundColor: 'var(--accent-module-bg)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
+                      <span className="spinner-tactile" style={{ fontSize: '1.2rem' }}>🎬</span>
+                      <strong style={{ fontSize: '1rem', color: 'var(--ink-primary)' }}>
+                        Directing vocal expressions and pacing with Gemini 3.8 Flash... {directingElapsedSeconds}s
+                      </strong>
+                    </div>
+                    <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--ink-muted)' }}>
+                      Adding emotional cues and vocal tags. Spoken words are preserved verbatim.
+                    </p>
+                  </div>
+                )}
+
+                {/* Formatted Storybook Reader Layout */}
+                <div className="storybook-preview-pane">
+                  <div style={{ textAlign: 'center', marginBottom: '2rem', borderBottom: '1px solid var(--ink-primary)', paddingBottom: '1.25rem' }}>
+                    {activeStory.series_context?.series_id && (
+                      <span className="badge-mono series-badge" style={{ marginBottom: '0.5rem', display: 'inline-block' }}>
+                        {activeStory.series_context.series_id} · Episode {activeStory.series_context.episode_number}
+                      </span>
+                    )}
+                    <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: '2rem', margin: '0 0 0.5rem 0', color: 'var(--ink-primary)' }}>
+                      {editedTitle || activeStory.title}
+                    </h2>
+                    <p style={{ margin: 0, fontStyle: 'italic', color: 'var(--ink-muted)', fontSize: '0.95rem' }}>
+                      {editedSummary || activeStory.summary}
+                    </p>
+                  </div>
+
+                  <section className="reader-prose-body">
+                    {(() => {
+                      let previewHasFirstNarrator = false;
+                      return editedTurns.map((turn) => {
+                        const cleanedText = cleanTextForReader(turn.text);
+                        if (!cleanedText) return null;
+                        const isNarrator = turn.speaker.toLowerCase() === 'narrator';
+
+                        if (isNarrator) {
+                          const isFirst = !previewHasFirstNarrator;
+                          previewHasFirstNarrator = true;
+                          return (
+                            <p
+                              key={turn.turn_id}
+                              className={isFirst ? 'opening-narration first-letter-dropcap' : 'prose-narration'}
+                              data-turn-id={turn.turn_id}
+                            >
+                              {cleanedText}
+                            </p>
+                          );
+                        }
+
+                        return (
+                          <div
+                            key={turn.turn_id}
+                            className="dialogue-turn"
+                            data-turn-id={turn.turn_id}
+                            data-speaker={turn.speaker}
+                          >
+                            <div className="dialogue-header">
+                              <span className="speaker-badge">{turn.speaker}</span>
+                            </div>
+                            <p className="dialogue-text">
+                              &ldquo;{cleanedText}&rdquo;
+                            </p>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </section>
+                </div>
+              </div>
+            ) : (
+              <div className="workbench-editor-view">
             {/* Step 2 Auto-Direct Banner */}
             <div
               className="card-tactile"
@@ -1617,6 +2086,8 @@ export function DirectorStudio({
                 {isSaving ? '💾 Saving...' : '💾 Save Script'}
               </button>
             </div>
+          </div>
+            )}
           </div>
         ) : null}
       </main>

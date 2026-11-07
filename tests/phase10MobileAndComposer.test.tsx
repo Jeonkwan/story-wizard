@@ -607,6 +607,10 @@ describe('Phase 10: DirectorStudio Focus Composer & Dictation Integration', () =
       fireEvent.click(storyItem);
     });
 
+    // Switch to Script Editor tab
+    const editorTab = await screen.findByRole('tab', { name: /Script Editor/i });
+    fireEvent.click(editorTab);
+
     // Locate the expand button for Turn #2 Dialogue
     const expandTurnBtn = await screen.findByRole('button', {
       name: /expand turn #2 dialogue \(sammy\) in focus editor/i,

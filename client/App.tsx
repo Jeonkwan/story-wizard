@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import type { AudioVersion, CatalogItem, Story } from '../shared/types';
-import { fetchCatalog, fetchStory, fetchAdminSession, type AdminSession } from './api/client';
+import { fetchCatalog, fetchStory, fetchAdminSession, deleteStory, type AdminSession } from './api/client';
 import { Masthead } from './components/Masthead';
 import { StoryCatalog } from './components/StoryCatalog';
 import { StoryReader } from './components/StoryReader';
@@ -170,6 +170,13 @@ export function App(): React.JSX.Element {
                 });
                 refreshCatalog();
               }}
+              onDeleteStory={async (storyId) => {
+                await deleteStory(storyId);
+                handleBackToLibrary();
+              }}
+              onRemixStory={(story) => {
+                handleNavigate(`/admin?remixStoryId=${encodeURIComponent(story.id)}`);
+              }}
             />
             {activeAudioVersion && activeStory.audio_versions.length > 0 && (
               <AudioPlayerBar
@@ -220,6 +227,11 @@ export function App(): React.JSX.Element {
                 catalog={catalog}
                 onSelectStory={handleSelectStory}
                 loading={loadingCatalog}
+                isAdmin={Boolean(adminSession?.authenticated)}
+                onDeleteStory={async (storyId) => {
+                  await deleteStory(storyId);
+                  refreshCatalog();
+                }}
               />
             )}
           </div>

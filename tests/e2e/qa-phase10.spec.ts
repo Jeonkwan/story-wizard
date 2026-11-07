@@ -246,6 +246,9 @@ test.describe('Phase 10: Mobile Focus Composer, Voice Dictation & Fine-Grained P
     const workbench = page.locator('.studio-workbench');
     await expect(workbench).toBeVisible();
 
+    // Switch to Script Editor tab
+    await page.getByRole('tab', { name: /Script Editor/i }).click();
+
     // Switch to Dark Mode
     const darkThemeBtn = page.getByRole('button', { name: /Dark Mode|Light Mode/i });
     await darkThemeBtn.click();

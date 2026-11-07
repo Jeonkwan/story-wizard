@@ -444,6 +444,9 @@ test.describe('Phase 5 Admin Director & Voice Studio Audit', () => {
     const workbench = page.locator('.studio-workbench');
     await expect(workbench).toBeVisible();
 
+    // Switch to Script Editor tab to inspect turns
+    await page.getByRole('tab', { name: /Script Editor/i }).click();
+
     // 4. Test Turn Editing & Quick Vocal Tag Pills
     const firstTurn = workbench.locator('.turn-card').first();
     const turnTextarea = firstTurn.locator('textarea');

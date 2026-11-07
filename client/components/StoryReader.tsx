@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import type { AudioVersion, Story } from '../../shared/types';
 import { cleanTextForReader } from '../../shared/textClean';
-import { setDefaultAudioVersion, deleteAudioVersion } from '../api/client';
+import { setDefaultAudioVersion, deleteAudioVersion, deleteStory } from '../api/client';
 
 export interface StoryReaderProps {
   story: Story;
@@ -10,6 +10,8 @@ export interface StoryReaderProps {
   activeAudioVersion?: AudioVersion | null;
   onVersionChange?: (ver: AudioVersion) => void;
   onStoryUpdated?: (updatedStory: Story) => void;
+  onDeleteStory?: (storyId: string) => Promise<void>;
+  onRemixStory?: (story: Story) => void;
 }
 
 export function StoryReader({
@@ -19,10 +21,15 @@ export function StoryReader({
   activeAudioVersion,
   onVersionChange,
   onStoryUpdated,
+  onDeleteStory,
+  onRemixStory,
 }: StoryReaderProps): React.JSX.Element {
   let hasRenderedFirstNarrator = false;
 
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [confirmDeleteStory, setConfirmDeleteStory] = useState<boolean>(false);
+  const [isDeletingStory, setIsDeletingStory] = useState<boolean>(false);
+  const [copiedPrompt, setCopiedPrompt] = useState<boolean>(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
 
@@ -56,6 +63,50 @@ export function StoryReader({
       setActionError(err instanceof Error ? err.message : 'Failed to delete audio version');
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const handleDeleteStory = async () => {
+    setActionError(null);
+    setIsDeletingStory(true);
+    try {
+      if (onDeleteStory) {
+        await onDeleteStory(story.id);
+      } else {
+        await deleteStory(story.id);
+        onBack();
+      }
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to delete story');
+      setIsDeletingStory(false);
+    }
+  };
+
+  const originalPrompt = story.prompt_metadata?.original_prompt;
+
+  const handleCopyPrompt = async () => {
+    if (!originalPrompt) return;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(originalPrompt);
+      }
+      setCopiedPrompt(true);
+      setTimeout(() => {
+        setCopiedPrompt(false);
+      }, 2500);
+    } catch {
+      setCopiedPrompt(true);
+      setTimeout(() => {
+        setCopiedPrompt(false);
+      }, 2500);
+    }
+  };
+
+  const handleRemix = () => {
+    if (onRemixStory) {
+      onRemixStory(story);
+    } else if (typeof window !== 'undefined') {
+      window.location.assign(`/admin?remixStoryId=${encodeURIComponent(story.id)}`);
     }
   };
 
@@ -236,8 +287,158 @@ export function StoryReader({
               })}
             </div>
           )}
+
+          <div
+            style={{
+              marginTop: '1rem',
+              paddingTop: '0.75rem',
+              borderTop: '1px solid var(--border-tactile, #ccc)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+            }}
+          >
+            {confirmDeleteStory ? (
+              <div style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--accent-state)', fontWeight: 600 }}>
+                  Delete story and all audio permanently?
+                </span>
+                <button
+                  type="button"
+                  className="btn-tactile"
+                  style={{
+                    fontSize: '0.75rem',
+                    padding: '0.2rem 0.5rem',
+                    backgroundColor: 'var(--accent-state-bg)',
+                    color: 'var(--accent-state)',
+                  }}
+                  disabled={isDeletingStory || isProcessing}
+                  onClick={handleDeleteStory}
+                >
+                  {isDeletingStory ? 'Deleting...' : 'Confirm'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-tactile"
+                  style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }}
+                  disabled={isDeletingStory}
+                  onClick={() => setConfirmDeleteStory(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="btn-tactile"
+                style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem', color: 'var(--accent-state)' }}
+                disabled={isDeletingStory || isProcessing}
+                onClick={() => setConfirmDeleteStory(true)}
+              >
+                🗑 Delete Entire Story
+              </button>
+            )}
+          </div>
         </section>
       )}
+
+      {/* Story Prompt & Inspiration Card (Accessible to both readers and admins) */}
+      <section
+        className="card-tactile reader-prompt-card"
+        style={{
+          margin: '0 auto 1.5rem auto',
+          maxWidth: '48rem',
+          padding: '1rem',
+          backgroundColor: 'var(--bg-surface)',
+          borderLeft: '4px solid var(--accent-root)',
+        }}
+        aria-label="Story Prompt and Inspiration"
+      >
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '0.5rem',
+            flexWrap: 'wrap',
+            gap: '0.5rem',
+          }}
+        >
+          <span
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: '0.85rem',
+              fontWeight: 600,
+              color: 'var(--ink-primary)',
+            }}
+          >
+            💡 Story Prompt &amp; Inspiration
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
+            {story.prompt_metadata?.age_range && (
+              <span className="badge-mono" style={{ fontSize: '0.75rem' }}>
+                🎯 Ages: {story.prompt_metadata.age_range}
+              </span>
+            )}
+            {story.prompt_metadata?.vocabulary_level && (
+              <span className="badge-mono" style={{ fontSize: '0.75rem' }}>
+                📖 Vocab: {story.prompt_metadata.vocabulary_level}
+              </span>
+            )}
+            {story.prompt_metadata?.genre_preset && story.prompt_metadata.genre_preset !== 'any' && (
+              <span className="badge-mono" style={{ fontSize: '0.75rem' }}>
+                ✨ Genre: {story.prompt_metadata.genre_preset}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {originalPrompt ? (
+          <p
+            style={{
+              margin: '0 0 0.75rem 0',
+              fontSize: '0.9rem',
+              fontStyle: 'italic',
+              color: 'var(--ink-prose)',
+              lineHeight: 1.5,
+            }}
+          >
+            &ldquo;{originalPrompt}&rdquo;
+          </p>
+        ) : (
+          <p
+            style={{
+              margin: '0 0 0.75rem 0',
+              fontSize: '0.85rem',
+              fontStyle: 'italic',
+              color: 'var(--ink-muted)',
+            }}
+          >
+            Legacy story without saved prompt metadata.
+          </p>
+        )}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+          {originalPrompt && (
+            <button
+              type="button"
+              className="btn-tactile"
+              style={{ fontSize: '0.75rem', padding: '0.2rem 0.55rem' }}
+              onClick={handleCopyPrompt}
+            >
+              {copiedPrompt ? '✓ Copied!' : '📋 Copy Prompt'}
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn-tactile btn-tactile-primary"
+            style={{ fontSize: '0.75rem', padding: '0.2rem 0.55rem' }}
+            onClick={handleRemix}
+          >
+            ✨ Remix in Studio
+          </button>
+        </div>
+      </section>
 
       <section className="reader-prose-body">
         {story.script_turns.map((turn) => {
