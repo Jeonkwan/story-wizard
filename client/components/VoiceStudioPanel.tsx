@@ -291,7 +291,7 @@ export function VoiceStudioPanel({
     setAuditionError(null);
 
     try {
-      const blob = await previewVoiceAudio(params);
+      const { blob } = await previewVoiceAudio(params);
       const blobUrl = URL.createObjectURL(blob);
       currentBlobUrlRef.current = blobUrl;
 

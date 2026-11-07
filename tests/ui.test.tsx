@@ -296,8 +296,29 @@ describe('Phase 2 UI Component Tests', () => {
     fireEvent.change(scrubBar, { target: { value: '42' } });
     expect(audioElement.currentTime).toBe(42);
 
-    // 2. Toggle playback rate to 0.9x -> MUST NOT rewind currentTime to 0!
+    // 2. Cycle playback rates: 1.0x -> 1.1x -> 1.25x -> 0.8x -> 0.9x -> MUST NOT rewind currentTime!
     const speedButton = screen.getByRole('button', { name: /playback speed/i });
+    expect(screen.getByText('1.0x')).toBeInTheDocument();
+
+    // 1.0x -> 1.1x
+    fireEvent.click(speedButton);
+    expect(screen.getByText('1.1x')).toBeInTheDocument();
+    expect(audioElement.playbackRate).toBe(1.1);
+    expect(audioElement.currentTime).toBe(42);
+
+    // 1.1x -> 1.25x
+    fireEvent.click(speedButton);
+    expect(screen.getByText('1.25x')).toBeInTheDocument();
+    expect(audioElement.playbackRate).toBe(1.25);
+    expect(audioElement.currentTime).toBe(42);
+
+    // 1.25x -> 0.8x
+    fireEvent.click(speedButton);
+    expect(screen.getByText('0.8x')).toBeInTheDocument();
+    expect(audioElement.playbackRate).toBe(0.8);
+    expect(audioElement.currentTime).toBe(42);
+
+    // 0.8x -> 0.9x
     fireEvent.click(speedButton);
     expect(screen.getByText('0.9x')).toBeInTheDocument();
     expect(audioElement.playbackRate).toBe(0.9);

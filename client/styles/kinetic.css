@@ -867,3 +867,286 @@ body {
   }
 }
 
+/* ==========================================================================
+   Phase 10: Multimodal Voice Dictation & Mobile Focus Composer
+   ========================================================================== */
+
+/* Microphone Dictation Button & Recording State */
+.mic-idle-wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.mic-btn {
+  min-height: 36px;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.85rem;
+  font-family: var(--font-mono);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+}
+
+.mic-recording-container {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  background-color: var(--bg-surface);
+  border: var(--border-tactile);
+  border-radius: var(--radius-tactile);
+  padding: 0.15rem 0.45rem;
+  box-shadow: var(--shadow-tactile);
+}
+
+.mic-pulse-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background-color: #EF4444;
+  display: inline-block;
+  animation: mic-pulse 1.2s infinite;
+}
+
+@keyframes mic-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(239, 68, 68, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+  }
+}
+
+.mic-timer {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #EF4444;
+}
+
+.mic-btn-stop {
+  min-height: 32px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.8rem;
+  background-color: #EF4444 !important;
+  color: #FFFFFF !important;
+}
+
+.mic-btn-transcribing {
+  opacity: 0.85;
+  cursor: wait;
+}
+
+.mic-error-badge {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  background-color: var(--accent-state-bg);
+  color: var(--accent-state);
+  border: 1px solid var(--accent-state);
+  padding: 0.2rem 0.5rem;
+  border-radius: var(--radius-tactile);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Expandable Focus Composer Modal & Kinetic Construct Sheet */
+.focus-composer-trigger {
+  min-height: 36px;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.85rem;
+  font-family: var(--font-mono);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+}
+
+.focus-composer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background-color: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.focus-composer-sheet {
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
+  max-height: 100dvh;
+  background-color: var(--bg-surface);
+  color: var(--ink-primary);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: none;
+  border-radius: 0;
+}
+
+@media (min-width: 768px) {
+  .focus-composer-sheet {
+    width: 90%;
+    max-width: 860px;
+    height: 85vh;
+    max-height: 760px;
+    border: var(--border-tactile);
+    box-shadow: var(--shadow-tactile-hover);
+    border-radius: var(--radius-tactile);
+  }
+}
+
+.focus-composer-header {
+  padding: 0.75rem 1rem;
+  border-bottom: var(--border-tactile);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  background-color: var(--bg-canvas);
+  flex-shrink: 0;
+}
+
+.focus-composer-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.focus-composer-title {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--ink-primary);
+}
+
+.focus-composer-counter {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--ink-muted);
+  background-color: var(--bg-well);
+  padding: 0.2rem 0.5rem;
+  border-radius: var(--radius-tactile);
+}
+
+.focus-composer-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.focus-composer-done-btn {
+  min-height: 38px;
+  padding: 0.35rem 1rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.focus-composer-vocal-tags {
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--ink-primary);
+  background-color: var(--bg-surface);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  overflow-x: auto;
+  flex-shrink: 0;
+  -webkit-overflow-scrolling: touch;
+}
+
+.focus-composer-vocal-label {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--ink-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.focus-composer-vocal-pills {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.focus-composer-vocal-pill {
+  min-height: 34px;
+  padding: 0.25rem 0.55rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+
+.focus-composer-body {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+  background-color: var(--bg-surface);
+}
+
+.focus-composer-textarea {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  border: none;
+  outline: none;
+  resize: none;
+  padding: 1.25rem;
+  font-family: var(--font-prose);
+  font-size: 1.05rem;
+  line-height: 1.6;
+  color: var(--ink-prose);
+  background: transparent;
+  box-sizing: border-box;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Mobile Touch Target Standards (>= 44px) */
+@media (max-width: 640px) {
+  .mic-btn {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 0.4rem 0.75rem;
+  }
+
+  .mic-btn-stop {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  .focus-composer-trigger {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 0.4rem 0.75rem;
+  }
+
+  .focus-composer-done-btn {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 0.4rem 1.1rem;
+  }
+
+  .focus-composer-vocal-pill {
+    min-height: 44px;
+    padding: 0.45rem 0.75rem;
+    font-size: 0.85rem;
+  }
+}
+
+

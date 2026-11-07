@@ -288,7 +288,7 @@ test.describe('Phase 5 Formatted Reader & Docked Audio Player with HTTP 206 Rang
     await expect(playBtn).toBeVisible();
     await playBtn.click();
 
-    // Test Playback Rate toggle (1.0x -> 0.9x -> 1.0x) and verify currentTime preservation
+    // Test Fine-Grained Playback Rate cycling (1.0x -> 1.1x -> 1.25x -> 0.8x -> 0.9x -> 1.0x) and verify currentTime preservation
     await page.evaluate(() => {
       const audio = document.querySelector('audio');
       if (audio) audio.currentTime = 0.8;
@@ -297,7 +297,7 @@ test.describe('Phase 5 Formatted Reader & Docked Audio Player with HTTP 206 Rang
     const speedBtn = page.getByRole('button', { name: /playback speed/i });
     await expect(speedBtn).toHaveText('1.0x');
     await speedBtn.click();
-    await expect(speedBtn).toHaveText('0.9x');
+    await expect(speedBtn).toHaveText('1.1x');
 
     // Confirm playback position was preserved
     const timeAfterSpeedChange = await page.evaluate(() => {
@@ -306,7 +306,13 @@ test.describe('Phase 5 Formatted Reader & Docked Audio Player with HTTP 206 Rang
     });
     expect(Math.abs(timeAfterSpeedChange - 0.8)).toBeLessThan(0.15);
 
-    // Toggle back to 1.0x
+    // Cycle through remaining speeds back to 1.0x
+    await speedBtn.click();
+    await expect(speedBtn).toHaveText('1.25x');
+    await speedBtn.click();
+    await expect(speedBtn).toHaveText('0.8x');
+    await speedBtn.click();
+    await expect(speedBtn).toHaveText('0.9x');
     await speedBtn.click();
     await expect(speedBtn).toHaveText('1.0x');
 

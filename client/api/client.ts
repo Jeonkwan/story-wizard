@@ -250,7 +250,14 @@ export interface PreviewVoiceAudioParams {
   regenerateTake?: boolean;
 }
 
-export async function previewVoiceAudio(params: PreviewVoiceAudioParams): Promise<Blob> {
+export interface PreviewVoiceAudioResult {
+  blob: Blob;
+  draftGeminiVoiceName: string | null;
+}
+
+export async function previewVoiceAudio(
+  params: PreviewVoiceAudioParams
+): Promise<PreviewVoiceAudioResult> {
   const res = await fetch('/api/admin/voices/preview', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -268,7 +275,34 @@ export async function previewVoiceAudio(params: PreviewVoiceAudioParams): Promis
     }
     throw new ApiError(res.status, errorMessage);
   }
-  return res.blob();
+  const draftGeminiVoiceName = res.headers.get('X-Draft-Voice-Name');
+  const blob = await res.blob();
+  return { blob, draftGeminiVoiceName };
+}
+
+export async function blobToBase64(blob: Blob): Promise<string> {
+  if (typeof FileReader !== 'undefined') {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const result = reader.result as string;
+        const base64 = result && result.includes(',') ? result.split(',')[1] : (result || '');
+        resolve(base64);
+      };
+      reader.onerror = () => reject(reader.error || new Error('Failed to read blob as base64'));
+      reader.readAsDataURL(blob);
+    });
+  }
+  const buffer = await blob.arrayBuffer();
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.from(buffer).toString('base64');
+  }
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
 }
 
 export interface CreateCustomVoicePayload {
@@ -351,5 +385,55 @@ export async function deleteAudioVersion(
     }
   );
   return handleResponse<Story>(res);
+}
+
+export async function updateVoice(
+  voiceId: string,
+  patch: Partial<VoiceEntry>
+): Promise<VoiceEntry> {
+  const res = await fetch(`/api/admin/voices/${encodeURIComponent(voiceId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  return handleResponse<VoiceEntry>(res);
+}
+
+export async function deleteVoice(
+  voiceId: string
+): Promise<{ ok: boolean; deletedId: string }> {
+  const res = await fetch(`/api/admin/voices/${encodeURIComponent(voiceId)}`, {
+    method: 'DELETE',
+  });
+  return handleResponse<{ ok: boolean; deletedId: string }>(res);
+}
+
+export async function discardDraftVoice(
+  geminiVoiceName: string
+): Promise<{ ok: boolean }> {
+  const cleanId = geminiVoiceName.trim();
+  const res = await fetch(`/api/admin/voices/draft/${encodeURIComponent(cleanId)}`, {
+    method: 'DELETE',
+  });
+  return handleResponse<{ ok: boolean }>(res);
+}
+
+export async function transcribeAudioBlob(
+  blob: Blob,
+  contextHint?: 'story_prompt' | 'voice_prompt' | 'script_dialogue'
+): Promise<string> {
+  const audioBase64 = await blobToBase64(blob);
+  const mimeType = blob.type || 'audio/webm';
+  const res = await fetch('/api/admin/transcribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      audioBase64,
+      mimeType,
+      contextHint,
+    }),
+  });
+  const data = await handleResponse<{ text: string }>(res);
+  return data.text;
 }
 

@@ -7,6 +7,14 @@ export interface AudioPlayerBarProps {
   onVersionChange: (version: AudioVersion) => void;
 }
 
+export const PLAYBACK_SPEEDS = [0.8, 0.9, 1.0, 1.1, 1.25] as const;
+export type PlaybackSpeed = (typeof PLAYBACK_SPEEDS)[number];
+
+export function formatPlaybackSpeed(speed: number): string {
+  if (speed === 1.25) return '1.25x';
+  return `${speed.toFixed(1)}x`;
+}
+
 function formatTime(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) {
     return '00:00';
@@ -72,11 +80,14 @@ export function AudioPlayerBar({
     }
   };
 
-  // Handle Speed Toggle (1.0x <-> 0.9x)
-  const toggleSpeed = () => {
-    const nextRate = playbackRate === 1.0 ? 0.9 : 1.0;
+  // Handle Speed Cycling: [0.8x, 0.9x, 1.0x, 1.1x, 1.25x]
+  const cycleSpeed = () => {
+    const currentIndex = PLAYBACK_SPEEDS.indexOf(playbackRate as PlaybackSpeed);
+    const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % PLAYBACK_SPEEDS.length;
+    const nextRate = PLAYBACK_SPEEDS[nextIndex];
     setPlaybackRate(nextRate);
     if (audioRef.current) {
+      audioRef.current.defaultPlaybackRate = nextRate;
       audioRef.current.playbackRate = nextRate;
     }
   };
@@ -157,12 +168,13 @@ export function AudioPlayerBar({
 
             <button
               type="button"
-              className="btn-tactile"
-              onClick={toggleSpeed}
-              aria-label="Toggle playback speed"
+              className="btn-tactile player-speed-btn"
+              onClick={cycleSpeed}
+              aria-label={`Playback speed ${formatPlaybackSpeed(playbackRate)}`}
+              title={`Playback speed ${formatPlaybackSpeed(playbackRate)}`}
               style={{ minWidth: '60px' }}
             >
-              {playbackRate.toFixed(1)}x
+              {formatPlaybackSpeed(playbackRate)}
             </button>
           </div>
 

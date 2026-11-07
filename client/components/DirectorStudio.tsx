@@ -13,6 +13,8 @@ import {
   type AdminSession,
 } from '../api/client';
 import { VoiceStudioPanel } from './VoiceStudioPanel';
+import { MicDictationButton, appendWithSmartSpace } from './MicDictationButton';
+import { ExpandableFocusComposer } from './ExpandableFocusComposer';
 
 const APPROVED_TAGS = [
   '<short pause>',
@@ -859,9 +861,26 @@ export function DirectorStudio({
                       </div>
                     </div>
 
-                    <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.35rem', fontFamily: 'var(--font-mono)' }}>
-                      Story Prompt *
-                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.35rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+                      <label style={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
+                        Story Prompt *
+                      </label>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <MicDictationButton
+                          contextHint="story_prompt"
+                          onTranscript={(text) => setFreshPrompt((prev) => appendWithSmartSpace(prev, text))}
+                          disabled={isWriting}
+                        />
+                        <ExpandableFocusComposer
+                          title="Story Prompt"
+                          value={freshPrompt}
+                          onChange={setFreshPrompt}
+                          contextHint="story_prompt"
+                          placeholder="e.g. A comedic sci-fi adventure about two quirky space mechanics trying to fix a hiccuping robot on a distant asteroid."
+                          disabled={isWriting}
+                        />
+                      </div>
+                    </div>
                     <textarea
                       className="input-tactile"
                       style={{ width: '100%', minHeight: '100px', boxSizing: 'border-box' }}
@@ -892,9 +911,26 @@ export function DirectorStudio({
                   </div>
 
                   <div style={{ marginBottom: '1.5rem' }}>
-                    <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.35rem', fontFamily: 'var(--font-mono)' }}>
-                      Optional Reference Material / Lore
-                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.35rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+                      <label style={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
+                        Optional Reference Material / Lore
+                      </label>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <MicDictationButton
+                          contextHint="story_prompt"
+                          onTranscript={(text) => setFreshReferenceText((prev) => appendWithSmartSpace(prev, text))}
+                          disabled={isWriting}
+                        />
+                        <ExpandableFocusComposer
+                          title="Reference Material / Lore"
+                          value={freshReferenceText}
+                          onChange={setFreshReferenceText}
+                          contextHint="story_prompt"
+                          placeholder="Optional world details, poem verses, or character backstory to weave into the story."
+                          disabled={isWriting}
+                        />
+                      </div>
+                    </div>
                     <textarea
                       className="input-tactile"
                       style={{ width: '100%', minHeight: '80px', boxSizing: 'border-box' }}
@@ -932,9 +968,26 @@ export function DirectorStudio({
                   </div>
 
                   <div style={{ marginBottom: '1.25rem' }}>
-                    <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.35rem', fontFamily: 'var(--font-mono)' }}>
-                      Sequel Episode Prompt *
-                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.35rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+                      <label style={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
+                        Sequel Episode Prompt *
+                      </label>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <MicDictationButton
+                          contextHint="story_prompt"
+                          onTranscript={(text) => setSequelPrompt((prev) => appendWithSmartSpace(prev, text))}
+                          disabled={isWriting}
+                        />
+                        <ExpandableFocusComposer
+                          title="Sequel Episode Prompt"
+                          value={sequelPrompt}
+                          onChange={setSequelPrompt}
+                          contextHint="story_prompt"
+                          placeholder="e.g. In tonight's journey, the space mechanics arrive at Nebula Station, only to discover the robot's hiccups are transmitting an alien disco beat across the sector."
+                          disabled={isWriting}
+                        />
+                      </div>
+                    </div>
                     <textarea
                       className="input-tactile"
                       style={{ width: '100%', minHeight: '100px', boxSizing: 'border-box' }}
@@ -947,9 +1000,26 @@ export function DirectorStudio({
                   </div>
 
                   <div style={{ marginBottom: '1.5rem' }}>
-                    <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.35rem', fontFamily: 'var(--font-mono)' }}>
-                      Optional Reference Material / Notes
-                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.35rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+                      <label style={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
+                        Optional Reference Material / Notes
+                      </label>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <MicDictationButton
+                          contextHint="story_prompt"
+                          onTranscript={(text) => setSequelReferenceText((prev) => appendWithSmartSpace(prev, text))}
+                          disabled={isWriting}
+                        />
+                        <ExpandableFocusComposer
+                          title="Sequel Reference Material / Notes"
+                          value={sequelReferenceText}
+                          onChange={setSequelReferenceText}
+                          contextHint="story_prompt"
+                          placeholder="Optional scene notes, character dynamics, or specific narrative motifs."
+                          disabled={isWriting}
+                        />
+                      </div>
+                    </div>
                     <textarea
                       className="input-tactile"
                       style={{ width: '100%', minHeight: '80px', boxSizing: 'border-box' }}
@@ -1267,23 +1337,41 @@ export function DirectorStudio({
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   {editedCharacters.map((char, idx) => (
-                    <div key={idx} style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div key={idx} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
                       <input
                         type="text"
                         className="input-tactile"
-                        style={{ width: '160px' }}
+                        style={{ width: '150px' }}
                         placeholder="Character Name"
                         value={char.name}
                         onChange={(e) => handleCharacterChange(idx, 'name', e.target.value)}
                       />
-                      <input
-                        type="text"
-                        className="input-tactile"
-                        style={{ flex: 1, minWidth: '200px' }}
-                        placeholder="Vocal traits (e.g. gentle bell chime, curious whisper)"
-                        value={char.traits}
-                        onChange={(e) => handleCharacterChange(idx, 'traits', e.target.value)}
-                      />
+                      <div style={{ flex: 1, minWidth: '220px', display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+                        <input
+                          type="text"
+                          className="input-tactile"
+                          style={{ flex: 1 }}
+                          placeholder="Vocal traits (e.g. gentle bell chime, curious whisper)"
+                          value={char.traits}
+                          onChange={(e) => handleCharacterChange(idx, 'traits', e.target.value)}
+                        />
+                        <MicDictationButton
+                          compact={true}
+                          contextHint="voice_prompt"
+                          title={`Dictate traits for ${char.name || 'character'}`}
+                          onTranscript={(text) =>
+                            handleCharacterChange(idx, 'traits', appendWithSmartSpace(char.traits, text))
+                          }
+                        />
+                        <ExpandableFocusComposer
+                          compactTrigger={true}
+                          title={`${char.name || 'Character'} Vocal Traits`}
+                          value={char.traits}
+                          onChange={(val) => handleCharacterChange(idx, 'traits', val)}
+                          contextHint="voice_prompt"
+                          placeholder="Vocal traits (e.g. gentle bell chime, curious whisper)"
+                        />
+                      </div>
                       <button
                         type="button"
                         className="btn-tactile"
@@ -1359,7 +1447,30 @@ export function DirectorStudio({
                     </div>
 
                     {/* Style Note */}
-                    <div style={{ marginBottom: '0.5rem' }}>
+                    <div style={{ marginBottom: '0.65rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem', gap: '0.35rem', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: 'var(--ink-muted)' }}>
+                          Acting Style Note
+                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                          <MicDictationButton
+                            compact={true}
+                            contextHint="voice_prompt"
+                            title={`Dictate style note for Turn #${turn.turn_id}`}
+                            onTranscript={(text) =>
+                              handleTurnChange(idx, 'style', appendWithSmartSpace(turn.style, text))
+                            }
+                          />
+                          <ExpandableFocusComposer
+                            compactTrigger={true}
+                            title={`Turn #${turn.turn_id} Acting Style (${turn.speaker})`}
+                            value={turn.style}
+                            onChange={(val) => handleTurnChange(idx, 'style', val)}
+                            contextHint="voice_prompt"
+                            placeholder="Acting style / sustained direction (e.g. Warm bedtime cadence, whisper)"
+                          />
+                        </div>
+                      </div>
                       <input
                         type="text"
                         className="input-tactile"
@@ -1372,6 +1483,28 @@ export function DirectorStudio({
 
                     {/* Turn Spoken Text */}
                     <div style={{ marginBottom: '0.5rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem', gap: '0.35rem', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: 'var(--ink-muted)' }}>
+                          Spoken Text
+                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                          <MicDictationButton
+                            contextHint="script_dialogue"
+                            title={`Dictate spoken text for Turn #${turn.turn_id}`}
+                            onTranscript={(text) =>
+                              handleTurnChange(idx, 'text', appendWithSmartSpace(turn.text, text))
+                            }
+                          />
+                          <ExpandableFocusComposer
+                            title={`Turn #${turn.turn_id} Dialogue (${turn.speaker})`}
+                            value={turn.text}
+                            onChange={(val) => handleTurnChange(idx, 'text', val)}
+                            enableVocalTagPills={true}
+                            contextHint="script_dialogue"
+                            placeholder="Spoken narrative or dialogue text..."
+                          />
+                        </div>
+                      </div>
                       <textarea
                         ref={(el) => {
                           if (el) turnTextareaRefs.current.set(idx, el);
