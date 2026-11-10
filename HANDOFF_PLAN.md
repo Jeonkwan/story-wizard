@@ -787,7 +787,7 @@ Use your interactive browser capabilities (`/browser`) on `http://localhost:8080
 - [x] **Phase 10:** Mobile Focus Composer, `MediaRecorder` Voice Dictation UI, & Fine-Grained Player Speeds (`phase-10-verified`)
 - [x] **Phase 11:** Standalone `🎙️ Voice Library` Tab, Upgraded Staged Voice Designer, Pace Controls & Story Narration Workflow (`phase-11-verified`)
 - [x] **Phase 12:** Library Deletion, Storybook Preview, Prompt Remix, and Age-Vocab Controls (`phase-12-verified`)
-- [ ] **Phase 13:** Fireside Espresso UI Redesign, Dark-First Default, & Compact Mobile Studio Ergonomics (`phase-13-verified`)
+- [x] **Phase 13:** Fireside Espresso UI Redesign, Dark-First Default, & Compact Mobile Studio Ergonomics (`phase-13-verified`)
 
 ---
 
