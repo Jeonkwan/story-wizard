@@ -249,9 +249,11 @@ test.describe('Phase 10: Mobile Focus Composer, Voice Dictation & Fine-Grained P
     // Switch to Script Editor tab
     await page.getByRole('tab', { name: /Script Editor/i }).click();
 
-    // Switch to Dark Mode
+    // Verify Dark Mode
     const darkThemeBtn = page.getByRole('button', { name: /Dark Mode|Light Mode/i });
-    await darkThemeBtn.click();
+    if ((await page.locator('body').getAttribute('data-theme')) !== 'dark') {
+      await darkThemeBtn.click();
+    }
     await expect(page.locator('body')).toHaveAttribute('data-theme', 'dark');
 
     // Locate first script turn card
@@ -299,9 +301,11 @@ test.describe('Phase 10: Mobile Focus Composer, Voice Dictation & Fine-Grained P
     await page.setViewportSize({ width: 375, height: 812 });
     await page.waitForTimeout(100);
 
-    // Switch back to Light Theme for Mobile Light Screenshot
-    await darkThemeBtn.click();
-    await expect(page.locator('body')).not.toHaveAttribute('data-theme', 'dark');
+    // Switch to Light Theme for Mobile Light Screenshot
+    if ((await page.locator('body').getAttribute('data-theme')) === 'dark') {
+      await darkThemeBtn.click();
+    }
+    await expect(page.locator('body')).toHaveAttribute('data-theme', 'light');
 
     // Open dialogue Focus Composer on mobile
     await expandDialogueBtn.click();

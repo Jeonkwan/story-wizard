@@ -57,7 +57,7 @@ test.describe('Phase 5 Public Library & Kinetic Construct Visual Audit', () => {
       if (msg.type() === 'error') consoleErrors.push(msg.text());
     });
 
-    // 1. Desktop Viewport (1440x900) — Light Theme (Warm Alabaster)
+    // 1. Desktop Viewport (1440x900) — Dark Theme Default (Fireside Espresso)
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/', { waitUntil: 'domcontentloaded' });
 
@@ -65,7 +65,7 @@ test.describe('Phase 5 Public Library & Kinetic Construct Visual Audit', () => {
     const rootColorScheme = await page.evaluate(
       () => window.getComputedStyle(document.documentElement).colorScheme
     );
-    expect(rootColorScheme).toBe('light');
+    expect(rootColorScheme).toBe('dark');
 
     // Verify Fraunces editorial serif heading
     const mastheadTitle = page.locator('.masthead-title');
@@ -85,7 +85,7 @@ test.describe('Phase 5 Public Library & Kinetic Construct Visual Audit', () => {
     const badgeFont = await monoBadge.evaluate((el) => window.getComputedStyle(el).fontFamily);
     expect(badgeFont).toContain('Fira Code');
 
-    // Verify Tactile 2px borders and shadows on cards
+    // Verify Tactile 1px borders and shadows on cards
     const card = page.locator('.story-card').first();
     const cardStyles = await card.evaluate((el) => {
       const s = window.getComputedStyle(el);
@@ -95,9 +95,9 @@ test.describe('Phase 5 Public Library & Kinetic Construct Visual Audit', () => {
         boxShadow: s.boxShadow,
       };
     });
-    expect(cardStyles.borderWidth).toBe('2px');
+    expect(cardStyles.borderWidth).toBe('1px');
     expect(cardStyles.borderStyle).toBe('solid');
-    expect(cardStyles.boxShadow).toContain('2px 2px 0px');
+    expect(cardStyles.boxShadow).not.toBe('none');
 
     // Verify stories are rendered
     await expect(page.locator('.story-card', { hasText: 'The Sleepy Little Train' })).toBeVisible();
@@ -145,40 +145,27 @@ test.describe('Phase 5 Public Library & Kinetic Construct Visual Audit', () => {
     );
     expect(desktopOverflow).toBe(true);
 
-    // Capture Screenshot 1: phase5-library-desktop-light.png
-    await page.screenshot({ path: 'qa-screenshots/phase5-library-desktop-light.png', fullPage: false });
+    // Capture Screenshot 1: phase5-library-desktop-dark.png (Default Dark Mode)
+    await page.screenshot({ path: 'qa-screenshots/phase5-library-desktop-dark.png', fullPage: false });
 
-    // 2. Toggle to Dark Theme
+    // 2. Toggle to Light Theme
     const themeBtn = page.getByRole('button', { name: /Dark Mode|Light Mode/i });
     await themeBtn.click();
-    await expect(page.locator('body')).toHaveAttribute('data-theme', 'dark');
+    await expect(page.locator('body')).toHaveAttribute('data-theme', 'light');
 
-    const darkRootScheme = await page.evaluate(
+    const lightRootScheme = await page.evaluate(
       () => window.getComputedStyle(document.documentElement).colorScheme
     );
-    expect(darkRootScheme).toBe('dark');
+    expect(lightRootScheme).toBe('light');
 
     // Move mouse away to capture resting state
     await page.mouse.move(0, 0);
 
-    // Capture Screenshot 2: phase5-library-desktop-dark.png
-    await page.screenshot({ path: 'qa-screenshots/phase5-library-desktop-dark.png', fullPage: false });
+    // Capture Screenshot 2: phase5-library-desktop-light.png
+    await page.screenshot({ path: 'qa-screenshots/phase5-library-desktop-light.png', fullPage: false });
 
-    // 3. Mobile Viewport (375x812) — Dark Theme
+    // 3. Mobile Viewport (375x812) — Light Theme
     await page.setViewportSize({ width: 375, height: 812 });
-    await page.waitForTimeout(200);
-
-    const mobileDarkOverflow = await page.evaluate(
-      () => document.documentElement.scrollWidth <= window.innerWidth
-    );
-    expect(mobileDarkOverflow).toBe(true);
-
-    // Capture Screenshot 3: phase5-library-mobile-dark.png
-    await page.screenshot({ path: 'qa-screenshots/phase5-library-mobile-dark.png', fullPage: false });
-
-    // 4. Mobile Viewport (375x812) — Light Theme
-    await themeBtn.click();
-    await expect(page.locator('body')).not.toHaveAttribute('data-theme', 'dark');
     await page.waitForTimeout(200);
 
     const mobileLightOverflow = await page.evaluate(
@@ -186,8 +173,21 @@ test.describe('Phase 5 Public Library & Kinetic Construct Visual Audit', () => {
     );
     expect(mobileLightOverflow).toBe(true);
 
-    // Capture Screenshot 4: phase5-library-mobile-light.png
+    // Capture Screenshot 3: phase5-library-mobile-light.png
     await page.screenshot({ path: 'qa-screenshots/phase5-library-mobile-light.png', fullPage: false });
+
+    // 4. Mobile Viewport (375x812) — Toggle back to Dark Theme
+    await themeBtn.click();
+    await expect(page.locator('body')).toHaveAttribute('data-theme', 'dark');
+    await page.waitForTimeout(200);
+
+    const mobileDarkOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth
+    );
+    expect(mobileDarkOverflow).toBe(true);
+
+    // Capture Screenshot 4: phase5-library-mobile-dark.png
+    await page.screenshot({ path: 'qa-screenshots/phase5-library-mobile-dark.png', fullPage: false });
 
     expect(pageErrors).toEqual([]);
     expect(consoleErrors).toEqual([]);

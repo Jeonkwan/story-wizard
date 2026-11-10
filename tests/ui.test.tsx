@@ -256,22 +256,32 @@ describe('Phase 2 UI Component Tests', () => {
     );
   });
 
-  // Gate Test 4: Dark Mode toggle sets data-theme="dark" on document.body
-  it('Clicking the Dark Mode toggle sets data-theme="dark" on document.body', () => {
-    expect(document.body.getAttribute('data-theme')).not.toBe('dark');
+  // Gate Test 4: Dark Mode default and toggle sets data-theme on document.body & documentElement
+  it('Dark Mode defaults to dark, and clicking the theme toggle switches between light and dark', () => {
+    localStorage.removeItem('story_theme');
+    document.body.removeAttribute('data-theme');
+    document.documentElement.removeAttribute('data-theme');
 
     render(<Masthead />);
 
-    const toggleButton = screen.getByRole('button', { name: /Dark Mode|Light Mode/i });
-    fireEvent.click(toggleButton);
-
+    // Default theme is Fireside Espresso Dark
     expect(document.body.getAttribute('data-theme')).toBe('dark');
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
     expect(localStorage.getItem('story_theme')).toBe('dark');
 
-    // Click again to toggle back to light mode
+    const toggleButton = screen.getByRole('button', { name: /Dark Mode|Light Mode/i });
+    // First click switches to Light Mode
     fireEvent.click(toggleButton);
-    expect(document.body.getAttribute('data-theme')).not.toBe('dark');
+
+    expect(document.body.getAttribute('data-theme')).toBe('light');
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
     expect(localStorage.getItem('story_theme')).toBe('light');
+
+    // Second click switches back to Dark Mode
+    fireEvent.click(toggleButton);
+    expect(document.body.getAttribute('data-theme')).toBe('dark');
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    expect(localStorage.getItem('story_theme')).toBe('dark');
   });
 
   // Review Regression Test 1: AudioPlayerBar preserves currentTime on speed toggle, and preserves 0.9x on version switch

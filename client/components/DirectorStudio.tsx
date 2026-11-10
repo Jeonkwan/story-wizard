@@ -82,6 +82,7 @@ export interface DirectorStudioProps {
   onNavigateHome: () => void;
   currentPath?: string;
   onNavigate?: (path: string) => void;
+  initialStep?: number;
 }
 
 export function DirectorStudio({
@@ -91,10 +92,18 @@ export function DirectorStudio({
   onNavigateHome,
   currentPath,
   onNavigate,
+  initialStep,
 }: DirectorStudioProps): React.JSX.Element {
   const [stories, setStories] = useState<CatalogItem[]>([]);
   const [loadingStories, setLoadingStories] = useState<boolean>(true);
   const [storiesError, setStoriesError] = useState<string | null>(null);
+
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+  const [mobileActiveStep, setMobileActiveStep] = useState<'draft' | 'script' | 'voices'>(() => {
+    if (initialStep === 3) return 'voices';
+    if (initialStep === 2) return 'script';
+    return 'draft';
+  });
 
   const [viewMode, setViewMode] = useState<'create' | 'edit'>('create');
   const [selectedStoryId, setSelectedStoryId] = useState<string | null>(null);
@@ -195,6 +204,7 @@ export function DirectorStudio({
     setViewMode('edit');
     setWorkbenchTab('preview');
     setCopiedWorkbenchPrompt(false);
+    setMobileActiveStep('script');
     setLoadingStory(true);
     setStoryLoadError(null);
     setSaveSuccess(false);
@@ -462,6 +472,7 @@ export function DirectorStudio({
 
   const handleStartNewStory = () => {
     setViewMode('create');
+    setMobileActiveStep('draft');
     setSelectedStoryId(null);
     setActiveStory(null);
     setWriteError(null);
@@ -481,12 +492,38 @@ export function DirectorStudio({
   const handleStartSequel = (storyId: string) => {
     setViewMode('create');
     setCreateMode('sequel');
+    setMobileActiveStep('draft');
     setSelectedStoryId(null);
     setActiveStory(null);
     setWriteError(null);
     setSequelPreviousStoryId(storyId);
     setSequelPrompt('');
     setSequelReferenceText('');
+  };
+
+  const handleMobileStepSwitch = (step: 'draft' | 'script' | 'voices') => {
+    setMobileActiveStep(step);
+    if (step === 'draft') {
+      setViewMode('create');
+      setTimeout(() => {
+        document.getElementById('step-1-panel')?.scrollIntoView?.({ behavior: 'smooth' });
+      }, 50);
+    } else if (step === 'script') {
+      if (activeStory) {
+        setViewMode('edit');
+        setTimeout(() => {
+          document.getElementById('step-2-panel')?.scrollIntoView?.({ behavior: 'smooth' });
+        }, 50);
+      }
+    } else if (step === 'voices') {
+      if (activeStory) {
+        setViewMode('edit');
+        setWorkbenchTab('editor');
+        setTimeout(() => {
+          document.getElementById('step-3-panel')?.scrollIntoView?.({ behavior: 'smooth' });
+        }, 50);
+      }
+    }
   };
 
   // Step 1: Write Story Draft
@@ -812,7 +849,162 @@ export function DirectorStudio({
     (!activeStory.audio_versions || activeStory.audio_versions.length === 0);
 
   return (
-    <div className="studio-layout">
+    <div className="studio-container">
+      {/* -------------------------------------------------------------
+       * MOBILE STUDIO TOP BAR (<= 768px sticky header)
+       * ------------------------------------------------------------- */}
+      <div className="studio-mobile-topbar" role="navigation" aria-label="Mobile Studio Navigation">
+        <button
+          type="button"
+          className="btn-tactile"
+          onClick={() => setMobileDrawerOpen((prev) => !prev)}
+          aria-label="Toggle Story Archive Drawer"
+          data-testid="mobile-stories-drawer-btn"
+          style={{ fontSize: '0.8rem', padding: '0.35rem 0.65rem', whiteSpace: 'nowrap' }}
+        >
+          🗂️ Stories ({stories.length}) {activeStory ? '' : '+ New'} ▼
+        </button>
+
+        <div className="studio-mobile-steps" role="group" aria-label="Mobile Studio Steps">
+          <button
+            type="button"
+            className={`studio-mobile-step-btn ${mobileActiveStep === 'draft' ? 'active' : ''}`}
+            onClick={() => handleMobileStepSwitch('draft')}
+            data-testid="mobile-step-draft"
+            aria-pressed={mobileActiveStep === 'draft'}
+          >
+            ✍️ 1. Draft
+          </button>
+          <button
+            type="button"
+            className={`studio-mobile-step-btn ${mobileActiveStep === 'script' ? 'active' : ''}`}
+            onClick={() => handleMobileStepSwitch('script')}
+            disabled={!activeStory}
+            data-testid="mobile-step-script"
+            aria-pressed={mobileActiveStep === 'script'}
+          >
+            🎛️ 2. Script
+          </button>
+          <button
+            type="button"
+            className={`studio-mobile-step-btn ${mobileActiveStep === 'voices' ? 'active' : ''}`}
+            onClick={() => handleMobileStepSwitch('voices')}
+            disabled={!activeStory}
+            data-testid="mobile-step-voices"
+            aria-pressed={mobileActiveStep === 'voices'}
+          >
+            🎙️ 3. Voices
+          </button>
+        </div>
+      </div>
+
+      {/* -------------------------------------------------------------
+       * SLIDE-UP STORY ARCHIVE DRAWER (Mobile Bottom Sheet)
+       * ------------------------------------------------------------- */}
+      {mobileDrawerOpen && (
+        <>
+          <div
+            className="studio-archive-drawer-backdrop"
+            onClick={() => setMobileDrawerOpen(false)}
+            aria-hidden="true"
+          />
+          <div
+            className="studio-archive-drawer"
+            role="dialog"
+            aria-label="Story Archive Drawer"
+            aria-modal="true"
+          >
+            <div className="studio-archive-drawer-header">
+              <h3 className="studio-archive-drawer-title">🗂️ Story Archive ({stories.length})</h3>
+              <button
+                type="button"
+                className="btn-tactile"
+                onClick={() => setMobileDrawerOpen(false)}
+                aria-label="Close Story Archive Drawer"
+                data-testid="close-stories-drawer-btn"
+                style={{ padding: '0.2rem 0.55rem', fontSize: '0.9rem' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ marginBottom: '0.75rem' }}>
+              <button
+                type="button"
+                className="btn-tactile btn-tactile-primary"
+                onClick={() => {
+                  handleStartNewStory();
+                  setMobileDrawerOpen(false);
+                  setMobileActiveStep('draft');
+                }}
+                disabled={isWriting || isDirecting}
+                data-testid="drawer-new-story-btn"
+                style={{ width: '100%' }}
+              >
+                ➕ Create New Story / Sequel
+              </button>
+            </div>
+
+            <div className="studio-archive-drawer-content">
+              {loadingStories ? (
+                <p style={{ fontStyle: 'italic', fontSize: '0.85rem', color: 'var(--ink-muted)' }}>
+                  Loading stories...
+                </p>
+              ) : storiesError ? (
+                <p style={{ color: 'var(--accent-state)', fontSize: '0.85rem' }}>{storiesError}</p>
+              ) : stories.length === 0 ? (
+                <p style={{ fontSize: '0.85rem', color: 'var(--ink-muted)', fontStyle: 'italic' }}>
+                  No stories created yet.
+                </p>
+              ) : (
+                stories.map((item) => {
+                  const isSelected = selectedStoryId === item.id;
+                  const isBusy = isWriting || isDirecting;
+                  return (
+                    <div
+                      key={item.id}
+                      className={`studio-story-item card-tactile ${isSelected ? 'studio-story-item-active' : ''}`}
+                      onClick={() => {
+                        if (!isBusy) {
+                          loadStoryIntoWorkbench(item.id);
+                          setMobileDrawerOpen(false);
+                          setMobileActiveStep('script');
+                        }
+                      }}
+                      style={{
+                        cursor: isBusy ? 'not-allowed' : 'pointer',
+                        opacity: isBusy ? 0.7 : 1,
+                        marginBottom: '0.6rem',
+                        padding: '0.65rem',
+                      }}
+                      data-testid={`drawer-story-item-${item.id}`}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                        <span
+                          className={`badge-tactile ${item.status === 'published' ? 'badge-tactile-published' : 'badge-tactile-draft'}`}
+                          style={{ fontSize: '0.7rem' }}
+                        >
+                          {item.status.toUpperCase()}
+                        </span>
+                        {item.series_id && (
+                          <span className="badge-tactile" style={{ fontSize: '0.65rem' }}>
+                            Ep #{item.episode_number ?? 1}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>
+                        {item.title}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </>
+      )}
+
+      <div className="studio-layout">
       {/* -------------------------------------------------------------
        * LEFT RAIL: Stories List & Session Controls
        * ------------------------------------------------------------- */}
@@ -942,12 +1134,12 @@ export function DirectorStudio({
           /* =========================================================
            * CREATION WORKFLOW (Mode A / Mode B)
            * ========================================================= */
-          <div className="card-tactile" style={{ padding: '2rem' }}>
+          <div id="step-1-panel" className="card-tactile" style={{ padding: '2rem' }}>
             <h2 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.75rem', marginTop: 0 }}>
               ✍️ Step 1: Write Story Draft
             </h2>
 
-            <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
+            <div className="studio-mode-grid" style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
               <button
                 type="button"
                 className={`btn-tactile ${createMode === 'fresh' ? 'btn-tactile-primary' : ''}`}
@@ -1043,7 +1235,7 @@ export function DirectorStudio({
                       <span style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--ink-muted)', marginBottom: '0.35rem' }}>
                         GENRE &amp; MOOD PRESETS
                       </span>
-                      <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                      <div className="genre-presets-grid" style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
                         {GENRE_PRESETS.map((preset) => (
                           <button
                             key={preset.id}
@@ -1090,54 +1282,60 @@ export function DirectorStudio({
                     />
                   </div>
 
-                  <div style={{ marginBottom: '1.25rem' }}>
-                    <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.35rem', fontFamily: 'var(--font-mono)' }}>
-                      Optional Series Slug
-                    </label>
-                    <input
-                      type="text"
-                      className="input-tactile"
-                      style={{ width: '100%', boxSizing: 'border-box' }}
-                      placeholder="e.g. space-mechanics-adventures"
-                      value={freshSeriesId}
-                      onChange={(e) => setFreshSeriesId(e.target.value)}
-                      disabled={isWriting}
-                    />
-                    <small style={{ color: 'var(--ink-muted)', display: 'block', marginTop: '0.25rem' }}>
-                      If set, this story initiates Episode #1 of an ongoing series.
-                    </small>
-                  </div>
+                  <details className="card-tactile continuity-accordion" open style={{ marginBottom: '1.25rem', padding: '1rem' }}>
+                    <summary style={{ cursor: 'pointer', fontWeight: 600, fontFamily: 'var(--font-mono)', fontSize: '0.88rem', color: 'var(--ink-primary)', userSelect: 'none', marginBottom: '0.75rem' }}>
+                      📖 Series Continuity &amp; Lore (Optional)
+                    </summary>
 
-                  <div style={{ marginBottom: '1.5rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.35rem', flexWrap: 'wrap', gap: '0.4rem' }}>
-                      <label style={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
-                        Optional Reference Material / Lore
+                    <div style={{ marginBottom: '1.25rem' }}>
+                      <label style={{ display: 'block', fontWeight: 600, marginBottom: '0.35rem', fontFamily: 'var(--font-mono)' }}>
+                        Optional Series Slug
                       </label>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                        <MicDictationButton
-                          contextHint="story_prompt"
-                          onTranscript={(text) => setFreshReferenceText((prev) => appendWithSmartSpace(prev, text))}
-                          disabled={isWriting}
-                        />
-                        <ExpandableFocusComposer
-                          title="Reference Material / Lore"
-                          value={freshReferenceText}
-                          onChange={setFreshReferenceText}
-                          contextHint="story_prompt"
-                          placeholder="Optional world details, poem verses, or character backstory to weave into the story."
-                          disabled={isWriting}
-                        />
-                      </div>
+                      <input
+                        type="text"
+                        className="input-tactile"
+                        style={{ width: '100%', boxSizing: 'border-box' }}
+                        placeholder="e.g. space-mechanics-adventures"
+                        value={freshSeriesId}
+                        onChange={(e) => setFreshSeriesId(e.target.value)}
+                        disabled={isWriting}
+                      />
+                      <small style={{ color: 'var(--ink-muted)', display: 'block', marginTop: '0.25rem' }}>
+                        If set, this story initiates Episode #1 of an ongoing series.
+                      </small>
                     </div>
-                    <textarea
-                      className="input-tactile"
-                      style={{ width: '100%', minHeight: '80px', boxSizing: 'border-box' }}
-                      placeholder="Optional world details, poem verses, or character backstory to weave into the story."
-                      value={freshReferenceText}
-                      onChange={(e) => setFreshReferenceText(e.target.value)}
-                      disabled={isWriting}
-                    />
-                  </div>
+
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.35rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+                        <label style={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
+                          Optional Reference Material / Lore
+                        </label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <MicDictationButton
+                            contextHint="story_prompt"
+                            onTranscript={(text) => setFreshReferenceText((prev) => appendWithSmartSpace(prev, text))}
+                            disabled={isWriting}
+                          />
+                          <ExpandableFocusComposer
+                            title="Reference Material / Lore"
+                            value={freshReferenceText}
+                            onChange={setFreshReferenceText}
+                            contextHint="story_prompt"
+                            placeholder="Optional world details, poem verses, or character backstory to weave into the story."
+                            disabled={isWriting}
+                          />
+                        </div>
+                      </div>
+                      <textarea
+                        className="input-tactile"
+                        style={{ width: '100%', minHeight: '80px', boxSizing: 'border-box' }}
+                        placeholder="Optional world details, poem verses, or character backstory to weave into the story."
+                        value={freshReferenceText}
+                        onChange={(e) => setFreshReferenceText(e.target.value)}
+                        disabled={isWriting}
+                      />
+                    </div>
+                  </details>
                 </>
               ) : (
                 <>
@@ -1286,49 +1484,67 @@ export function DirectorStudio({
                     />
                   </div>
 
-                  <div style={{ marginBottom: '1.5rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.35rem', flexWrap: 'wrap', gap: '0.4rem' }}>
-                      <label style={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
-                        Optional Reference Material / Notes
-                      </label>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                        <MicDictationButton
-                          contextHint="story_prompt"
-                          onTranscript={(text) => setSequelReferenceText((prev) => appendWithSmartSpace(prev, text))}
-                          disabled={isWriting}
-                        />
-                        <ExpandableFocusComposer
-                          title="Sequel Reference Material / Notes"
-                          value={sequelReferenceText}
-                          onChange={setSequelReferenceText}
-                          contextHint="story_prompt"
-                          placeholder="Optional scene notes, character dynamics, or specific narrative motifs."
-                          disabled={isWriting}
-                        />
+                  <details className="card-tactile continuity-accordion" open style={{ marginBottom: '1.25rem', padding: '1rem' }}>
+                    <summary style={{ cursor: 'pointer', fontWeight: 600, fontFamily: 'var(--font-mono)', fontSize: '0.88rem', color: 'var(--ink-primary)', userSelect: 'none', marginBottom: '0.75rem' }}>
+                      📖 Sequel Reference Material &amp; Notes (Optional)
+                    </summary>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.35rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+                        <label style={{ fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
+                          Optional Reference Material / Notes
+                        </label>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <MicDictationButton
+                            contextHint="story_prompt"
+                            onTranscript={(text) => setSequelReferenceText((prev) => appendWithSmartSpace(prev, text))}
+                            disabled={isWriting}
+                          />
+                          <ExpandableFocusComposer
+                            title="Sequel Reference Material / Notes"
+                            value={sequelReferenceText}
+                            onChange={setSequelReferenceText}
+                            contextHint="story_prompt"
+                            placeholder="Optional scene notes, character dynamics, or specific narrative motifs."
+                            disabled={isWriting}
+                          />
+                        </div>
                       </div>
+                      <textarea
+                        className="input-tactile"
+                        style={{ width: '100%', minHeight: '80px', boxSizing: 'border-box' }}
+                        placeholder="Optional scene notes, character dynamics, or specific narrative motifs."
+                        value={sequelReferenceText}
+                        onChange={(e) => setSequelReferenceText(e.target.value)}
+                        disabled={isWriting}
+                      />
                     </div>
-                    <textarea
-                      className="input-tactile"
-                      style={{ width: '100%', minHeight: '80px', boxSizing: 'border-box' }}
-                      placeholder="Optional scene notes, character dynamics, or specific narrative motifs."
-                      value={sequelReferenceText}
-                      onChange={(e) => setSequelReferenceText(e.target.value)}
-                      disabled={isWriting}
-                    />
-                  </div>
+                  </details>
                 </>
               )}
 
-              <button
-                type="submit"
-                className="btn-tactile btn-tactile-primary"
-                disabled={isWriting}
-                style={{ fontSize: '1rem', padding: '0.75rem 1.5rem' }}
-              >
-                {isWriting
-                  ? `✍️ Writing Draft... (${writingElapsedSeconds}s)`
-                  : '✍️ 1. Write Story Draft'}
-              </button>
+              <div className="studio-sticky-footer">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
+                  <span className="badge-mono" style={{ fontSize: '0.75rem' }}>
+                    {selectedAgeRange === 'toddler' ? '🐣 2–4 yrs' : selectedAgeRange === 'early-reader' ? '🎈 5–7 yrs' : selectedAgeRange === 'elementary' ? '🚀 8–10 yrs' : '📚 11+ yrs'}
+                  </span>
+                  <span className="badge-mono" style={{ fontSize: '0.75rem' }}>
+                    📖 {selectedVocabularyLevel}
+                  </span>
+                  <span className="badge-mono" style={{ fontSize: '0.75rem' }}>
+                    {createMode === 'fresh' ? '✨ Mode A: Fresh' : '📝 Mode B: Sequel'}
+                  </span>
+                </div>
+                <button
+                  type="submit"
+                  className="btn-tactile btn-tactile-primary"
+                  disabled={isWriting}
+                  style={{ fontSize: '1rem', padding: '0.75rem 1.5rem', width: '100%' }}
+                >
+                  {isWriting
+                    ? `✍️ Writing Draft... (${writingElapsedSeconds}s)`
+                    : '✍️ 1. Write Story Draft'}
+                </button>
+              </div>
 
               {isWriting && (
                 <div
@@ -1375,7 +1591,7 @@ export function DirectorStudio({
           /* =========================================================
            * STORY WORKBENCH (Edit Metadata, Direct, Script Turns)
            * ========================================================= */
-          <div className="studio-workbench">
+          <div id="step-2-panel" className="studio-workbench">
             {/* Top Action & Status Bar */}
             <div className="card-tactile" style={{ padding: '1.25rem', marginBottom: '1.5rem' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
@@ -2026,7 +2242,7 @@ export function DirectorStudio({
                     </div>
 
                     {/* Quick Vocal Tag Insertion Pills */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
+                    <div className="turn-vocal-tags-strip" style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
                       <span style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: 'var(--ink-muted)' }}>
                         Insert tag:
                       </span>
@@ -2092,5 +2308,6 @@ export function DirectorStudio({
         ) : null}
       </main>
     </div>
-  );
+  </div>
+);
 }

@@ -148,6 +148,13 @@ test.describe('Phase 11: Standalone Voice Library, Staged Voice Designer & Story
     await expect(page.getByRole('heading', { name: /Custom Voice Designer/i })).toBeVisible();
     await expect(page.getByRole('heading', { name: /Saved Voice Catalog/i })).toBeVisible();
 
+    // Switch to Light Mode for Screenshot 1
+    const themeBtn = page.getByRole('button', { name: /Dark Mode|Light Mode/i });
+    if ((await page.locator('body').getAttribute('data-theme')) === 'dark') {
+      await themeBtn.click();
+      await expect(page.locator('body')).toHaveAttribute('data-theme', 'light');
+    }
+
     // Capture Screenshot 1: phase11-voice-library-desktop-light.png
     await page.screenshot({
       path: 'qa-screenshots/phase11-voice-library-desktop-light.png',
@@ -157,7 +164,6 @@ test.describe('Phase 11: Standalone Voice Library, Staged Voice Designer & Story
     // =========================================================================
     // 2. Desktop Dark Theme: Visual Verification
     // =========================================================================
-    const themeBtn = page.getByRole('button', { name: /Dark Mode|Light Mode/i });
     await themeBtn.click();
     await expect(page.locator('body')).toHaveAttribute('data-theme', 'dark');
 
@@ -169,7 +175,7 @@ test.describe('Phase 11: Standalone Voice Library, Staged Voice Designer & Story
 
     // Toggle back to light mode
     await themeBtn.click();
-    await expect(page.locator('body')).not.toHaveAttribute('data-theme', 'dark');
+    await expect(page.locator('body')).toHaveAttribute('data-theme', 'light');
 
     // =========================================================================
     // 3. Staged Draft Voice State Machine in Action

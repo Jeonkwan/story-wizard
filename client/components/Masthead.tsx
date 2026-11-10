@@ -11,32 +11,28 @@ export function Masthead({ currentPath = '/', onNavigate }: MastheadProps): Reac
       try {
         const storage = window.localStorage;
         const saved = storage?.getItem('story_theme');
-        if (saved === 'dark' || saved === 'light') return saved;
+        if (saved === 'light' || saved === 'dark') return saved;
       } catch {
         // ignore storage access error
       }
-      return document.body.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+      if (
+        document.body.getAttribute('data-theme') === 'light' ||
+        document.documentElement.getAttribute('data-theme') === 'light'
+      ) {
+        return 'light';
+      }
+      return 'dark';
     }
-    return 'light';
+    return 'dark';
   });
 
   useEffect(() => {
-    if (theme === 'dark') {
-      document.documentElement.setAttribute('data-theme', 'dark');
-      document.body.setAttribute('data-theme', 'dark');
-      try {
-        window.localStorage?.setItem('story_theme', 'dark');
-      } catch {
-        // ignore
-      }
-    } else {
-      document.documentElement.removeAttribute('data-theme');
-      document.body.removeAttribute('data-theme');
-      try {
-        window.localStorage?.setItem('story_theme', 'light');
-      } catch {
-        // ignore
-      }
+    document.documentElement.setAttribute('data-theme', theme);
+    document.body.setAttribute('data-theme', theme);
+    try {
+      window.localStorage?.setItem('story_theme', theme);
+    } catch {
+      // ignore
     }
   }, [theme]);
 
@@ -56,44 +52,46 @@ export function Masthead({ currentPath = '/', onNavigate }: MastheadProps): Reac
 
   return (
     <header className="masthead" role="banner">
-      <div className="masthead-branding">
-        <h1 className="masthead-title">
-          <span>📖</span> Storyteller Studio
-        </h1>
-        <p className="masthead-subtitle">
-          Expressive Narratives, Character Voices &amp; Tactile Audio
-        </p>
-      </div>
+      <div className="masthead-inner">
+        <div className="masthead-branding">
+          <h1 className="masthead-title">
+            <span>📖</span> Storyteller Studio
+          </h1>
+          <p className="masthead-subtitle">
+            Expressive Narratives, Character Voices &amp; Tactile Audio
+          </p>
+        </div>
 
-      <div className="masthead-actions">
-        <button
-          type="button"
-          className="btn-tactile"
-          onClick={toggleTheme}
-          aria-label={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-        >
-          {theme === 'dark' ? '☀️ Light Mode' : '🌙 Dark Mode'}
-        </button>
-
-        {isAdmin ? (
-          <button
-            type="button"
-            className="btn-tactile btn-tactile-primary"
-            onClick={() => handleNav('/')}
-            aria-label="Navigate to Storybook Library"
-          >
-            ← Storybook Library
-          </button>
-        ) : (
+        <div className="masthead-actions">
           <button
             type="button"
             className="btn-tactile"
-            onClick={() => handleNav('/admin')}
-            aria-label="Navigate to Director Studio"
+            onClick={toggleTheme}
+            aria-label={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
           >
-            🎙️ Director Studio
+            {theme === 'dark' ? '☀️ Light Mode' : '🌙 Dark Mode'}
           </button>
-        )}
+
+          {isAdmin ? (
+            <button
+              type="button"
+              className="btn-tactile btn-tactile-primary"
+              onClick={() => handleNav('/')}
+              aria-label="Navigate to Storybook Library"
+            >
+              ← Storybook Library
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn-tactile"
+              onClick={() => handleNav('/admin')}
+              aria-label="Navigate to Director Studio"
+            >
+              🎙️ Director Studio
+            </button>
+          )}
+        </div>
       </div>
     </header>
   );

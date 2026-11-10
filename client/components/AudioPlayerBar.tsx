@@ -119,7 +119,7 @@ export function AudioPlayerBar({
     Number.isFinite(duration) && duration > 0 ? duration : (activeVersion.duration_sec || 0);
 
   return (
-    <div className="docked-audio-bar" role="region" aria-label="Audio Player">
+    <div className="docked-audio-bar audio-player-dock" role="region" aria-label="Audio Player">
       {/* Underlying HTML5 Audio element */}
       <audio
         ref={audioRef}

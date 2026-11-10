@@ -466,7 +466,8 @@ export function VoiceStudioPanel({
   const selectedNarratorVoice = voices.find((v) => v.id === narratorVoiceId);
 
   return (
-    <section id="step-3-voice-studio" className="card-tactile voice-studio-panel" style={{ padding: '1.25rem', marginBottom: '1.5rem', marginTop: '2rem' }}>
+    <div id="step-3-panel">
+      <section id="step-3-voice-studio" className="card-tactile voice-studio-panel" style={{ padding: '1.25rem', marginBottom: '1.5rem', marginTop: '2rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
         <h3 style={{ margin: 0, fontFamily: 'var(--font-heading)', fontSize: '1.35rem' }}>
           Step 3: Voice Audition, Synthesis &amp; Versions
@@ -1082,7 +1083,8 @@ export function VoiceStudioPanel({
         )}
       </div>
     </section>
-  );
+  </div>
+);
 }
 
 function formatDuration(seconds: number): string {

@@ -49,11 +49,11 @@ test.describe('Phase 2 Public Storybook E2E', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/', { waitUntil: 'domcontentloaded' });
 
-    // Verify initial light color-scheme
+    // Verify initial dark color-scheme (Fireside Espresso Dark-First Default)
     const initialColorScheme = await page.evaluate(
       () => window.getComputedStyle(document.documentElement).colorScheme
     );
-    expect(initialColorScheme).toBe('light');
+    expect(initialColorScheme).toBe('dark');
 
     // 2. Verify seeded story card is present
     const storyTitle = page.locator('.story-card-title', { hasText: 'The Sleepy Little Train' });
@@ -126,12 +126,7 @@ test.describe('Phase 2 Public Storybook E2E', () => {
     });
     expect(seekSuccess).toBe(true);
 
-    // 6. Capture Light Theme Screenshot (1440x900)
-    await page.screenshot({ path: 'qa-screenshots/phase2-reader-light.png', fullPage: false });
-
-    // 7. Toggle Dark Mode and verify immediate contrast and color-scheme
-    const themeBtn = page.getByRole('button', { name: /Dark Mode|Light Mode/i });
-    await themeBtn.click();
+    // 6. Verify initial Dark Mode and capture Dark Theme Screenshot (1440x900)
     await expect(page.locator('body')).toHaveAttribute('data-theme', 'dark');
 
     // Move mouse away to test resting (non-hover) button colors
@@ -144,22 +139,35 @@ test.describe('Phase 2 Public Storybook E2E', () => {
     expect(darkColorScheme).toBe('dark');
 
     // Explicitly verify button styles under Dark Mode (instant, zero white-on-white flash)
+    const themeBtn = page.getByRole('button', { name: /Dark Mode|Light Mode/i });
     const themeBtnStyles = await themeBtn.evaluate((el) => {
       const s = window.getComputedStyle(el);
       return { bg: s.backgroundColor, color: s.color };
     });
-    expect(themeBtnStyles.bg).toBe('rgb(22, 31, 44)'); // #161F2C (var(--bg-surface))
-    expect(themeBtnStyles.color).toBe('rgb(241, 245, 249)'); // #F1F5F9 (var(--ink-primary))
+    expect(['rgb(42, 35, 30)', 'rgb(32, 27, 23)']).toContain(themeBtnStyles.bg);
+    expect(themeBtnStyles.color).toBe('rgb(244, 239, 230)'); // #F4EFE6 (var(--ink-primary))
 
     const playBtn = page.locator('.btn-tactile-primary', { hasText: /Play|Pause/i });
     const playBtnStyles = await playBtn.evaluate((el) => {
       const s = window.getComputedStyle(el);
       return { bg: s.backgroundColor, color: s.color };
     });
-    expect(playBtnStyles.bg).toBe('rgb(30, 27, 75)'); // #1E1B4B (var(--accent-module-bg))
+    expect(playBtnStyles.bg).toBe('rgb(212, 155, 84)'); // #D49B54 (var(--accent-primary))
+    expect(playBtnStyles.color).toBe('rgb(21, 18, 15)'); // #15120F (var(--accent-primary-ink))
 
     // Capture Dark Theme Screenshot (1440x900)
     await page.screenshot({ path: 'qa-screenshots/phase2-reader-dark.png', fullPage: false });
+
+    // 7. Toggle to Light Mode and verify immediate contrast and color-scheme
+    await themeBtn.click();
+    await expect(page.locator('body')).toHaveAttribute('data-theme', 'light');
+
+    // Capture Light Theme Screenshot (1440x900)
+    await page.screenshot({ path: 'qa-screenshots/phase2-reader-light.png', fullPage: false });
+
+    // Toggle back to Dark Mode
+    await themeBtn.click();
+    await expect(page.locator('body')).toHaveAttribute('data-theme', 'dark');
 
     // 8. Test Browser Back/Forward navigation with URL synchronization
     await page.goBack();
@@ -284,8 +292,8 @@ test.describe('Phase 3 Admin Director Studio E2E', () => {
       const s = window.getComputedStyle(el);
       return { bg: s.backgroundColor, color: s.color };
     });
-    expect(darkBtnStyles.bg).toBe('rgb(22, 31, 44)'); // #161F2C
-    expect(darkBtnStyles.color).toBe('rgb(241, 245, 249)'); // #F1F5F9
+    expect(['rgb(42, 35, 30)', 'rgb(32, 27, 23)']).toContain(darkBtnStyles.bg);
+    expect(darkBtnStyles.color).toBe('rgb(244, 239, 230)'); // #F4EFE6 (var(--ink-primary))
 
     // 8. Capture Phase 3 Admin Studio Screenshot (1440x900)
     await page.screenshot({ path: 'qa-screenshots/phase3-admin-studio.png', fullPage: false });
@@ -398,7 +406,7 @@ test.describe('Phase 4 Voice Audition Studio & Versions E2E', () => {
       const s = window.getComputedStyle(el);
       return { bg: s.backgroundColor, color: s.color };
     });
-    expect(darkPanelStyles.bg).toBe('rgb(22, 31, 44)'); // #161F2C
+    expect(['rgb(32, 27, 23)', 'rgb(42, 35, 30)']).toContain(darkPanelStyles.bg); // #201B17 (var(--bg-surface))
 
     // 8. Capture Phase 4 Voice Studio Screenshot (1440x900)
     await page.screenshot({ path: 'qa-screenshots/phase4-voice-studio.png', fullPage: false });
@@ -796,17 +804,23 @@ test.describe('Phase 4 Voice Audition Studio & Versions E2E', () => {
     await expect(previewPane.locator('.first-letter-dropcap')).toBeVisible();
     await expect(previewPane.locator('.dialogue-turn')).toBeVisible();
 
-    // Capture Light Theme Storybook Preview Screenshot
-    await page.screenshot({ path: 'qa-screenshots/phase12-workbench-preview-light.png', fullPage: false });
-
-    // Switch to Dark Theme & Capture Dark Theme Screenshot
+    // Capture theme screenshots with correct active theme synchronization
     const themeBtn = page.getByRole('button', { name: /Dark Mode|Light Mode/i });
-    await themeBtn.click();
-    await expect(page.locator('body')).toHaveAttribute('data-theme', 'dark');
-    await page.screenshot({ path: 'qa-screenshots/phase12-workbench-preview-dark.png', fullPage: false });
-
-    // Switch back to light theme
-    await themeBtn.click();
+    const isDark = (await page.locator('body').getAttribute('data-theme')) === 'dark';
+    if (isDark) {
+      await page.screenshot({ path: 'qa-screenshots/phase12-workbench-preview-dark.png', fullPage: false });
+      await themeBtn.click();
+      await expect(page.locator('body')).toHaveAttribute('data-theme', 'light');
+      await page.screenshot({ path: 'qa-screenshots/phase12-workbench-preview-light.png', fullPage: false });
+      // Switch back to dark mode
+      await themeBtn.click();
+      await expect(page.locator('body')).toHaveAttribute('data-theme', 'dark');
+    } else {
+      await page.screenshot({ path: 'qa-screenshots/phase12-workbench-preview-light.png', fullPage: false });
+      await themeBtn.click();
+      await expect(page.locator('body')).toHaveAttribute('data-theme', 'dark');
+      await page.screenshot({ path: 'qa-screenshots/phase12-workbench-preview-dark.png', fullPage: false });
+    }
 
     // Switch to Script Editor tab
     await editorTab.click();
