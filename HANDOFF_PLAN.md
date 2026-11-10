@@ -787,6 +787,7 @@ Use your interactive browser capabilities (`/browser`) on `http://localhost:8080
 - [x] **Phase 10:** Mobile Focus Composer, `MediaRecorder` Voice Dictation UI, & Fine-Grained Player Speeds (`phase-10-verified`)
 - [x] **Phase 11:** Standalone `🎙️ Voice Library` Tab, Upgraded Staged Voice Designer, Pace Controls & Story Narration Workflow (`phase-11-verified`)
 - [x] **Phase 12:** Library Deletion, Storybook Preview, Prompt Remix, and Age-Vocab Controls (`phase-12-verified`)
+- [ ] **Phase 13:** Fireside Espresso UI Redesign, Dark-First Default, & Compact Mobile Studio Ergonomics (`phase-13-verified`)
 
 ---
 
@@ -1135,3 +1136,300 @@ Previously, custom voices could only be created inside Step 3 of a specific stor
   - Visually inspect every single Desktop & Mobile Light/Dark screenshot in `qa-screenshots/phase11-*.png` using multimodal vision (`read_file`), verifying contrast, mobile card spacing, expanded composer layout, and zero clipped text/buttons.
   - Run `npm run typecheck`, `npx tsc -p tsconfig.server.json`, `npm test`, `npm run build`, and `npm run test:e2e` directly in WSL.
   - Check off `[x]` Phases 9, 10, and 11 in Section 11 of `HANDOFF_PLAN.md`, commit `docs(plan): complete Phases 9-11 checklist items`, tag `phase-11-verified`, and push `main` + all tags to `origin`.
+
+---
+
+## 19. Phase 13: Fireside Espresso UI Redesign, Dark-First Default, & Compact Mobile Studio Ergonomics
+
+### 19.1 Context & Confirmed User Decisions
+This phase implements the **Fireside Espresso & Daylight Latte** design system overhaul across Storyteller Studio while preserving 100% of existing application capabilities, SPA routes, API contracts, and accessibility invariants.
+
+**Confirmed Architectural & Design Decisions (Non-Negotiable):**
+1. **Dark-First Default Theme (`Fireside Espresso`):**
+   - **Dark Mode (`Fireside Espresso` — `#15120F` deep espresso canvas, `#201B17` warm cocoa surface, `#D49B54` aged brass accents)** is now the **default theme** whenever `localStorage.getItem('story_theme')` is unset or `'dark'`.
+   - **Light Mode (`Daylight Latte` — `#F5EFE6` warm oatmilk canvas, `#FFFDF9` ivory parchment surface, `#1B4D3E` forest green accents)** is applied when the user explicitly toggles to light mode (`localStorage.getItem('story_theme') === 'light'`).
+   - Both `document.documentElement` (`<html>`) and `document.body` (`<body>`) must receive `data-theme="dark"` or `data-theme="light"` so every CSS selector (`:root`, `:root[data-theme="..."]`, `body[data-theme="..."]`) and every Playwright/Vitest DOM assertion behaves deterministically.
+2. **Typography Hierarchy (Keep Existing Serifs for Reading + Add `DM Sans` for Studio UI):**
+   - **Keep `Fraunces`** (`--font-heading`) for story titles, library headings, masthead brand, and drop caps.
+   - **Keep `Bitter`** (`--font-prose` / `--font-reading`) for story reading prose, dialogue turns, and narrative previews (`StoryReader.tsx`, `.prose-text`, `.dialogue-turn`, Storybook Preview).
+   - **Add `DM Sans`** (`--font-ui`) via Google Fonts in `index.html` for compact Studio UI controls, form labels, buttons, tabs, and inputs (`body` default font-family).
+   - **Keep `Fira Code`** (`--font-mono`) for vocal tag pills (`<short pause>`, `<gasp>`), timecodes, playback speed badges, and metadata badges.
+3. **Navigation & Mobile Layout Architecture (Desktop vs Mobile):**
+   - **Keep the global `Masthead.tsx` navigation** (`[📚 Library]` + `[🎛️ Studio]` / `[🎙️ Voice Library]` + `[☀️ Light]` / `[🌙 Dark]` theme toggle). On mobile (`<= 768px`), style `.masthead-inner` as a sleek single-row header (`padding: 8px 12px`) instead of stacking into 2 vertical rows.
+   - **Desktop (`> 768px`):** Preserve the 2-column Studio layout (`aside.studio-sidebar` on the left + `.studio-main-panel` on the right) and the unified single-scroll Workbench (where Step 2 `Script Editor` / `Storybook Preview` and Step 3 `VoiceStudioPanel` appear together).
+   - **Mobile (`<= 768px`):**
+     - Hide the static top-stacked `aside.studio-sidebar` (which previously pushed the workspace 380px down the page on phones) and replace it with a sticky **Mobile Studio Top Bar (`.studio-mobile-topbar`)** featuring:
+       1. **`🗂️ Stories ({stories.length}) ▼` Drawer Trigger Button** (with `+ New` badge when creating a new story) that opens a **Slide-Up Story Archive Drawer (`.studio-archive-drawer`)** bottom sheet (`max-height: 75vh`, backdrop overlay, search filter, `+ Create New Story / Sequel` button, and story list items that select the story and auto-close the drawer).
+       2. **Mobile 3-Step Segmented Switcher (`✍️ 1. Draft` | `🎛️ 2. Script` | `🎙️ 3. Voices`)** so mobile users can jump directly between Drafting (`#step-1-panel`), Script/Preview (`#step-2-panel`), and Voice Casting (`#step-3-panel`) without scrolling past 2,500px of script cards.
+
+---
+
+### 19.2 Critical CSS Variable & Backward-Compatibility Contract (`client/styles/kinetic.css`)
+
+> **CRITICAL ARCHITECTURAL FINDING:** Over **115 inline styles** across `DirectorStudio.tsx`, `VoiceStudioPanel.tsx`, `VoiceLibraryPage.tsx`, `VoiceDesigner.tsx`, `StoryReader.tsx`, and `App.tsx` directly reference legacy CSS custom property names (`var(--ink-primary)`, `var(--ink-prose)`, `var(--ink-muted)`, `var(--bg-well)`, `var(--accent-module)`, `var(--accent-module-bg)`, `var(--accent-root)`, `var(--accent-root-bg)`, `var(--accent-state)`, `var(--accent-state-bg)`, `var(--border-tactile)`, `var(--radius-tactile)`, `var(--shadow-tactile)`).
+>
+> **RULE:** Never delete the legacy CSS variable names! Define **both** the new Fireside Espresso / Daylight Latte semantic tokens **and** alias every legacy variable name to the new palette so 100% of existing inline styles automatically inherit the Fireside Espresso / Daylight Latte colors with zero broken styles.
+
+#### Exact Token Mapping Table for `client/styles/kinetic.css`:
+
+1. **Default / Dark Mode (`:root`, `:root[data-theme="dark"]`, `body[data-theme="dark"]` — *Fireside Espresso*):**
+   ```css
+   :root,
+   :root[data-theme="dark"],
+   body[data-theme="dark"] {
+     color-scheme: dark;
+
+     /* Surfaces */
+     --bg-canvas: #15120F;          /* Deep Roasted Espresso */
+     --bg-surface: #201B17;         /* Warm Dark Cocoa Card — rgb(32, 27, 23) */
+     --bg-well: #2A231E;            /* Elevated Input / Chip / Pill Well — rgb(42, 35, 30) */
+     --bg-elevated: #2A231E;
+     --bg-hover: #332A24;           /* Tactile Hover State */
+     --bg-glass: rgba(26, 21, 18, 0.95); /* Sticky Bars & Audio Dock */
+
+     /* Typography / Ink */
+     --ink-primary: #F4EFE6;        /* Warm Cream — rgb(244, 239, 230) */
+     --text-primary: #F4EFE6;
+     --ink-prose: #E6DEC8;          /* Soft Parchment for Long-Form Reading */
+     --text-secondary: #C8BBA8;
+     --ink-muted: #9A8B78;          /* Muted Latte Metadata */
+     --text-muted: #8E7F6D;
+
+     /* Accents (Aged Brass, Forest Sage, Terracotta) */
+     --accent-primary: #D49B54;     /* Warm Aged Brass / Amber Gold — rgb(212, 155, 84) */
+     --accent-primary-ink: #15120F; /* Dark Espresso Text on Brass Buttons — rgb(21, 18, 15) */
+     --accent-module: #D49B54;
+     --accent-module-bg: rgba(212, 155, 84, 0.18);
+
+     --accent-root: #52B788;        /* Warm Sage Green for Ready / Published Badges */
+     --accent-forest: #2D6A4F;
+     --accent-root-bg: rgba(45, 106, 79, 0.25);
+
+     --accent-state: #E06D44;       /* Warm Terracotta for Alerts / Delete / Recording */
+     --accent-danger: #C85A32;
+     --accent-state-bg: rgba(200, 90, 50, 0.20);
+
+     /* Borders, Radii & Shadows (Replaces Harsh 2px Brutalist Offset Shadows) */
+     --border-subtle: #382F28;
+     --border-focus: #D49B54;
+     --border-tactile: 1px solid var(--border-subtle);
+     --radius-tactile: 12px;
+     --radius-card: 14px;
+     --radius-pill: 9px;
+     --shadow-tactile: 0 8px 24px rgba(0, 0, 0, 0.45);
+     --shadow-card: 0 8px 24px rgba(0, 0, 0, 0.45);
+     --shadow-btn: 0 4px 14px rgba(212, 155, 84, 0.28);
+
+     /* Typography Stacks */
+     --font-heading: 'Fraunces', Georgia, serif;
+     --font-prose: 'Bitter', Georgia, serif;
+     --font-reading: 'Bitter', Georgia, serif;
+     --font-ui: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+     --font-mono: 'Fira Code', monospace;
+   }
+   ```
+
+2. **Light Mode (`:root[data-theme="light"]`, `body[data-theme="light"]` — *Daylight Latte*):**
+   ```css
+   :root[data-theme="light"],
+   body[data-theme="light"] {
+     color-scheme: light;
+
+     /* Surfaces */
+     --bg-canvas: #F5EFE6;          /* Warm Oatmilk Parchment */
+     --bg-surface: #FFFDF9;         /* Crisp Ivory Sheet — rgb(255, 253, 249) */
+     --bg-well: #EBE2D5;            /* Toasted Almond Input / Chip Well */
+     --bg-elevated: #EBE2D5;
+     --bg-hover: #E2D6C5;
+     --bg-glass: rgba(251, 248, 243, 0.95);
+
+     /* Typography / Ink */
+     --ink-primary: #211A14;        /* Deep Espresso Ink — rgb(33, 26, 20) */
+     --text-primary: #211A14;
+     --ink-prose: #2D241C;          /* Warm Book Ink */
+     --text-secondary: #5A4B3C;
+     --ink-muted: #6E5D4F;          /* Roasted Umber Metadata */
+     --text-muted: #8C7A68;
+
+     /* Accents */
+     --accent-primary: #1B4D3E;     /* Storyteller Forest Green — rgb(27, 77, 62) */
+     --accent-primary-ink: #FFFDF9; /* Crisp Ivory Text on Forest Green Buttons */
+     --accent-module: #1B4D3E;
+     --accent-module-bg: #DCECE6;
+
+     --accent-root: #1B4D3E;
+     --accent-forest: #1B4D3E;
+     --accent-root-bg: #DCECE6;
+
+     --accent-state: #C85A32;
+     --accent-danger: #C85A32;
+     --accent-state-bg: #FDECE6;
+
+     /* Borders & Shadows */
+     --border-subtle: #D8CBB8;
+     --border-focus: #1B4D3E;
+     --border-tactile: 1px solid var(--border-subtle);
+     --shadow-tactile: 0 4px 16px rgba(33, 26, 20, 0.06);
+     --shadow-card: 0 4px 16px rgba(33, 26, 20, 0.06);
+     --shadow-btn: 0 4px 12px rgba(27, 77, 62, 0.22);
+   }
+   ```
+
+3. **Surface & Button Refinements in `client/styles/kinetic.css`:**
+   - Update `body` `font-family` to `var(--font-ui)` while keeping `.prose-text`, `.dialogue-turn`, and `.reader-container` prose elements on `var(--font-prose)`.
+   - Update `.card-tactile` to `background-color: var(--bg-surface); border: var(--border-tactile); border-radius: var(--radius-card); box-shadow: var(--shadow-tactile);`.
+   - Update `.btn-tactile` to use `background-color: var(--bg-elevated); color: var(--ink-primary); border: var(--border-tactile); border-radius: var(--radius-pill); font-family: var(--font-ui);` and smooth hover transitions (`background-color: var(--bg-hover)` instead of `2px` brutalist offset shadows).
+   - Update `.btn-tactile-primary` to `background-color: var(--accent-primary); color: var(--accent-primary-ink); border-color: var(--accent-primary); box-shadow: var(--shadow-btn); font-weight: 700;`.
+   - Update `.dialogue-turn` in `StoryReader` to feature `border: 1px solid var(--border-subtle); border-left: 3px solid var(--accent-primary); background-color: var(--bg-surface);`.
+   - Replace any hardcoded `#FFFFFF` or `rgba(22, 31, 44, ...)` overrides inside `body[data-theme="dark"]` blocks at the bottom of `kinetic.css` with the Fireside Espresso variables (`var(--bg-surface)`, `var(--bg-elevated)`, `var(--bg-glass)`, `var(--accent-primary)`).
+
+---
+
+### 19.3 Component-by-Component Implementation Checklist
+
+#### 1. `index.html` & `client/components/Masthead.tsx` (Dark-First Theme & Compact Header)
+- **`index.html`:**
+  - Update the Google Fonts `<link>` to load `DM+Sans:ital,opsz,wght@0,9..40,400..700;1,9..40,400..700` alongside `Fraunces`, `Bitter`, and `Fira+Code`.
+  - Update the inline `<script>` in `<head>` so Dark Mode (`Fireside Espresso`) is the default:
+    ```html
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem('story_theme');
+          var theme = saved === 'light' ? 'light' : 'dark';
+          document.documentElement.setAttribute('data-theme', theme);
+          if (document.body) document.body.setAttribute('data-theme', theme);
+        } catch (e) {
+          document.documentElement.setAttribute('data-theme', 'dark');
+        }
+      })();
+    </script>
+    ```
+- **`client/components/Masthead.tsx`:**
+  - Initialize `theme` state with Dark-First logic:
+    ```ts
+    const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+      try {
+        const saved = localStorage.getItem('story_theme');
+        if (saved === 'light' || saved === 'dark') return saved;
+      } catch {
+        // ignore storage errors
+      }
+      if (
+        document.body.getAttribute('data-theme') === 'light' ||
+        document.documentElement.getAttribute('data-theme') === 'light'
+      ) {
+        return 'light';
+      }
+      return 'dark';
+    });
+    ```
+  - In `useEffect`, always set `data-theme` explicitly to `theme` (`'dark'` or `'light'`) on **both** `document.documentElement` and `document.body`, and persist `localStorage.setItem('story_theme', theme)`:
+    ```ts
+    useEffect(() => {
+      document.documentElement.setAttribute('data-theme', theme);
+      document.body.setAttribute('data-theme', theme);
+      try {
+        localStorage.setItem('story_theme', theme);
+      } catch {
+        // ignore
+      }
+    }, [theme]);
+    ```
+  - On mobile (`@media (max-width: 768px)` in `kinetic.css`), keep `.masthead-inner` as a compact single horizontal row (`flex-direction: row; justify-content: space-between; align-items: center; padding: 0.5rem 0.75rem; gap: 0.5rem;`) with compact brand text (`font-size: 1.05rem`) and compact nav pills so the top bar takes `<= 54px` of vertical height.
+
+#### 2. `client/components/StoryCatalog.tsx`, `StoryReader.tsx`, & `AudioPlayerBar.tsx`
+- **Horizontal Scrollable Tag Strip on Mobile (`StoryCatalog.tsx` + `kinetic.css`):**
+  - On `@media (max-width: 768px)`, style `.tag-pills-row` as a single horizontal swipeable strip (`display: flex; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 4px;`) with `flex: 0 0 auto; white-space: nowrap;` on `.tag-pill` so 12+ tags never push story cards down the screen.
+- **`StoryReader.tsx`:**
+  - Keep `Fraunces` drop-cap and `Bitter` prose (`1.125rem`, `line-height: 1.75`).
+  - Dialogue turn cards (`.dialogue-turn`) automatically pick up the warm `3px solid var(--accent-primary)` left accent border and warm dark/light surface.
+- **`AudioPlayerBar.tsx`:**
+  - Style `.audio-player-dock` with `background: var(--bg-glass); backdrop-filter: blur(14px); border-top: 1px solid var(--border-subtle);` and aged-brass play button / scrubber thumb.
+
+#### 3. `client/components/DirectorStudio.tsx` & `VoiceStudioPanel.tsx` (Mobile Drawer, Step Switcher, 2-Col Grids, Sticky CTA)
+- **Mobile Top Bar & Slide-Up Story Archive Drawer (`DirectorStudio.tsx`):**
+  - Add state: `const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);` and `const [mobileActiveStep, setMobileActiveStep] = useState<'draft' | 'script' | 'voices'>('draft');` (auto-switching `mobileActiveStep` to `'script'` when a story with script turns is selected or freshly drafted, or when `initialStep === 3` sets it to `'voices'`).
+  - Render `.studio-mobile-topbar` (visible on mobile `<= 768px`, hidden on desktop `> 768px` via CSS):
+    - Left button: `🗂️ Stories (${stories.length}) ▼` (`aria-label="Toggle Story Archive Drawer"`, `data-testid="mobile-stories-drawer-btn"`) that toggles `mobileDrawerOpen`.
+    - Right segmented bar (`.studio-mobile-steps`):
+      - `✍️ 1. Draft` (`data-testid="mobile-step-draft"`) — switches `mobileActiveStep` to `'draft'` and scrolls/reveals `#step-1-panel`.
+      - `🎛️ 2. Script` (`data-testid="mobile-step-script"`, disabled if `!selectedStory`) — switches `mobileActiveStep` to `'script'` and scrolls/reveals `#step-2-panel`.
+      - `🎙️ 3. Voices` (`data-testid="mobile-step-voices"`, disabled if `!selectedStory`) — switches `mobileActiveStep` to `'voices'` and scrolls/reveals `#step-3-panel`.
+  - Render the Slide-Up Story Archive Drawer when `mobileDrawerOpen` is true (`.studio-archive-drawer-backdrop` + `.studio-archive-drawer` sheet with header, close `✕` button, `+ Create New Story / Sequel` button, and the story cards list; clicking any story or `+ Create New Story` selects it and sets `setMobileDrawerOpen(false)`).
+  - **IMPORTANT TEST COMPATIBILITY NOTE:** Keep the existing `aside.studio-sidebar` in the DOM (on mobile `<= 768px`, either hide `.studio-sidebar` visually via CSS or allow the drawer to mirror it) so existing unit tests in `tests/` (which run in jsdom without media queries) and desktop E2E tests (`1440x900`) continue to find sidebar stories immediately without opening the mobile drawer! Similarly, on mobile (`<= 768px`), clicking `✍️ 1. Draft`, `🎛️ 2. Script`, or `🎙️ 3. Voices` can smoothly scroll to `#step-1-panel`, `#step-2-panel`, or `#step-3-panel` (or highlight the active step) while keeping `#step-1-panel`, `#step-2-panel`, and `#step-3-panel` rendered in the DOM so existing unit and E2E tests (`qa-phase10.spec.ts`, `qa-phase11.spec.ts`, `storybook.spec.ts`) that interact with Step 1, Step 2, and Step 3 on mobile (`375x812`) never fail due to unmounted DOM nodes!
+- **Compact 2-Column Mobile Grids (`kinetic.css` + `DirectorStudio.tsx`):**
+  - Add CSS classes onto the existing containers in `DirectorStudio.tsx`:
+    - `.studio-mode-grid` on the Mode A (`✨ Mode A: AI Writes Story`) / Mode B (`📝 Mode B: Paste Exact Script`) button container -> `display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;` on `<= 768px`.
+    - `.age-preset-pills` on the 4 Target Age Range buttons (`🐣 Ages 2–4`, `🎈 Ages 5–7`, `🚀 Ages 8–10`, `📚 Ages 11+`) -> `display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;` on `<= 768px`.
+    - `.vocab-pills` on the Custom Vocabulary override buttons -> `display: grid; grid-template-columns: 1fr 1fr; gap: 0.45rem;` on `<= 768px`.
+    - `.genre-presets-grid` on the 6 Genre/Tone buttons -> `display: grid; grid-template-columns: 1fr 1fr; gap: 0.45rem;` on `<= 768px`.
+- **Collapsible Continuity & Reference Lore Section (`DirectorStudio.tsx`):**
+  - Wrap the Optional Series Slug & Optional Reference Material / Lore fields in a clean `<details className="card-tactile continuity-accordion" open>` (or styled collapsible header).
+  - **CRITICAL JSDOM / TESTING-LIBRARY INVARIANT:** Default `<details open>` (or keep it open by default and collapsible via summary click) so any test querying buttons/inputs inside Reference Material via `@testing-library/react` `getByRole` / `getByPlaceholderText` finds them accessible immediately without needing `{ hidden: true }`.
+- **Sticky Mobile Step 1 Action Bar (`.studio-sticky-footer`):**
+  - Wrap or style the Step 1 submit bar (`✍️ 1. Write Story Draft` / `🎬 1. Direct Pasted Script`) with `.studio-sticky-footer` (`position: sticky; bottom: 0; z-index: 20; background: var(--bg-glass); backdrop-filter: blur(12px); padding: 0.65rem 0; border-top: 1px solid var(--border-subtle);`) showing a compact active settings summary pill (e.g., `🎈 5–7 yrs • 📖 Standard • ✨ Mode A`) above or beside the full-width Aged Brass CTA button.
+- **Turn Card Vocal Tag Strip (`DirectorStudio.tsx`):**
+  - Give the vocal tag quick-insert row on Script Turn cards class `.turn-vocal-tags-strip` (`display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 0.35rem; scrollbar-width: none;` on `<= 768px`) so the 6 tag pills sit on a single sleek horizontal strip instead of wrapping into 3 rows per turn card.
+
+---
+
+### 19.4 Exact Existing Test Files & Line Numbers That Must Be Updated
+
+Because Phase 13 changes the **default theme from Light to Dark (`Fireside Espresso`)** and replaces the **old brutalist 2px borders / Dark Slate `#161F2C` (`rgb(22, 31, 44)`) colors** with **1px tactile borders / Fireside Espresso `#201B17` (`rgb(32, 27, 23)`) & `#2A231E` (`rgb(42, 35, 30)`) and Aged Brass `#D49B54` (`rgb(212, 155, 84)`)**, the following existing test files have hardcoded assertions that **MUST** be updated in synchronization with the implementation:
+
+1. **`tests/ui.test.tsx` (Lines 260–277 — Gate Test 4: Theme toggle):**
+   - *Current assertion:* Expects initial `document.body.getAttribute('data-theme')` not to be `'dark'`, 1st click sets `'dark'`, 2nd click sets `'light'`.
+   - *Required update:* Expect initial `document.body.getAttribute('data-theme')` to be `'dark'` (Fireside Espresso default); 1st click on the theme button (`/light|dark/i`) switches to `'light'` (`localStorage.getItem('story_theme') === 'light'`); 2nd click switches back to `'dark'` (`localStorage.getItem('story_theme') === 'dark'`).
+
+2. **`tests/e2e/storybook.spec.ts`:**
+   - **Lines 52–56:** Currently asserts `initialColorScheme` is `'light'`. Update to assert `initialColorScheme` is `'dark'` (since Dark Mode is now default!).
+   - **Lines 129–162 (Theme toggle & Dark Mode computed RGB check):**
+     - Since the page now starts in Dark Mode (`data-theme="dark"`), verify the Dark Mode computed styles (`data-theme="dark"`), and click the theme toggle to verify Light Mode (`data-theme="light"`), leaving the mode in the state expected by subsequent lines or toggling back cleanly.
+     - Update the hardcoded old Dark Slate RGB assertions (`rgb(22, 31, 44)`, `rgb(241, 245, 249)`, `rgb(30, 27, 75)`) to the new **Fireside Espresso Dark** computed RGB values:
+       - `themeBtnStyles.bg` (`.btn-tactile`): `rgb(42, 35, 30)` (`#2A231E` `--bg-elevated`) or `rgb(32, 27, 23)` (`#201B17` `--bg-surface`), and `themeBtnStyles.color`: `rgb(244, 239, 230)` (`#F4EFE6` `--ink-primary`).
+       - `playBtnStyles.bg` (`.btn-tactile-primary`): `rgb(212, 155, 84)` (`#D49B54` `--accent-primary`), and `playBtnStyles.color`: `rgb(21, 18, 15)` (`#15120F` `--accent-primary-ink`).
+   - **Lines 280–289 & Lines 395–402 (Reader & Studio Dark Mode RGB assertions):**
+     - Note that in these tests, clicking `themeBtn` once from a fresh page (or after preserving localStorage) toggles the theme. Ensure the test explicitly checks/sets `data-theme="dark"` before asserting Dark Mode styles, and update `rgb(22, 31, 44)` / `rgb(241, 245, 249)` to Fireside Espresso's `rgb(32, 27, 23)` (or `rgb(42, 35, 30)`) and `rgb(244, 239, 230)`.
+   - **Lines 801–810 (Phase 12 E2E theme toggle screenshots):**
+     - Ensure light vs dark screenshot captures (`phase12-desktop-library-reader-light.png` and `-dark.png`) match the actual active `data-theme` attribute (`light` vs `dark`).
+
+3. **`tests/e2e/qa-phase5.spec.ts`:**
+   - **Lines 67–68:** `rootColorScheme` on initial load is now `'dark'` (Fireside Espresso default).
+   - **Lines 97–101:** Asserts `.card-tactile` border and shadow. Update `expect(cardBox.borderWidth).toBe('2px')` -> `toBe('1px')`, keep `borderStyle: 'solid'`, and verify `cardBox.boxShadow` is non-empty (`not.toBe('none')`).
+   - **Lines 151–182 & Lines 368–372:** Update theme toggle sequence to account for Dark-First default (`dark` -> click -> `light` -> click -> `dark`) and verify `colorScheme` matches `'dark'` in dark mode and `'light'` in light mode.
+
+4. **`tests/e2e/qa-phase10.spec.ts` & `tests/e2e/qa-phase11.spec.ts`:**
+   - **In `qa-phase10.spec.ts` (Lines 252–255, 303–304)** and **`qa-phase11.spec.ts` (Lines 160–172, 271–272):**
+     - These tests click `themeBtn` assuming initial state is `light` (`await themeBtn.click(); await expect(page.locator('body')).toHaveAttribute('data-theme', 'dark');`).
+     - Because initial state is now `dark`, update those blocks so they verify `dark` mode and toggle to `light` mode (or use a small helper to switch to the target theme before asserting `toHaveAttribute('data-theme', 'dark')` / `'light'`).
+
+5. **New Phase 13 Tests (`tests/phase13FiresideRedesign.test.tsx` & `tests/e2e/qa-phase13.spec.ts`):**
+   - **Unit/Component Tests (`tests/phase13FiresideRedesign.test.tsx`):**
+     - Verify Dark-First default initialization in `Masthead` (`data-theme="dark"` on both `document.documentElement` and `document.body` when `localStorage` is empty, and respects saved `'light'` when `localStorage.getItem('story_theme') === 'light'`).
+     - Verify `DirectorStudio` Mobile Top Bar (`🗂️ Stories (N)` drawer button opens and closes the Slide-Up Story Archive Drawer, selecting a story in the drawer loads the story and closes the drawer, and `✍️ 1. Draft` / `🎛️ 2. Script` / `🎙️ 3. Voices` buttons switch active mobile steps).
+   - **Playwright E2E Visual & Ergonomics Suite (`tests/e2e/qa-phase13.spec.ts`):**
+     - Verify zero horizontal overflow (`document.documentElement.scrollWidth <= window.innerWidth`) at `375x812` Mobile and `1440x900` Desktop in both Fireside Espresso (`dark`) and Daylight Latte (`light`).
+     - Capture 6 high-resolution verification screenshots into `qa-screenshots/`:
+       1. `qa-screenshots/phase13-mobile-studio-espresso-dark.png` (`375x812` Mobile Studio Step 1 in Fireside Espresso Dark)
+       2. `qa-screenshots/phase13-mobile-drawer-espresso-dark.png` (`375x812` Mobile Slide-Up Story Archive Drawer open)
+       3. `qa-screenshots/phase13-mobile-workbench-espresso-dark.png` (`375x812` Mobile Studio Step 2 Storybook Preview & Script Editor)
+       4. `qa-screenshots/phase13-mobile-reader-espresso-dark.png` (`375x812` Mobile Public Reader + Compact Glass Audio Player in Fireside Espresso Dark)
+       5. `qa-screenshots/phase13-mobile-reader-latte-light.png` (`375x812` Mobile Public Reader + Audio Player in Daylight Latte Light)
+       6. `qa-screenshots/phase13-desktop-studio-espresso-dark.png` (`1440x900` Desktop 2-Column Studio in Fireside Espresso Dark)
+
+---
+
+### 19.5 Subagent Grouping & Orchestration Strategy for Phase 13
+
+Per `AGENTS.md` and `SUBAGENT_ORCHESTRATION_PLAYBOOK.md`, Phase 13 is a tightly coupled frontend design-system, component-layout, and E2E test update.
+- **Single Cohesive Subagent Assignment (Recommended):**
+  - Spawn **one** `phase-builder` (`Model: "flash"`, `Workspace: "inherit"`) subagent to execute all of Phase 13 in a single shared context window. Grouping the CSS token overhaul, component layout updates, and test updates into the **same** subagent prevents split-context mismatches between CSS computed RGB values and Playwright E2E assertions.
+- **Iterative Review & Fix Loop:**
+  - Once the `phase-builder` subagent reports completion, the Lead Architect MUST:
+    1. Read `git diff` across `index.html`, `client/styles/kinetic.css`, `client/components/*.tsx`, and `tests/**` line-by-line.
+    2. Inspect all 6 `qa-screenshots/phase13-*.png` images firsthand with multimodal vision (`read_file`).
+    3. Run `npm run typecheck`, `npx tsc -p tsconfig.server.json`, `npm test`, and `npm run build && npx playwright test` firsthand in WSL.
+    4. If any visual contrast flaw, mobile overflow, or test failure is found, write `docs/reviews/phase-13-review.md` and message the **same** subagent (`send_message`) to iterate until 100% of gates pass.
+    5. When verified, check off Phase 13 in `HANDOFF_PLAN.md`, tag `phase-13-verified`, and push `main` + tags to `origin`.
+
