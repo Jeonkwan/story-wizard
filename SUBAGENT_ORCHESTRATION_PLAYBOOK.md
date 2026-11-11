@@ -10,12 +10,12 @@ When building a full-stack application in a single agent conversation, two failu
 1. **Context Window Bloating:** Writing thousands of lines of code, debugging test failures, and running builds across 4–5 phases pollutes the main agent's context window, degrading architectural judgment in later phases.
 2. **Self-Grading Blind Spots:** An agent that writes a feature and immediately writes its own audit report often overlooks subtle edge cases, visual regressions, or build steps it forgot to re-run after a last-minute edit.
 
-### The Solution: Architect-Orchestrator + Dedicated Per-Phase Subagents
+### The Solution: Architect-Orchestrator + Context-Aware Builder Subagents
 
 | Role | Model Tier | Core Responsibilities | What It NEVER Does |
 | :--- | :--- | :--- | :--- |
-| **Lead Architect & Orchestrator** *(Parent Agent)* | High-Reasoning (`Pro` / `Argon`) | • Designs architecture, shared types, & API contracts (`HANDOFF_PLAN.md`, `AGENTS.md`, `.agents/skills/`).<br>• Probes real SDK type definitions & live API keys before dispatching.<br>• Spawns **1 dedicated subagent per phase** (`invoke_subagent`).<br>• **Reads every source file, test file, and UI screenshot firsthand.**<br>• Writes `docs/reviews/phase-N-review.md` and re-messages the **same** phase subagent (`send_message`) until 100% clean.<br>• Runs final verification commands & owns `phase-N-verified` Git tags. | • Never blindly trusts a subagent's self-audit report.<br>• Never mixes multiple phases in one subagent.<br>• Never spawns a brand-new subagent to fix bugs in an active phase (always reuses the phase's existing subagent via `send_message`). |
-| **Phase Builder Engineer** *(Subagent)* | Fast Execution (`flash`) | • Executes a single, tightly scoped phase (`Phase N`) end-to-end.<br>• Writes production code, unit/integration/E2E tests, and captures headless browser screenshots.<br>• Writes `docs/audits/phase-N-audit.md` and commits `feat(phase-N): ...`.<br>• Fixes every `[ ]` item in `docs/reviews/phase-N-review.md`, adds regression tests, and commits `fix(phase-N): ...`. | • Never creates or moves `phase-N-verified` Git tags.<br>• Never modifies scope outside Phase `N` or violates `AGENTS.md` guardrails. |
+| **Lead Architect & Orchestrator** *(Parent Agent)* | High-Reasoning (`Pro` / `Argon`) | • Designs architecture, shared types, & API contracts (`HANDOFF_PLAN.md`, `AGENTS.md`, `.agents/skills/`).<br>• Probes real SDK type definitions & live API keys before dispatching.<br>• **Groups tasks/phases intelligently by shared context** so related work runs in the same subagent (`invoke_subagent`) without wasting tokens re-feeding context.<br>• **Reads every source file, test file, and UI screenshot firsthand.**<br>• Writes `docs/reviews/phase-N-review.md` and re-messages the **same** phase subagent (`send_message`) until 100% clean.<br>• Runs final verification commands & owns `phase-N-verified` Git tags. | • Never blindly trusts a subagent's self-audit report.<br>• Never spawns a brand-new subagent to fix bugs in an active phase or to run tightly coupled tasks that share the exact same context (always reuses the existing subagent via `send_message` or groups them together). |
+| **Phase Builder Engineer** *(Subagent)* | Fast Execution (`flash`) | • Executes the assigned phase or cohesive task group end-to-end.<br>• Writes production code, unit/integration/E2E tests, and captures headless browser screenshots.<br>• Writes `docs/audits/phase-N-audit.md` and commits `feat(phase-N): ...`.<br>• Fixes every `[ ]` item in `docs/reviews/phase-N-review.md`, adds regression tests, and commits `fix(phase-N): ...`. | • Never creates or moves `phase-N-verified` Git tags.<br>• Never modifies scope outside the assigned work or violates `AGENTS.md` guardrails. |
 
 ---
 
@@ -34,9 +34,24 @@ flowchart TD
     E -- "No (100% Clean)" --> I["6. Tag Milestone & Advance<br/>(git tag -f phase-N-verified -> Start Phase N+1)"]
 ```
 
-### Why Reusing the Same Subagent per Phase Matters
-- When the Architect finds 4–6 issues during code review, sending those findings via `send_message` to the **same** subagent (`conversationId`) that built Phase `N` means the subagent already has all Phase `N` files, test fixtures, and design decisions in its working memory.
-- Once Phase `N` is tagged `phase-N-verified`, start Phase `N+1` with a **fresh** subagent (`invoke_subagent`) so Phase `N+1` starts with a clean, uncluttered context window.
+### Why Reusing & Grouping by Shared Context Matters
+- **Context-Aware Task Grouping:** Before spawning subagents, evaluate whether multiple tasks or sub-phases share the same files, components, CSS tokens, or E2E test suites. If they share context, group them into the **same** subagent assignment rather than spawning separate agents and wasting tokens re-feeding the codebase from scratch. Only split work across separate subagents when architectural boundaries are clean and independent (e.g., Backend Storage vs. Frontend UI).
+- **Iterative Review on the Same Subagent:** When the Architect finds issues during code review, sending those findings via `send_message` to the **same** subagent (`conversationId`) that built Phase `N` means the subagent already has all Phase `N` files, test fixtures, and design decisions in its working memory.
+- **Clean Slate for Unrelated Phases:** Once a phase is tagged `phase-N-verified` and the next phase touches a completely different subsystem, start with a fresh subagent (`invoke_subagent`) so its context window stays lean.
+
+---
+
+## 2.5 On-Demand "Orchestration Planning" Mode (Two-Session Handoff Pattern)
+
+When a feature or redesign requires interactive exploration, visual prototyping, or user alignment before execution, you can separate **Orchestration Planning** (Session 1) from **Orchestrator Execution** (Session 2).
+
+- **Explicit Trigger Only:** This mode is **only** activated when the user explicitly says *"let's do orchestration planning"*, *"let's turn this into an orchestration plan"*, or asks to prepare a handoff plan for another agent session.
+- **Authoritative Skill Reference:** See `.agents/skills/orchestration-planning/SKILL.md` for the full 5-step protocol:
+  1. Explore the codebase, critically evaluate references, build interactive previews if needed, and align with the user (without executing the feature build).
+  2. Audit exact file contracts, backward-compatibility invariants, and exact line numbers of impacted unit/E2E tests.
+  3. Decide the optimal **Context-Aware Subagent Grouping** (single subagent for shared-context tasks vs. separate subagents for decoupled subsystems).
+  4. Persist the self-contained specification into `HANDOFF_PLAN.md` on disk (and sync Windows + WSL).
+  5. Output a **Ready-to-Paste Orchestrator Kickstart Prompt** to launch the execution session.
 
 ---
 

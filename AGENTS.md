@@ -22,13 +22,24 @@ Storyteller Studio strictly enforces a two-tier agentic architecture: **Lead Arc
   - Commits `feat(phase-N): <concise summary>` inside WSL.
   - Never tags milestones.
 
-### B. The Per-Phase Review & Messaging Loop
-1. When a builder subagent reports completion, the Lead Architect inspects the git diff, tests, and screenshots firsthand.
-2. If any bugs, contrast issues, or edge cases exist, the Architect writes `docs/reviews/phase-N-review.md` with open `[ ]` items and commits `docs(review): add Phase N review findings`.
-3. The Architect re-messages the **SAME** active subagent via `send_message(Recipient: <conversationId>)`. Never spawn a new subagent to fix an active phase's review items.
-4. The builder subagent fixes each item, adds regression tests, marks items `[x]`, updates `docs/audits/phase-N-audit.md`, and commits `fix(phase-N): address code review findings`.
+### B. Context-Aware Task Grouping & The Iterative Review Loop
+- **Context-Aware Subagent Grouping (Token & Context Efficiency):**
+  - Decide whether tasks/phases should be assigned to a **single cohesive subagent** or **separate dedicated subagents** based on context overlap:
+  - When multiple tasks or sub-phases touch the **same files, components, CSS tokens, or test suites**, group them together and hand them to the **SAME** subagent so it leverages its existing working memory without wasting tokens re-reading the codebase from scratch.
+  - When phases have clean, decoupled boundaries (e.g., independent backend storage work vs. frontend UI overhaul), spawn a dedicated subagent per phase to keep context windows lean.
+- **Per-Phase Review & Messaging Loop:**
+  1. When a builder subagent reports completion, the Lead Architect inspects the git diff, tests, and screenshots firsthand (never blindly trusting the subagent's self-audit).
+  2. If any bugs, contrast issues, or edge cases exist, the Architect writes `docs/reviews/phase-N-review.md` with open `[ ]` items and commits `docs(review): add Phase N review findings`.
+  3. The Architect re-messages the **SAME** active subagent via `send_message(Recipient: <conversationId>)`. Never spawn a new subagent to fix an active phase's review items.
+  4. The builder subagent fixes each item, adds regression tests, marks items `[x]`, updates `docs/audits/phase-N-audit.md`, and commits `fix(phase-N): address code review findings`.
 
-### C. Active Subagent Monitoring & Process Deadlock Recovery
+### C. On-Demand Orchestration Planning Mode (Explicit User Request Only)
+- **Trigger Condition:** Do **NOT** run Orchestration Planning Mode on every session. Activate it **ONLY** when the user explicitly requests it (e.g., *"let's do orchestration planning"*, *"let's turn this into an orchestration plan"*, or *"prepare an orchestration plan for another agent session"*).
+- **Workflow:** When explicitly triggered, immediately read and follow `.agents/skills/orchestration-planning/SKILL.md`:
+  1. Do **not** implement the production feature or spawn builder subagents in the planning session.
+  2. Explore the codebase, align with the user on design/architecture decisions, audit exact file and test-line impacts, decide the optimal **Context-Aware Subagent Grouping**, persist the self-contained blueprint into `HANDOFF_PLAN.md`, and output a **Ready-to-Paste Orchestrator Kickstart Prompt** for the next agent session.
+
+### D. Active Subagent Monitoring & Process Deadlock Recovery
 - Subagents running terminal tasks can become blocked by commands that prompt on stdin (e.g., interactive prompts or unauthenticated `git pull`).
 - When a subagent enters `state: "waiting_for_dependents"` or appears stalled, the Lead Architect must:
   1. Inspect the subagent's transcript (`Get-Content <subagent-dir>/transcript.jsonl -Tail 20`).
@@ -36,7 +47,7 @@ Storyteller Studio strictly enforces a two-tier agentic architecture: **Lead Arc
   3. Terminate the blocking process (`kill -9 <pid>`).
   4. Verify the subagent immediately resumes execution without losing working memory.
 
-### D. Single Audit Location & Production ESM Verification
+### E. Single Audit Location & Production ESM Verification
 - **Single Audit Path:** Write completion audit reports ONLY to `docs/audits/phase-N-audit.md` (never create duplicate `PHASE_N_AUDIT.md` at root).
 - **Mandatory Production ESM Check:** Passing `vitest` (`npm test`) is NOT sufficient because Vitest/tsx resolves extensionless imports that crash native Node ESM (`npm start`). Every phase MUST verify that `npx tsc -p tsconfig.server.json` succeeds under `"module": "NodeNext", "moduleResolution": "NodeNext"` and that compiled `dist/server/**/*.js` modules import cleanly under plain `node` (`tests/esm-build.test.ts`).
 
