@@ -30,13 +30,24 @@ Because the next Orchestrator Agent session will start with a fresh context wind
 1. **Backward-Compatibility & Shared Contracts:** Identify existing types, CSS custom properties, API routes, or storage schemas referenced across the codebase so the new implementation does not silently break inline styles or callers.
 2. **Exact Impacted Test Files & Line Numbers:** Grep and read `tests/**/*.test.ts(x)` and `tests/e2e/**/*.spec.ts` to find every existing assertion that will be affected by the planned changes (e.g., default states, DOM structure, computed styles, border widths, or theme sequences). Record the exact file paths and line numbers so the subagent updates them cleanly on the first pass.
 
-### Step 3: Context-Aware Subagent Grouping Strategy
-Decide how the next Orchestrator Agent should group the work across `phase-builder` (`Model: "flash"`) subagents based on **context cohesion and token efficiency**:
-- **When to Group Tasks/Phases into the SAME Subagent:**
-  - If multiple tasks or sub-phases modify the **same files, components, CSS tokens, or E2E test suites**, group them into a **single cohesive subagent assignment** (or instruct the Orchestrator to reuse the same subagent via `send_message`).
-  - *Why:* The subagent already holds those files, DOM structures, and test fixtures in working memory—spawning a second subagent would waste thousands of tokens re-reading the same context from scratch and risk mismatches between implementation and tests.
-- **When to Split Into Separate Subagents:**
-  - If phases have clean, decoupled architectural boundaries (e.g., **Phase A:** Backend Storage & Gemini API Routes vs. **Phase B:** Frontend Studio UI & Playwright E2E), assign each phase to its own dedicated subagent so neither subagent's context window gets bloated.
+### Step 3: Workload Evaluation, Execution Mode Selection, & Subagent Grouping
+Evaluate the **number of files, workload size, and architectural complexity**, and explicitly recommend one of the **3 Execution Modes** (plus how to group any subagent tasks):
+
+1. **Choose the Optimal Execution Mode:**
+   - **Mode 1 — Direct Main Agent Execution (No Subagent Needed):**
+     - Recommend this when the change is small or surgical (e.g., 1–3 files, targeted bugfix, small config/type adjustment, or standalone documentation) where spawning a subagent would waste more tokens feeding context than executing directly.
+   - **Mode 2 — Hybrid Execution (Main Agent + Subagent Partnership):**
+     - Recommend this when the Main Agent should directly implement foundational/high-reasoning pieces (e.g., `shared/types.ts`, core API/service contracts, subtle state logic, and all standalone documentation) while delegating bounded, high-volume tasks (e.g., multi-component UI updates, bulk unit tests, Playwright E2E specs, and screenshot capture) to a `flash` subagent within its scope.
+   - **Mode 3 — Full Subagent Delegation (Large / Multi-File Feature Phases):**
+     - Recommend this when a phase involves heavy multi-file implementation and extensive test suites best executed end-to-end by a `flash` subagent under the Main Agent's Firsthand Verification and Review Loop.
+
+2. **Documentation vs. Inline Code Comments Ownership Rule (Non-Negotiable):**
+   - **Standalone Documentation -> Main Agent ONLY:** All project, architecture, skill, and review documentation (`HANDOFF_PLAN.md`, `AGENTS.md`, `SUBAGENT_ORCHESTRATION_PLAYBOOK.md`, `README.md`, `.agents/skills/*/SKILL.md`, `docs/reviews/*.md`, guides) **must be authored by the Main Agent**.
+   - **Inline Comments & Function Docstrings -> Whoever Writes the Code:** Whoever writes a piece of code writes its inline comments and JSDoc/TSDoc function docstrings (if the subagent writes the code, the subagent writes its inline comments/docstrings; if the Main Agent writes the code, the Main Agent writes its inline comments/docstrings).
+
+3. **Context-Aware Subagent Grouping (When Using Mode 2 Hybrid or Mode 3 Full Subagent):**
+   - **Group into the SAME Subagent:** When multiple tasks or sub-phases touch the **same files, components, CSS tokens, or E2E test suites**, group them into a **single cohesive subagent assignment** (or reuse the same subagent via `send_message`) so it leverages its existing working memory without wasting tokens re-reading context from scratch.
+   - **Split into Separate Subagents:** Only split across separate subagents when phases have clean, decoupled architectural boundaries (e.g., Backend Storage/API vs. Frontend Studio UI).
 
 ### Step 4: Persist the Self-Contained Blueprint to Repository Disk (`HANDOFF_PLAN.md`)
 > **CRITICAL RULE:** Artifacts written to `<appDataDir>/brain/<conversation-id>/` belong only to the current conversation ID and are **not** automatically loaded by a new agent session.
@@ -77,8 +88,8 @@ Before taking any action, read these three files in full:
 - Always sync changes between `/mnt/c/Users/m93/projects/story-wizard` and `/home/ubuntu/story-wizard` before running `npm run typecheck`, `npm test`, `npm run build`, or `npx playwright test`.
 
 ### Your Orchestration Mission:
-1. Define the `phase-builder` subagent via `define_subagent` (`EnableWriteTools: true`, `EnableSubagentTools: false`, `EnableMCPTools: false`).
-2. **Subagent Grouping Strategy:** <State whether to group all of Phase N into one cohesive `phase-builder` (`Model: "flash"`, `Workspace: "inherit"`) subagent so related files/tests share the same context window, or how to sequence subagents across phases.>
+1. **Execution Mode & Subagent Strategy:** <State the recommended mode based on file count/complexity: (A) Direct Main Agent Execution, (B) Hybrid Approach (specify exact files Main Agent handles vs. exact scope delegated to `phase-builder` `flash` subagent), or (C) Full Subagent Delegation (and whether grouped into one cohesive `phase-builder` subagent or split across decoupled phases). Note: All standalone documentation must be written by the Main Agent, while inline comments and function docstrings are written by whoever writes the code.>
+2. If spawning a subagent (Hybrid or Full Delegation), define `phase-builder` via `define_subagent` (`EnableWriteTools: true`, `EnableSubagentTools: false`, `EnableMCPTools: false`) and invoke with `Model: "flash"`, `Workspace: "inherit"`.
 3. When the subagent completes, perform strict **Firsthand Verification** (never blindly trust the subagent's self-audit):
    - Read every modified/created source and test file line-by-line (`read_file` / `git diff`).
    - Inspect all captured `qa-screenshots/phase<N>-*.png` images using `read_file` vision.
