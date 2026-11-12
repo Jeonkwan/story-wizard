@@ -5,6 +5,7 @@ import type {
   ScriptTurn,
   Story,
   StoryAgeRange,
+  StoryLength,
   StoryVocabularyLevel,
   StoryPromptMetadata,
   VoiceCasting,
@@ -13,7 +14,7 @@ import type {
   VoicePace,
 } from '../../shared/types';
 
-export type { StoryAgeRange, StoryVocabularyLevel, StoryPromptMetadata };
+export type { StoryAgeRange, StoryLength, StoryVocabularyLevel, StoryPromptMetadata };
 
 export class ApiError extends Error {
   constructor(
@@ -149,8 +150,14 @@ export interface WriteStoryDraftPayload {
   seriesId?: string;
   previousStoryId?: string;
   ageRange?: StoryAgeRange;
+  ageGroup?: StoryAgeRange;
+  storyLength?: StoryLength;
   vocabularyLevel?: StoryVocabularyLevel;
   genrePreset?: string;
+  autoDirect?: boolean;
+  autoSynthesize?: boolean;
+  narratorVoiceId?: string;
+  avoidCharacterNames?: string[];
   async?: boolean;
   onProgress?: (job: JobProgress) => void;
   pollIntervalMs?: number;
@@ -183,6 +190,9 @@ export async function writeStoryDraft(
 
   return handleResponse<Story>(res);
 }
+
+/** Alias for writeStoryDraft */
+export const writeStory = writeStoryDraft;
 
 export async function directStory(
   storyId: string,

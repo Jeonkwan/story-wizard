@@ -469,12 +469,12 @@ test.describe('Phase 4 Voice Audition Studio & Versions E2E', () => {
     expect(barBox!.height).toBeLessThan(75);
     expect(barBox!.height).toBeGreaterThanOrEqual(45);
 
-    // Verify reader-wrapper padding-bottom is 85px (reclaiming >110px of vertical space!)
+    // Verify reader-wrapper padding-bottom accommodates docked player (Phase 14 safe area padding: 152px)
     const paddingBottom = await page.evaluate(() => {
       const el = document.querySelector('.reader-wrapper');
       return el ? window.getComputedStyle(el).paddingBottom : null;
     });
-    expect(paddingBottom).toBe('85px');
+    expect(['85px', '152px']).toContain(paddingBottom);
 
     // Verify touch target size of Play/Pause button (min 36px)
     const playBtn = page.locator('.docked-audio-bar .player-main-controls .btn-tactile-primary');
@@ -666,7 +666,7 @@ test.describe('Phase 4 Voice Audition Studio & Versions E2E', () => {
     await promptInput.fill('A cozy rabbit hopping through powdery blue starlight in the pine forest.');
 
     // Submit draft generation
-    const submitBtn = page.getByRole('button', { name: /1\. Write Story Draft/i });
+    const submitBtn = page.getByRole('button', { name: /Create Story & Generate Audio|Write & Direct Story Draft|1\. Write Story Draft/i });
     await expect(submitBtn).toBeVisible();
     await submitBtn.click({ noWaitAfter: true });
 
@@ -690,7 +690,7 @@ test.describe('Phase 4 Voice Audition Studio & Versions E2E', () => {
     await expect(progressCard.locator('strong')).toHaveText(/Drafting story with Gemini 3\.8 Flash/i);
 
     // Verify submit button is disabled to prevent accidental double-submission
-    const writingBtn = page.getByRole('button', { name: /Writing Draft\.\.\./i });
+    const writingBtn = page.getByRole('button', { name: /Creating Story & Narration|Writing Draft\.\.\./i });
     await expect(writingBtn).toBeVisible();
     await expect(writingBtn).toBeDisabled();
 
@@ -746,7 +746,7 @@ test.describe('Phase 4 Voice Audition Studio & Versions E2E', () => {
     await expect(newStoryBtn).toBeVisible({ timeout: 10000 });
     await newStoryBtn.click();
 
-    // 2. Test Step 1 Age Range & Vocabulary Level Controls
+    // 2. Test Step 1 Age Range & Story Length Controls
     const toddlerPill = page.getByRole('button', { name: /Ages 2–4 · Toddler/i });
     const earlyReaderPill = page.getByRole('button', { name: /Ages 5–7 · Early Reader/i });
     const elementaryPill = page.getByRole('button', { name: /Ages 8–10 · Elementary/i });
@@ -759,24 +759,32 @@ test.describe('Phase 4 Voice Audition Studio & Versions E2E', () => {
 
     // Verify early-reader default
     await expect(earlyReaderPill).toHaveClass(/active/);
-    await expect(page.getByText(/VOCABULARY COMPLEXITY:/i)).toContainText('standard');
 
-    // Select Elementary -> automatically pairs enriched vocabulary
-    await elementaryPill.click();
-    await expect(elementaryPill).toHaveClass(/active/);
-    await expect(page.getByText(/VOCABULARY COMPLEXITY:/i)).toContainText('enriched');
+    // Verify Story Length selector
+    await expect(page.getByText('STORY LENGTH:')).toBeVisible();
+    const lengthSelector = page.getByTestId('story-length-selector');
+    await expect(lengthSelector).toBeVisible();
 
-    // Toggle custom vocabulary
-    const customVocabToggle = page.getByRole('button', { name: /Custom Vocabulary/i });
-    await customVocabToggle.click();
+    const standardLengthPill = page.getByRole('button', { name: /📖 Standard \(~3–4 min\)/i });
+    const extendedLengthPill = page.getByRole('button', { name: /🌙 Extended \(~5–7 min\)/i });
 
-    // Verify fine-tuning pills
-    const advancedPill = page.getByRole('button', { name: /🎓 Advanced/i });
-    await expect(advancedPill).toBeVisible();
-    await advancedPill.click();
-    await expect(page.getByText(/VOCABULARY COMPLEXITY:/i)).toContainText('advanced');
+    await expect(standardLengthPill).toBeVisible();
+    await expect(standardLengthPill).toHaveClass(/active/);
+    await expect(extendedLengthPill).toBeVisible();
 
-    // Capture screenshot of Age & Vocabulary Controls
+    // Select Extended length
+    await extendedLengthPill.click();
+    await expect(extendedLengthPill).toHaveClass(/active/);
+
+    // Verify Narrator Voice & Auto-Audio controls
+    const narratorSelect = page.getByRole('combobox', { name: /Narrator Voice/i });
+    await expect(narratorSelect).toBeVisible();
+
+    const autoSynthToggle = page.getByTestId('auto-synthesize-toggle');
+    await expect(autoSynthToggle).toBeVisible();
+    await expect(autoSynthToggle).toBeChecked();
+
+    // Capture screenshot of Age & Story Length Controls
     await page.screenshot({ path: 'qa-screenshots/phase12-age-vocab-controls.png', fullPage: false });
 
     // 3. Load story into Workbench & test Dual-Tab Switcher

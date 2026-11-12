@@ -1032,7 +1032,7 @@ describe('Phase 3 Admin Studio & UI Components', () => {
       const promptTextarea = screen.getByPlaceholderText(/A comedic sci-fi adventure/i);
       fireEvent.change(promptTextarea, { target: { value: 'Comedic space robot mystery' } });
 
-      const submitBtn = screen.getByRole('button', { name: /1\. Write Story Draft/i });
+      const submitBtn = screen.getByRole('button', { name: /Create Story & Generate Audio|Write & Direct Story Draft|1\. Write Story Draft/i });
       fireEvent.click(submitBtn);
 
       // Verify inputs and buttons are disabled during writing
@@ -1257,7 +1257,7 @@ describe('Phase 3 Admin Studio & UI Components', () => {
       });
 
       // Verify prompt textarea and submit buttons are disabled
-      const writeBtn = screen.getByRole('button', { name: /Writing Draft\.\.\./i });
+      const writeBtn = screen.getByRole('button', { name: /Creating Story & Narration|Writing Draft\.\.\./i });
       expect(writeBtn).toBeDisabled();
 
       const promptInput = screen.getByPlaceholderText(/A comedic sci-fi adventure|A gentle, soothing bedtime story/i);
@@ -1509,9 +1509,25 @@ describe('Phase 3 Admin Studio & UI Components', () => {
       expect(onDeleteStory).toHaveBeenCalledWith('phase12-story-1');
     });
 
-    it('DirectorStudio provides Age Range & Vocabulary preset pills and pairs defaults correctly', async () => {
+    it('DirectorStudio renders Target Age Range, Story Length, and Narrator Voice controls and sends them in writeStory API', async () => {
       vi.spyOn(clientApi, 'fetchAdminStories').mockResolvedValue([]);
       vi.spyOn(clientApi, 'fetchActiveJobs').mockResolvedValue([]);
+      vi.spyOn(clientApi, 'fetchVoices').mockResolvedValue([
+        {
+          id: 'prebuilt-kore',
+          label: 'Kore (Warm Prebuilt)',
+          source: 'prebuilt',
+          gemini_voice_name: 'Kore',
+          description: 'Warm soothing narrator',
+          language_code: 'en-US',
+          tags: ['warm'],
+          created_at: new Date().toISOString(),
+        },
+      ]);
+      const writeDraftSpy = vi.spyOn(clientApi, 'writeStoryDraft').mockResolvedValue({
+        ...phase12StoryFixture,
+        id: 'new-story',
+      });
 
       render(
         <DirectorStudio
@@ -1534,25 +1550,53 @@ describe('Phase 3 Admin Studio & UI Components', () => {
 
       // Early Reader is default
       expect(earlyReaderPill).toHaveClass('active');
-      expect(screen.getByText(/VOCABULARY COMPLEXITY:/i)).toHaveTextContent('standard');
 
-      // Click Elementary -> automatically pairs enriched vocabulary
+      // Verify all 4 story length pills are rendered
+      const quickPill = screen.getByRole('button', { name: /⚡ Quick \(~1–2 min\)/i });
+      const standardPill = screen.getByRole('button', { name: /📖 Standard \(~3–4 min\)/i });
+      const extendedPill = screen.getByRole('button', { name: /🌙 Extended \(~5–7 min\)/i });
+      const epicPill = screen.getByRole('button', { name: /🏔️ Deep Dive \(~8–10 min\)/i });
+
+      expect(quickPill).toBeInTheDocument();
+      expect(standardPill).toBeInTheDocument();
+      expect(extendedPill).toBeInTheDocument();
+      expect(epicPill).toBeInTheDocument();
+
+      // Standard (~3-4 min) is default active
+      expect(standardPill).toHaveClass('active');
+
+      // Verify separate VOCABULARY COMPLEXITY is no longer rendered
+      expect(screen.queryByText(/VOCABULARY COMPLEXITY:/i)).not.toBeInTheDocument();
+
+      // Verify auto-synthesize toggle is checked by default
+      const autoSynthToggle = screen.getByTestId('auto-synthesize-toggle');
+      expect(autoSynthToggle).toBeInTheDocument();
+      expect(autoSynthToggle).toBeChecked();
+
+      // Click Elementary (8-10) and Extended (~5-7 min)
       fireEvent.click(elementaryPill);
       expect(elementaryPill).toHaveClass('active');
-      expect(earlyReaderPill).not.toHaveClass('active');
-      expect(screen.getByText(/VOCABULARY COMPLEXITY:/i)).toHaveTextContent('enriched');
 
-      // Click Custom Vocabulary toggle to fine-tune
-      const customVocabToggle = screen.getByRole('button', { name: /Custom Vocabulary/i });
-      fireEvent.click(customVocabToggle);
+      fireEvent.click(extendedPill);
+      expect(extendedPill).toHaveClass('active');
+      expect(standardPill).not.toHaveClass('active');
 
-      // Verify 4 vocabulary pills appear
-      const advancedVocabPill = screen.getByRole('button', { name: /🎓 Advanced/i });
-      expect(advancedVocabPill).toBeInTheDocument();
+      // Fill in prompt and submit
+      const promptInput = screen.getByPlaceholderText(/e\.g\. A comedic sci-fi adventure/i);
+      fireEvent.change(promptInput, { target: { value: 'A cosmic adventure of two friendly robots' } });
 
-      // Click Advanced vocabulary
-      fireEvent.click(advancedVocabPill);
-      expect(screen.getByText(/VOCABULARY COMPLEXITY:/i)).toHaveTextContent('advanced');
+      const submitBtn = screen.getByRole('button', { name: /✨ Create Story & Generate Audio/i });
+      fireEvent.click(submitBtn);
+
+      expect(writeDraftSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ageGroup: 'elementary',
+          storyLength: 'long',
+          autoDirect: true,
+          autoSynthesize: true,
+        }),
+        expect.anything()
+      );
     });
 
     it('DirectorStudio supports dual-tab workbench switcher between Storybook Preview and Script Editor', async () => {

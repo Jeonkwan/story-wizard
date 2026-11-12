@@ -5,12 +5,16 @@ import type {
   Story,
   CatalogItem,
   StoryAgeRange,
+  StoryLength,
   StoryVocabularyLevel,
+  VoiceEntry,
 } from '../../shared/types';
 import { cleanTextForReader } from '../../shared/textClean';
 import {
   fetchAdminStories,
   fetchStory,
+  fetchVoices,
+  previewVoiceAudio,
   writeStoryDraft,
   directStory,
   saveStoryEdits,
@@ -23,6 +27,19 @@ import {
 import { VoiceStudioPanel } from './VoiceStudioPanel';
 import { MicDictationButton, appendWithSmartSpace } from './MicDictationButton';
 import { ExpandableFocusComposer } from './ExpandableFocusComposer';
+
+export interface StoryLengthPreset {
+  id: StoryLength;
+  label: string;
+  hint: string;
+}
+
+export const STORY_LENGTH_PRESETS: StoryLengthPreset[] = [
+  { id: 'short', label: '⚡ Quick (~1–2 min)', hint: '6–8 turns (~200–300 words)' },
+  { id: 'medium', label: '📖 Standard (~3–4 min)', hint: '10–14 turns (~450–650 words)' },
+  { id: 'long', label: '🌙 Extended (~5–7 min)', hint: '16–22 turns (~800–1,100 words)' },
+  { id: 'epic', label: '🏔️ Deep Dive (~8–10 min)', hint: '24–30 turns (~1,200–1,600 words)' },
+];
 
 const APPROVED_TAGS = [
   '<short pause>',
@@ -115,8 +132,19 @@ export function DirectorStudio({
   const [createMode, setCreateMode] = useState<'fresh' | 'sequel'>('fresh');
   const [selectedGenrePreset, setSelectedGenrePreset] = useState<string>('any');
   const [selectedAgeRange, setSelectedAgeRange] = useState<StoryAgeRange>('early-reader');
-  const [selectedVocabularyLevel, setSelectedVocabularyLevel] = useState<StoryVocabularyLevel>('standard');
-  const [showCustomVocabulary, setShowCustomVocabulary] = useState<boolean>(false);
+  const [selectedStoryLength, setSelectedStoryLength] = useState<StoryLength>('medium');
+  const [autoSynthesize, setAutoSynthesize] = useState<boolean>(true);
+  const [narratorVoiceId, setNarratorVoiceId] = useState<string>(() => {
+    try {
+      return localStorage.getItem('story_preferred_narrator_voice') || 'prebuilt-kore';
+    } catch {
+      return 'prebuilt-kore';
+    }
+  });
+  const [studioVoices, setStudioVoices] = useState<VoiceEntry[]>([]);
+  const [isPlayingPreview, setIsPlayingPreview] = useState<boolean>(false);
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const previewBlobUrlRef = useRef<string | null>(null);
   const [freshPrompt, setFreshPrompt] = useState<string>('');
   const [freshReferenceText, setFreshReferenceText] = useState<string>('');
   const [freshSeriesId, setFreshSeriesId] = useState<string>('');
@@ -246,7 +274,9 @@ export function DirectorStudio({
         .then((story) => {
           setFreshPrompt(story.prompt_metadata?.original_prompt || story.summary || '');
           setSelectedAgeRange(story.prompt_metadata?.age_range || 'early-reader');
-          setSelectedVocabularyLevel(story.prompt_metadata?.vocabulary_level || 'standard');
+          if (story.prompt_metadata?.story_length) {
+            setSelectedStoryLength(story.prompt_metadata.story_length);
+          }
           setFreshReferenceText(story.prompt_metadata?.reference_text || '');
           setSelectedGenrePreset(story.prompt_metadata?.genre_preset || 'any');
           setViewMode('create');
@@ -418,6 +448,89 @@ export function DirectorStudio({
     }
   }, [createMode, sequelPreviousStoryId]);
 
+  // Load voice list for Step 1 Narrator selector
+  useEffect(() => {
+    let mounted = true;
+    fetchVoices()
+      .then((vList) => {
+        if (!mounted) return;
+        setStudioVoices(vList);
+        if (vList.length > 0) {
+          setNarratorVoiceId((prev) => {
+            if (prev && vList.some((v) => v.id === prev)) return prev;
+            return vList.find((v) => v.id === 'prebuilt-kore')?.id || vList[0].id;
+          });
+        }
+      })
+      .catch((err) => {
+        console.warn('[DirectorStudio] Failed to load voices for narrator selector:', err);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // Cleanup narrator audio preview on unmount
+  useEffect(() => {
+    return () => {
+      if (previewAudioRef.current) {
+        previewAudioRef.current.pause();
+        previewAudioRef.current = null;
+      }
+      if (previewBlobUrlRef.current) {
+        URL.revokeObjectURL(previewBlobUrlRef.current);
+        previewBlobUrlRef.current = null;
+      }
+    };
+  }, []);
+
+  const handleNarratorVoiceChange = (voiceId: string) => {
+    setNarratorVoiceId(voiceId);
+    try {
+      localStorage.setItem('story_preferred_narrator_voice', voiceId);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handlePreviewNarratorVoice = async () => {
+    if (isPlayingPreview) {
+      if (previewAudioRef.current) {
+        previewAudioRef.current.pause();
+        previewAudioRef.current = null;
+      }
+      if (previewBlobUrlRef.current) {
+        URL.revokeObjectURL(previewBlobUrlRef.current);
+        previewBlobUrlRef.current = null;
+      }
+      setIsPlayingPreview(false);
+      return;
+    }
+
+    try {
+      setIsPlayingPreview(true);
+      const { blob } = await previewVoiceAudio({ voiceId: narratorVoiceId });
+      const url = URL.createObjectURL(blob);
+      previewBlobUrlRef.current = url;
+      const audio = new Audio(url);
+      previewAudioRef.current = audio;
+      audio.onended = () => {
+        setIsPlayingPreview(false);
+        URL.revokeObjectURL(url);
+        previewBlobUrlRef.current = null;
+      };
+      audio.onerror = () => {
+        setIsPlayingPreview(false);
+        URL.revokeObjectURL(url);
+        previewBlobUrlRef.current = null;
+      };
+      await audio.play();
+    } catch (err) {
+      console.warn('[DirectorStudio] Voice preview failed:', err);
+      setIsPlayingPreview(false);
+    }
+  };
+
   const handleSelectGenrePreset = (preset: GenrePreset) => {
     setSelectedGenrePreset(preset.id);
     if (preset.id === 'any') return;
@@ -436,11 +549,6 @@ export function DirectorStudio({
 
   const handleSelectAgeRange = (preset: AgeRangePreset) => {
     setSelectedAgeRange(preset.id);
-    setSelectedVocabularyLevel(preset.defaultVocab);
-  };
-
-  const handleSelectVocabularyLevel = (level: StoryVocabularyLevel) => {
-    setSelectedVocabularyLevel(level);
   };
 
   const handleClonePrompt = () => {
@@ -448,7 +556,9 @@ export function DirectorStudio({
     const meta = activeStory.prompt_metadata;
     setFreshPrompt(meta.original_prompt || '');
     setSelectedAgeRange(meta.age_range || 'early-reader');
-    setSelectedVocabularyLevel(meta.vocabulary_level || 'standard');
+    if (meta.story_length) {
+      setSelectedStoryLength(meta.story_length);
+    }
     setFreshReferenceText(meta.reference_text || '');
     setSelectedGenrePreset(meta.genre_preset || 'any');
     setViewMode('create');
@@ -478,8 +588,7 @@ export function DirectorStudio({
     setWriteError(null);
     setSelectedGenrePreset('any');
     setSelectedAgeRange('early-reader');
-    setSelectedVocabularyLevel('standard');
-    setShowCustomVocabulary(false);
+    setSelectedStoryLength('medium');
     setFreshPrompt('');
     setFreshReferenceText('');
     setFreshSeriesId('');
@@ -551,8 +660,12 @@ export function DirectorStudio({
             referenceText: freshReferenceText.trim() || undefined,
             seriesId: freshSeriesId.trim() || undefined,
             ageRange: selectedAgeRange,
-            vocabularyLevel: selectedVocabularyLevel,
+            ageGroup: selectedAgeRange,
+            storyLength: selectedStoryLength,
             genrePreset: selectedGenrePreset !== 'any' ? selectedGenrePreset : undefined,
+            autoDirect: true,
+            autoSynthesize,
+            narratorVoiceId: autoSynthesize ? narratorVoiceId : undefined,
           },
           {
             async: true,
@@ -577,8 +690,12 @@ export function DirectorStudio({
             prompt: sequelPrompt.trim(),
             referenceText: sequelReferenceText.trim() || undefined,
             ageRange: selectedAgeRange,
-            vocabularyLevel: selectedVocabularyLevel,
+            ageGroup: selectedAgeRange,
+            storyLength: selectedStoryLength,
             genrePreset: selectedGenrePreset !== 'any' ? selectedGenrePreset : undefined,
+            autoDirect: true,
+            autoSynthesize,
+            narratorVoiceId: autoSynthesize ? narratorVoiceId : undefined,
           },
           {
             async: true,
@@ -1178,11 +1295,16 @@ export function DirectorStudio({
               {createMode === 'fresh' ? (
                 <>
                   <div style={{ marginBottom: '1.25rem' }}>
-                    {/* Age Range & Vocabulary Presets */}
+                    {/* Age Range & Story Length Controls */}
                     <div style={{ marginBottom: '0.85rem' }}>
-                      <span style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--ink-muted)', marginBottom: '0.35rem' }}>
-                        TARGET AGE RANGE
-                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.35rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+                        <span style={{ fontSize: '0.8rem', fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--ink-muted)' }}>
+                          TARGET AGE RANGE
+                        </span>
+                        <small style={{ fontSize: '0.75rem', color: 'var(--ink-muted)' }}>
+                          Automatically governs vocabulary, syntax &amp; narrative depth
+                        </small>
+                      </div>
                       <div className="age-preset-pills">
                         {AGE_RANGE_PRESETS.map((preset) => (
                           <button
@@ -1199,36 +1321,23 @@ export function DirectorStudio({
                     </div>
 
                     <div style={{ marginBottom: '0.85rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.35rem', flexWrap: 'wrap', gap: '0.4rem' }}>
-                        <span style={{ fontSize: '0.8rem', fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--ink-muted)' }}>
-                          VOCABULARY COMPLEXITY: <span style={{ color: 'var(--accent-module)', textTransform: 'capitalize' }}>{selectedVocabularyLevel}</span>
-                        </span>
-                        <button
-                          type="button"
-                          className="btn-tactile"
-                          style={{ fontSize: '0.75rem', padding: '0.15rem 0.45rem' }}
-                          disabled={isWriting}
-                          onClick={() => setShowCustomVocabulary((prev) => !prev)}
-                        >
-                          {showCustomVocabulary ? 'Hide Custom Vocab' : '⚙️ Custom Vocabulary'}
-                        </button>
+                      <span style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--ink-muted)', marginBottom: '0.35rem' }}>
+                        STORY LENGTH: <span style={{ color: 'var(--accent-module)', textTransform: 'capitalize' }}>{selectedStoryLength}</span>
+                      </span>
+                      <div className="story-length-pills" data-testid="story-length-selector" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.45rem' }}>
+                        {STORY_LENGTH_PRESETS.map((preset) => (
+                          <button
+                            key={preset.id}
+                            type="button"
+                            className={`btn-tactile story-length-pill ${selectedStoryLength === preset.id ? 'btn-tactile-primary active' : ''}`}
+                            style={{ fontSize: '0.82rem', padding: '0.35rem 0.55rem', textAlign: 'center' }}
+                            disabled={isWriting}
+                            onClick={() => setSelectedStoryLength(preset.id)}
+                          >
+                            {preset.label}
+                          </button>
+                        ))}
                       </div>
-
-                      {showCustomVocabulary && (
-                        <div className="vocab-pills" style={{ marginTop: '0.4rem' }}>
-                          {VOCABULARY_LEVEL_PRESETS.map((preset) => (
-                            <button
-                              key={preset.id}
-                              type="button"
-                              className={`vocab-pill ${selectedVocabularyLevel === preset.id ? 'active' : ''}`}
-                              disabled={isWriting}
-                              onClick={() => handleSelectVocabularyLevel(preset.id)}
-                            >
-                              {preset.label}
-                            </button>
-                          ))}
-                        </div>
-                      )}
                     </div>
 
                     <div style={{ marginBottom: '0.65rem' }}>
@@ -1397,12 +1506,17 @@ export function DirectorStudio({
                     </div>
                   )}
 
-                  {/* Age Range & Vocabulary Presets for Sequel */}
+                  {/* Age Range & Story Length Controls for Sequel */}
                   <div style={{ marginBottom: '1.25rem' }}>
                     <div style={{ marginBottom: '0.85rem' }}>
-                      <span style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--ink-muted)', marginBottom: '0.35rem' }}>
-                        TARGET AGE RANGE
-                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.35rem', flexWrap: 'wrap', gap: '0.4rem' }}>
+                        <span style={{ fontSize: '0.8rem', fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--ink-muted)' }}>
+                          TARGET AGE RANGE
+                        </span>
+                        <small style={{ fontSize: '0.75rem', color: 'var(--ink-muted)' }}>
+                          Automatically governs vocabulary, syntax &amp; narrative depth
+                        </small>
+                      </div>
                       <div className="age-preset-pills">
                         {AGE_RANGE_PRESETS.map((preset) => (
                           <button
@@ -1419,36 +1533,23 @@ export function DirectorStudio({
                     </div>
 
                     <div style={{ marginBottom: '0.85rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.35rem', flexWrap: 'wrap', gap: '0.4rem' }}>
-                        <span style={{ fontSize: '0.8rem', fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--ink-muted)' }}>
-                          VOCABULARY COMPLEXITY: <span style={{ color: 'var(--accent-module)', textTransform: 'capitalize' }}>{selectedVocabularyLevel}</span>
-                        </span>
-                        <button
-                          type="button"
-                          className="btn-tactile"
-                          style={{ fontSize: '0.75rem', padding: '0.15rem 0.45rem' }}
-                          disabled={isWriting}
-                          onClick={() => setShowCustomVocabulary((prev) => !prev)}
-                        >
-                          {showCustomVocabulary ? 'Hide Custom Vocab' : '⚙️ Custom Vocabulary'}
-                        </button>
+                      <span style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--ink-muted)', marginBottom: '0.35rem' }}>
+                        STORY LENGTH: <span style={{ color: 'var(--accent-module)', textTransform: 'capitalize' }}>{selectedStoryLength}</span>
+                      </span>
+                      <div className="story-length-pills" data-testid="story-length-selector-sequel" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.45rem' }}>
+                        {STORY_LENGTH_PRESETS.map((preset) => (
+                          <button
+                            key={preset.id}
+                            type="button"
+                            className={`btn-tactile story-length-pill ${selectedStoryLength === preset.id ? 'btn-tactile-primary active' : ''}`}
+                            style={{ fontSize: '0.82rem', padding: '0.35rem 0.55rem', textAlign: 'center' }}
+                            disabled={isWriting}
+                            onClick={() => setSelectedStoryLength(preset.id)}
+                          >
+                            {preset.label}
+                          </button>
+                        ))}
                       </div>
-
-                      {showCustomVocabulary && (
-                        <div className="vocab-pills" style={{ marginTop: '0.4rem' }}>
-                          {VOCABULARY_LEVEL_PRESETS.map((preset) => (
-                            <button
-                              key={preset.id}
-                              type="button"
-                              className={`vocab-pill ${selectedVocabularyLevel === preset.id ? 'active' : ''}`}
-                              disabled={isWriting}
-                              onClick={() => handleSelectVocabularyLevel(preset.id)}
-                            >
-                              {preset.label}
-                            </button>
-                          ))}
-                        </div>
-                      )}
                     </div>
                   </div>
 
@@ -1522,14 +1623,80 @@ export function DirectorStudio({
                 </>
               )}
 
+              {/* 🎙️ Narrator Voice & Auto-Audio Card (1-Tap Creation) */}
+              <div
+                className="card-tactile narrator-auto-audio-card"
+                style={{
+                  marginBottom: '1.25rem',
+                  padding: '1rem',
+                  backgroundColor: 'var(--bg-well)',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: 'var(--radius-card)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.65rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--ink-primary)' }}>
+                    🎙️ Narrator Voice &amp; Narration
+                  </span>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, color: 'var(--ink-primary)' }}>
+                    <input
+                      type="checkbox"
+                      data-testid="auto-synthesize-toggle"
+                      checked={autoSynthesize}
+                      onChange={(e) => setAutoSynthesize(e.target.checked)}
+                      disabled={isWriting}
+                      style={{ width: '1.1rem', height: '1.1rem', accentColor: 'var(--accent-primary)', cursor: 'pointer' }}
+                    />
+                    Automatically generate audio when story is ready
+                  </label>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                  <div style={{ flex: '1 1 200px' }}>
+                    <select
+                      aria-label="Narrator Voice"
+                      className="select-tactile"
+                      style={{ width: '100%', boxSizing: 'border-box' }}
+                      value={narratorVoiceId}
+                      onChange={(e) => handleNarratorVoiceChange(e.target.value)}
+                      disabled={isWriting}
+                    >
+                      {studioVoices.length > 0 ? (
+                        studioVoices.map((v) => (
+                          <option key={v.id} value={v.id}>
+                            {v.label} ({v.source === 'designed' ? 'Custom' : 'Prebuilt'})
+                          </option>
+                        ))
+                      ) : (
+                        <option value="prebuilt-kore">Kore (Warm Prebuilt)</option>
+                      )}
+                    </select>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-tactile"
+                    style={{ fontSize: '0.82rem', padding: '0.45rem 0.85rem', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
+                    disabled={isWriting || !narratorVoiceId}
+                    onClick={handlePreviewNarratorVoice}
+                  >
+                    {isPlayingPreview ? '⏹️ Stop' : '🔊 Preview'}
+                  </button>
+                </div>
+              </div>
+
               <div className="studio-sticky-footer">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
                   <span className="badge-mono" style={{ fontSize: '0.75rem' }}>
                     {selectedAgeRange === 'toddler' ? '🐣 2–4 yrs' : selectedAgeRange === 'early-reader' ? '🎈 5–7 yrs' : selectedAgeRange === 'elementary' ? '🚀 8–10 yrs' : '📚 11+ yrs'}
                   </span>
                   <span className="badge-mono" style={{ fontSize: '0.75rem' }}>
-                    📖 {selectedVocabularyLevel}
+                    ⏱️ {selectedStoryLength}
                   </span>
+                  {autoSynthesize && (
+                    <span className="badge-mono" style={{ fontSize: '0.75rem', color: 'var(--accent-primary)' }}>
+                      🔊 Auto-Audio
+                    </span>
+                  )}
                   <span className="badge-mono" style={{ fontSize: '0.75rem' }}>
                     {createMode === 'fresh' ? '✨ Mode A: Fresh' : '📝 Mode B: Sequel'}
                   </span>
@@ -1540,9 +1707,13 @@ export function DirectorStudio({
                   disabled={isWriting}
                   style={{ fontSize: '1rem', padding: '0.75rem 1.5rem', width: '100%' }}
                 >
-                  {isWriting
+                  {autoSynthesize
+                    ? isWriting
+                      ? `✨ Creating Story & Narration... (${writingElapsedSeconds}s)`
+                      : '✨ Create Story & Generate Audio'
+                    : isWriting
                     ? `✍️ Writing Draft... (${writingElapsedSeconds}s)`
-                    : '✍️ 1. Write Story Draft'}
+                    : '✍️ Write & Direct Story Draft'}
                 </button>
               </div>
 

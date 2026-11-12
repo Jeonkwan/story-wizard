@@ -17,8 +17,10 @@ import {
   type VoiceDesignCandidate,
   type StoryAgeRange,
   type StoryVocabularyLevel,
+  type StoryLength,
   VALID_AGE_RANGES,
   VALID_VOCABULARY_LEVELS,
+  VALID_STORY_LENGTHS,
 } from '../../shared/types.js';
 
 export function createAdminStoriesRouter(
@@ -83,8 +85,13 @@ export function createAdminStoriesRouter(
         seriesId,
         previousStoryId,
         ageRange,
+        storyLength,
         vocabularyLevel,
         genrePreset,
+        autoDirect,
+        autoSynthesize,
+        narratorVoiceId,
+        avoidCharacterNames: customAvoidNames,
       } = req.body || {};
 
       if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
@@ -105,6 +112,16 @@ export function createAdminStoriesRouter(
       }
 
       if (
+        storyLength !== undefined &&
+        !VALID_STORY_LENGTHS.includes(storyLength as StoryLength)
+      ) {
+        res.status(400).json({
+          error: `Invalid storyLength: "${storyLength}". Allowed values: ${VALID_STORY_LENGTHS.join(', ')}`,
+        });
+        return;
+      }
+
+      if (
         vocabularyLevel !== undefined &&
         !VALID_VOCABULARY_LEVELS.includes(vocabularyLevel as StoryVocabularyLevel)
       ) {
@@ -119,12 +136,50 @@ export function createAdminStoriesRouter(
           ? genrePreset.trim()
           : undefined;
 
+      // Collect existing character names to avoid repetitive naming clichés
+      let avoidCharacterNames: string[] = [];
+      try {
+        const catalog = await storage.getCatalog();
+        const recentItems = catalog.slice(0, 10);
+        const namesSet = new Set<string>();
+        for (const item of recentItems) {
+          try {
+            const fullStory = await storage.getStory(item.id);
+            if (Array.isArray(fullStory.characters)) {
+              for (const char of fullStory.characters) {
+                if (
+                  char.name &&
+                  typeof char.name === 'string' &&
+                  char.name.trim() &&
+                  char.name.trim().toLowerCase() !== 'narrator'
+                ) {
+                  namesSet.add(char.name.trim());
+                }
+              }
+            }
+          } catch {
+            // ignore individual story read errors
+          }
+        }
+        if (Array.isArray(customAvoidNames)) {
+          for (const name of customAvoidNames) {
+            if (typeof name === 'string' && name.trim()) {
+              namesSet.add(name.trim());
+            }
+          }
+        }
+        avoidCharacterNames = Array.from(namesSet);
+      } catch (err) {
+        console.warn('[AdminStories] Failed to collect existing character names:', err);
+      }
+
       const isAsync = req.query.async === 'true';
       const storyTarget = mode === 'sequel' && previousStoryId ? String(previousStoryId).trim() : 'new';
       const job = jobManager.createJob('draft', storyTarget, 'Drafting story with Gemini 3.8 Flash...');
 
       const runDraft = async () => {
         try {
+          // Step 1: Draft story
           const story = await storyService.generateStoryDraft({
             mode,
             prompt: prompt.trim(),
@@ -135,16 +190,76 @@ export function createAdminStoriesRouter(
                 ? previousStoryId.trim()
                 : undefined,
             ageRange: ageRange as StoryAgeRange | undefined,
+            storyLength: storyLength as StoryLength | undefined,
             vocabularyLevel: vocabularyLevel as StoryVocabularyLevel | undefined,
             genrePreset: validatedGenrePreset,
+            avoidCharacterNames,
           });
 
+          let currentStory = story;
+
+          // Step 2: Auto-Direct if requested
+          if (autoDirect === true) {
+            await jobManager.updateJobAsync(job.job_id, {
+              status: 'running',
+              story_id: currentStory.id,
+              result_story_id: currentStory.id,
+              message: 'Stage 2/3: Auto-directing vocal delivery cues...',
+            });
+            try {
+              currentStory = await storyService.directStoryScript(currentStory.id);
+            } catch (directErr) {
+              console.warn(
+                `[adminStories] Auto-directing failed for story ${currentStory.id}, proceeding with draft:`,
+                directErr
+              );
+            }
+          }
+
+          // Step 3: Auto-Synthesize if requested with a valid narrator voice
+          if (
+            autoSynthesize === true &&
+            typeof narratorVoiceId === 'string' &&
+            narratorVoiceId.trim()
+          ) {
+            await jobManager.updateJobAsync(job.job_id, {
+              status: 'running',
+              story_id: currentStory.id,
+              result_story_id: currentStory.id,
+              message: 'Stage 3/3: Synthesizing full story narration...',
+            });
+            try {
+              currentStory = await tts.synthesizeFullStory(currentStory.id, {
+                casting: {
+                  mode: 'solo',
+                  narrator_voice_id: narratorVoiceId.trim(),
+                  character_voices: {},
+                },
+                label: 'Default Solo Narration',
+                makeDefault: true,
+              });
+            } catch (synthErr) {
+              console.warn(
+                `[adminStories] Auto-synthesizing failed for story ${currentStory.id}:`,
+                synthErr
+              );
+              throw synthErr;
+            }
+          }
+
+          currentStory.active_job = null;
           await jobManager.updateJobAsync(job.job_id, {
             status: 'completed',
-            result_story_id: story.id,
-            message: 'Story draft complete!',
+            result_story_id: currentStory.id,
+            story_id: currentStory.id,
+            message:
+              autoSynthesize && narratorVoiceId
+                ? 'Story creation and narration complete!'
+                : autoDirect
+                ? 'Story draft and direction complete!'
+                : 'Story draft complete!',
           });
-          return story;
+          return currentStory;
         } catch (err) {
           await jobManager.updateJobAsync(job.job_id, {
             status: 'failed',

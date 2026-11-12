@@ -16,12 +16,15 @@ import type {
   SeriesContext,
   Story,
   StoryAgeRange,
+  StoryLength,
   StoryVocabularyLevel,
 } from '../../shared/types.js';
 import {
   DEFAULT_AGE_RANGE,
+  DEFAULT_STORY_LENGTH,
   DEFAULT_VOCABULARY_LEVEL,
   VALID_AGE_RANGES,
+  VALID_STORY_LENGTHS,
   VALID_VOCABULARY_LEVELS,
 } from '../../shared/types.js';
 
@@ -30,8 +33,11 @@ export interface GenerateWriterDraftInput {
   prompt: string;
   referenceText?: string;
   ageRange?: StoryAgeRange;
+  storyLength?: StoryLength;
   vocabularyLevel?: StoryVocabularyLevel;
+  customVocabularyInstructions?: string;
   genrePreset?: string;
+  avoidCharacterNames?: string[];
   seriesContext?: {
     seriesId: string;
     episodeNumber: number;
@@ -39,6 +45,177 @@ export interface GenerateWriterDraftInput {
     priorSummary?: string;
     characterBible?: CharacterProfile[];
   };
+}
+
+export type WriterInput = GenerateWriterDraftInput;
+
+/**
+ * Overused default AI names to ban unless explicitly requested by the user prompt.
+ */
+export const BANNED_AI_CHARACTER_NAMES: readonly string[] = [
+  'Barnaby',
+  'Bramble',
+  'Pip',
+  'Squeak',
+  'Oliver',
+  'Milo',
+  'Toby',
+  'Whiskers',
+  'Luna',
+  'Nutkin',
+  'Thimble',
+] as const;
+
+/**
+ * Builds explicit turn-count and word-count targets for Gemini 3.8 Writer LLM.
+ *
+ * @param storyLength Desired length tier: 'short', 'medium', 'long', or 'epic'
+ * @returns Instruction string with target script turns and word count
+ */
+export function buildStoryLengthInstruction(storyLength?: StoryLength): string {
+  const length = storyLength || DEFAULT_STORY_LENGTH;
+  switch (length) {
+    case 'short':
+      return 'Target Length: Short. Structure the story into 6 to 8 script turns (~200–300 words total). Keep scenes brisk, punchy, and contained.';
+    case 'medium':
+      return 'Target Length: Medium. Structure the story into 10 to 14 script turns (~450–650 words total). Provide a balanced narrative arc with rich character interaction.';
+    case 'long':
+      return 'Target Length: Long. Structure the story into 16 to 22 script turns (~800–1,100 words total). Develop scenes thoroughly with multiple narrative beats and playful dialogue.';
+    case 'epic':
+      return 'Target Length: Epic. Structure the story into 24 to 30 script turns (~1,200–1,600 words total). Create an immersive, multi-scene adventure with deep dialogue and rich world-building.';
+    default:
+      return 'Target Length: Medium. Structure the story into 10 to 14 script turns (~450–650 words total).';
+  }
+}
+
+/**
+ * Automatically maps an age group to its natural default vocabulary level.
+ *
+ * @param age Target audience age range
+ * @returns Natural corresponding vocabulary level
+ */
+export function defaultVocabularyForAge(age?: StoryAgeRange): StoryVocabularyLevel {
+  switch (age) {
+    case 'toddler':
+      return 'simple';
+    case 'early-reader':
+      return 'standard';
+    case 'elementary':
+      return 'enriched';
+    case 'young-reader':
+      return 'advanced';
+    default:
+      return DEFAULT_VOCABULARY_LEVEL;
+  }
+}
+
+/**
+ * Builds unified pedagogical and vocabulary instructions for the Writer LLM.
+ * If vocabularyLevel is not explicitly provided, it auto-maps from ageGroup.
+ *
+ * @param ageGroup Target audience age range
+ * @param vocabularyLevel Optional explicit vocabulary level
+ * @param customVocabularyInstructions Optional custom vocabulary instructions
+ * @returns Consolidated pedagogical instructions
+ */
+export function buildPedagogicalInstruction(
+  ageGroup?: StoryAgeRange,
+  vocabularyLevel?: StoryVocabularyLevel,
+  customVocabularyInstructions?: string
+): string {
+  const age = ageGroup || DEFAULT_AGE_RANGE;
+  const vocab = vocabularyLevel || defaultVocabularyForAge(age);
+  const instructions: string[] = [];
+
+  switch (age) {
+    case 'toddler':
+      instructions.push(
+        'Target Audience: Toddlers (Ages 2–4). Use very short sentences (4–8 words), rhythmic repetition, sound effects, concrete sensory concepts (animals, toys, food, bedtime).'
+      );
+      break;
+    case 'early-reader':
+      instructions.push(
+        'Target Audience: Early Readers (Ages 5–7). Use phonics-friendly prose, playful narrative momentum, clear cause-and-effect, and engaging character dialogue.'
+      );
+      break;
+    case 'elementary':
+      instructions.push(
+        'Target Audience: Elementary (Ages 8–10). Use dynamic plot, witty character banter, figurative language, problem-solving, and descriptive world details.'
+      );
+      break;
+    case 'young-reader':
+      instructions.push(
+        'Target Audience: Young Readers (Ages 11+). Use complex sentence structures, subtle humor, literary expressions, multi-layered themes, and nuanced character motivations.'
+      );
+      break;
+  }
+
+  switch (vocab) {
+    case 'simple':
+      instructions.push(
+        'Vocabulary Level: Simple. High-frequency, easy-to-read vocabulary with soothing repetition.'
+      );
+      break;
+    case 'standard':
+      instructions.push(
+        'Vocabulary Level: Standard. Natural, expressive, age-appropriate storytelling vocabulary.'
+      );
+      break;
+    case 'enriched':
+      instructions.push(
+        'Vocabulary Level: Enriched. Introduce 3 to 5 colorful, descriptive vocabulary words whose meanings are clear from context.'
+      );
+      break;
+    case 'advanced':
+      instructions.push(
+        'Vocabulary Level: Advanced. Sophisticated, literary expressions with clever wordplay and descriptive flair.'
+      );
+      break;
+  }
+
+  if (customVocabularyInstructions && customVocabularyInstructions.trim()) {
+    instructions.push(`Custom Vocabulary Focus: ${customVocabularyInstructions.trim()}`);
+  }
+
+  return instructions.join('\n');
+}
+
+/**
+ * Builds anti-cliché and character name diversity instructions.
+ * Forbids overused AI storybook names unless explicitly requested, and forbids recently used names.
+ *
+ * @param prompt User story prompt
+ * @param avoidCharacterNames Optional list of character names to avoid reusing
+ * @returns Anti-cliché diversity instruction string
+ */
+export function buildCharacterDiversityInstruction(
+  prompt: string,
+  avoidCharacterNames?: string[]
+): string {
+  const promptLower = (prompt || '').toLowerCase();
+  const activeBanned = BANNED_AI_CHARACTER_NAMES.filter(
+    (name) => !promptLower.includes(name.toLowerCase())
+  );
+
+  let instruction =
+    'ANTI-CLICHÉ & CHARACTER NAME DIVERSITY RULE: ' +
+    `DO NOT use overused default AI storybook character names (${activeBanned.join(', ')}) unless explicitly requested in the prompt. ` +
+    'Invent fresh, distinctive, phonetically and culturally varied character names drawn from nature, astronomy, music, mythology, or unique linguistic sounds.';
+
+  if (avoidCharacterNames && avoidCharacterNames.length > 0) {
+    const cleanAvoid = Array.from(
+      new Set(
+        avoidCharacterNames
+          .filter((n) => typeof n === 'string' && n.trim())
+          .map((n) => n.trim())
+      )
+    );
+    if (cleanAvoid.length > 0) {
+      instruction += `\nDO NOT reuse any of these recently used character names: ${cleanAvoid.join(', ')}.`;
+    }
+  }
+
+  return instruction;
 }
 
 export interface DirectScriptInput {
@@ -162,52 +339,28 @@ export class GoogleGenAIStoryLLMProvider implements StoryLLMProvider {
   async generateWriterDraft(input: GenerateWriterDraftInput): Promise<WriterOutputInput> {
     const ai = this.getClient();
     const age = input.ageRange || DEFAULT_AGE_RANGE;
-    const vocab = input.vocabularyLevel || DEFAULT_VOCABULARY_LEVEL;
+    const vocab = input.vocabularyLevel;
+
+    const pedagogical = buildPedagogicalInstruction(
+      age,
+      vocab,
+      input.customVocabularyInstructions
+    );
+    const lengthInstruction = buildStoryLengthInstruction(input.storyLength);
+    const diversityInstruction = buildCharacterDiversityInstruction(
+      input.prompt,
+      input.avoidCharacterNames
+    );
 
     let systemInstruction =
       'You are a master storytelling author for Storyteller Studio. Write engaging, vivid, immersive narratives ' +
       'matching whatever genre, tone, mood, and pace the user requests (e.g. comedic, adventurous, sci-fi, dramatic, mystery, whimsical, or bedtime). ' +
       'Maintain natural, punchy dialogue where each character speaks with a distinct personality. ' +
-      'Structure the narrative into title, a 1-2 sentence summary, 2 to 5 relevant genre/mood tags, character profiles (never named "Narrator"), and at least 2 script turns. ' +
-      'Script turns alternate between "Narrator" and character speakers. Do not emit vocal sound-effect tags like <sigh> or <pause> at this stage; write pure narrative prose and dialogue.';
-
-    switch (age) {
-      case 'toddler':
-        systemInstruction +=
-          '\nTarget Audience: Toddlers (Ages 2–4). Use very short sentences (4–8 words), rhythmic repetition, sound effects, concrete sensory concepts (animals, toys, food, bedtime).';
-        break;
-      case 'early-reader':
-        systemInstruction +=
-          '\nTarget Audience: Early Readers (Ages 5–7). Use phonics-friendly, playful narrative, simple cause-and-effect, engaging dialogue.';
-        break;
-      case 'elementary':
-        systemInstruction +=
-          '\nTarget Audience: Elementary (Ages 8–10). Use dynamic plot, witty character banter, figurative language, problem-solving.';
-        break;
-      case 'young-reader':
-        systemInstruction +=
-          '\nTarget Audience: Young Readers (Ages 11+). Use complex sentence structures, subtle humor, literary expressions, multi-layered themes.';
-        break;
-    }
-
-    switch (vocab) {
-      case 'simple':
-        systemInstruction +=
-          '\nVocabulary Level: Simple. High-frequency, easy-to-read vocabulary with soothing repetition.';
-        break;
-      case 'standard':
-        systemInstruction +=
-          '\nVocabulary Level: Standard. Natural, expressive, age-appropriate storytelling vocabulary.';
-        break;
-      case 'enriched':
-        systemInstruction +=
-          '\nVocabulary Level: Enriched. Introduce 3 to 5 colorful, descriptive vocabulary words whose meanings are clear from context.';
-        break;
-      case 'advanced':
-        systemInstruction +=
-          '\nVocabulary Level: Advanced. Sophisticated, literary expressions with clever wordplay and descriptive flair.';
-        break;
-    }
+      'Structure the narrative into title, a 1-2 sentence summary, 2 to 5 relevant genre/mood tags, character profiles (never named "Narrator"), and script turns. ' +
+      'Script turns alternate between "Narrator" and character speakers. Do not emit vocal sound-effect tags like <sigh> or <pause> at this stage; write pure narrative prose and dialogue.\n' +
+      `${lengthInstruction}\n` +
+      `${pedagogical}\n` +
+      `${diversityInstruction}`;
 
     if (input.genrePreset && input.genrePreset.trim()) {
       systemInstruction += `\nGenre Preset: ${input.genrePreset.trim()}.`;
@@ -368,8 +521,11 @@ export interface GenerateStoryDraftRequest {
   seriesId?: string;
   previousStoryId?: string;
   ageRange?: StoryAgeRange;
+  storyLength?: StoryLength;
   vocabularyLevel?: StoryVocabularyLevel;
+  customVocabularyInstructions?: string;
   genrePreset?: string;
+  avoidCharacterNames?: string[];
 }
 
 export class GeminiStoryService {
@@ -404,10 +560,15 @@ export class GeminiStoryService {
     }
 
     const ageRange: StoryAgeRange = input.ageRange ?? DEFAULT_AGE_RANGE;
-    const vocabularyLevel: StoryVocabularyLevel = input.vocabularyLevel ?? DEFAULT_VOCABULARY_LEVEL;
+    const storyLength: StoryLength = input.storyLength ?? DEFAULT_STORY_LENGTH;
+    const vocabularyLevel: StoryVocabularyLevel =
+      input.vocabularyLevel ?? defaultVocabularyForAge(ageRange);
 
     if (input.ageRange && !VALID_AGE_RANGES.includes(input.ageRange)) {
       throw new ValidationError(`Invalid ageRange: "${input.ageRange}"`);
+    }
+    if (input.storyLength && !VALID_STORY_LENGTHS.includes(input.storyLength)) {
+      throw new ValidationError(`Invalid storyLength: "${input.storyLength}"`);
     }
     if (input.vocabularyLevel && !VALID_VOCABULARY_LEVELS.includes(input.vocabularyLevel)) {
       throw new ValidationError(`Invalid vocabularyLevel: "${input.vocabularyLevel}"`);
@@ -436,8 +597,11 @@ export class GeminiStoryService {
         prompt,
         referenceText: input.referenceText,
         ageRange,
-        vocabularyLevel,
+        storyLength,
+        vocabularyLevel: vocabularyLevel,
+        customVocabularyInstructions: input.customVocabularyInstructions,
         genrePreset: input.genrePreset,
+        avoidCharacterNames: input.avoidCharacterNames,
         seriesContext: seriesContext
           ? {
               seriesId: seriesContext.series_id,
@@ -482,8 +646,11 @@ export class GeminiStoryService {
         prompt,
         referenceText: input.referenceText,
         ageRange,
-        vocabularyLevel,
+        storyLength,
+        vocabularyLevel: vocabularyLevel,
+        customVocabularyInstructions: input.customVocabularyInstructions,
         genrePreset: input.genrePreset,
+        avoidCharacterNames: input.avoidCharacterNames,
         seriesContext: {
           seriesId,
           episodeNumber,
@@ -519,6 +686,7 @@ export class GeminiStoryService {
         age_range: ageRange,
         vocabulary_level: vocabularyLevel,
         genre_preset: input.genrePreset,
+        story_length: input.storyLength || DEFAULT_STORY_LENGTH,
         created_at: now,
       },
       created_at: now,

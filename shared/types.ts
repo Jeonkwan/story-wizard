@@ -2,6 +2,7 @@ export type StoryStatus = 'draft' | 'published';
 
 export type StoryAgeRange = 'toddler' | 'early-reader' | 'elementary' | 'young-reader';
 export type StoryVocabularyLevel = 'simple' | 'standard' | 'enriched' | 'advanced';
+export type StoryLength = 'short' | 'medium' | 'long' | 'epic';
 
 export const VALID_AGE_RANGES: readonly StoryAgeRange[] = [
   'toddler',
@@ -17,8 +18,16 @@ export const VALID_VOCABULARY_LEVELS: readonly StoryVocabularyLevel[] = [
   'advanced',
 ] as const;
 
+export const VALID_STORY_LENGTHS: readonly StoryLength[] = [
+  'short',
+  'medium',
+  'long',
+  'epic',
+] as const;
+
 export const DEFAULT_AGE_RANGE: StoryAgeRange = 'early-reader';
 export const DEFAULT_VOCABULARY_LEVEL: StoryVocabularyLevel = 'standard';
+export const DEFAULT_STORY_LENGTH: StoryLength = 'medium';
 
 export interface StoryPromptMetadata {
   original_prompt: string;
@@ -26,6 +35,7 @@ export interface StoryPromptMetadata {
   age_range?: StoryAgeRange;
   vocabulary_level?: StoryVocabularyLevel;
   genre_preset?: string;
+  story_length?: StoryLength;
   created_at: string;
 }
 

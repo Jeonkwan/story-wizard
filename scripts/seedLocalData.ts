@@ -204,7 +204,7 @@ export async function seedLocalData(targetDir = process.env.DATA_DIR || './data'
         turn_id: 1,
         speaker: 'Narrator',
         style: 'Peaceful bedtime cadence',
-        text: 'Over the silvery clover fields, Barnaby the owl fluttered his velvet wings without making a sound. <sigh> Sleep now, little meadow, sleep.',
+        text: 'Over the silvery clover fields, Orin the owl fluttered his velvet wings without making a sound. <sigh> Sleep now, little meadow, sleep.',
       },
       {
         turn_id: 2,

@@ -8,6 +8,12 @@
 body[data-theme="dark"] {
   color-scheme: dark;
 
+  /* iPhone / Mobile Safe Area Insets */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+
   /* Surfaces */
   --bg-canvas: #15120F;          /* Deep Roasted Espresso */
   --bg-surface: #201B17;         /* Warm Dark Cocoa Card — rgb(32, 27, 23) */
@@ -558,7 +564,7 @@ body {
   -webkit-backdrop-filter: blur(14px);
   border-top: 1px solid var(--border-subtle);
   box-shadow: 0px -4px 16px rgba(0, 0, 0, 0.25);
-  padding: 0.75rem 1.25rem;
+  padding: 0.75rem max(1.25rem, var(--safe-right)) calc(0.75rem + var(--safe-bottom)) max(1.25rem, var(--safe-left));
 }
 
 .docked-audio-content {
@@ -652,7 +658,7 @@ body {
   }
 
   .reader-wrapper {
-    padding-bottom: 85px;
+    padding-bottom: calc(9.5rem + var(--safe-bottom));
   }
 
   .masthead {
@@ -737,7 +743,7 @@ body {
   }
 
   .docked-audio-bar {
-    padding: 0.2rem 0.65rem 0.25rem 0.65rem;
+    padding: 0.2rem max(0.65rem, var(--safe-right)) calc(0.5rem + var(--safe-bottom)) max(0.65rem, var(--safe-left));
   }
 
   .docked-audio-content {
@@ -1006,6 +1012,7 @@ body {
   flex-direction: column;
   overflow: hidden;
   padding: 1.25rem;
+  padding-bottom: calc(1.25rem + var(--safe-bottom));
   animation: studio-drawer-slide-up 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -1108,7 +1115,10 @@ body {
   background: var(--bg-glass);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  padding: 0.65rem 0.25rem;
+  padding-top: 0.65rem;
+  padding-bottom: calc(0.85rem + var(--safe-bottom));
+  padding-left: max(1rem, var(--safe-left));
+  padding-right: max(1rem, var(--safe-right));
   border-top: 1px solid var(--border-subtle);
   margin-top: 1.25rem;
 }
@@ -1134,7 +1144,11 @@ body {
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border-bottom: 1px solid var(--border-subtle);
-    padding: 0.5rem 0.75rem;
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+    padding-left: max(0.75rem, var(--safe-left));
+    padding-right: max(0.75rem, var(--safe-right));
+    scroll-padding-inline: 0.75rem;
     margin: -1rem -0.75rem 1rem -0.75rem;
   }
 
@@ -1321,6 +1335,7 @@ body {
   overflow: hidden;
   border: none;
   border-radius: 0;
+  padding-bottom: calc(1rem + var(--safe-bottom));
 }
 
 @media (min-width: 768px) {
@@ -1332,6 +1347,7 @@ body {
     border: var(--border-tactile);
     box-shadow: var(--shadow-tactile-hover);
     border-radius: var(--radius-tactile);
+    padding-bottom: 0;
   }
 }
 
@@ -1490,6 +1506,10 @@ body {
   margin-bottom: 1.25rem;
   border-bottom: 2px solid var(--ink-primary);
   padding-bottom: 0.75rem;
+  padding-left: max(0.75rem, var(--safe-left));
+  padding-right: max(0.75rem, var(--safe-right));
+  scroll-padding-inline: 0.75rem;
+  overflow-x: auto;
 }
 
 .workbench-tab-btn {

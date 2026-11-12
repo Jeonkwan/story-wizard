@@ -19,7 +19,7 @@ export const VOICE_SAMPLE_PRESETS: VoiceSamplePreset[] = [
     id: 'action-adventure',
     label: 'Bouncy Adventure',
     styleHint: 'Excited, bouncy adventure with heroic determination',
-    text: 'Sir Barnaby adjusted his cardboard helmet and pointed his wooden spoon toward the pillow fortress! <breath> "Steady now, crew! Watch out for the tickle-dragon\'s fizzy bubbles!"',
+    text: 'Sir Cedric adjusted his cardboard helmet and pointed his wooden spoon toward the pillow fortress! <breath> "Steady now, crew! Watch out for the tickle-dragon\'s fizzy bubbles!"',
   },
   {
     id: 'silly-comedy',
