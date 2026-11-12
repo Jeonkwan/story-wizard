@@ -788,6 +788,7 @@ Use your interactive browser capabilities (`/browser`) on `http://localhost:8080
 - [x] **Phase 11:** Standalone `🎙️ Voice Library` Tab, Upgraded Staged Voice Designer, Pace Controls & Story Narration Workflow (`phase-11-verified`)
 - [x] **Phase 12:** Library Deletion, Storybook Preview, Prompt Remix, and Age-Vocab Controls (`phase-12-verified`)
 - [x] **Phase 13:** Fireside Espresso UI Redesign, Dark-First Default, & Compact Mobile Studio Ergonomics (`phase-13-verified`)
+- [ ] **Phase 14:** One-Tap Chained Pipeline (`Write -> Auto-Direct -> Optional Auto-Synthesize`), Dedicated Story Length Control, Character Name Diversity, Age-Driven Complexity, & iPhone Safe-Area Support (`phase-14-verified`)
 
 ---
 
@@ -1433,3 +1434,197 @@ Per `AGENTS.md` and `SUBAGENT_ORCHESTRATION_PLAYBOOK.md`, Phase 13 is a tightly 
     4. If any visual contrast flaw, mobile overflow, or test failure is found, write `docs/reviews/phase-13-review.md` and message the **same** subagent (`send_message`) to iterate until 100% of gates pass.
     5. When verified, check off Phase 13 in `HANDOFF_PLAN.md`, tag `phase-13-verified`, and push `main` + tags to `origin`.
 
+
+---
+
+## 20. Phase 14: One-Tap Chained Pipeline, Story Length Control, Character Name Diversity, Age-Driven Complexity & iPhone Safe-Area Support
+
+### 20.1 Confirmed Architectural & UX Decisions
+
+1. **One-Tap Chained Pipeline (`Write` -> `Auto-Direct` -> `Optional Auto-Synthesize` — Option A):**
+   - **Problem:** Previously, creating a story in `DirectorStudio.tsx` required three manual steps across two panels (`1. Write Story Draft` -> `2. Auto-Direct Performance` -> `3. Synthesize Full Story Audio`), forcing the user to stay on the page and click between steps.
+   - **Solution:**
+     - On the Create Story screen (`Step 1` in `DirectorStudio.tsx`), add a **🎙️ Narrator Voice & Auto-Audio Card** directly above the primary submit button:
+       - Displays a voice selector dropdown populated from the user's `voices` list (custom & prebuilt voices, defaulting to `localStorage.getItem('story_preferred_narrator_voice') || 'prebuilt-kore'`), plus a quick **`🔊 Preview`** button (using `shared/voiceSamples.ts` / `api.previewVoice`).
+       - Includes a toggle/checkbox (`autoSynthesize`, defaulting to `true`): **"🔊 Automatically generate audio when story is ready"**.
+       - When `autoSynthesize` is `true`, the primary submit button reads **`✨ Create Story & Generate Audio`** (when `false`, it reads **`✍️ Write & Direct Story Draft`**).
+     - When `POST /api/admin/stories/write` is invoked with `autoDirect: true` (and optional `autoSynthesize: true`, `narratorVoiceId: string`), the server job (`runTask` in `server/routes/adminStories.ts`) automatically chains all stages inside a **single background job** (`JobStage: 'writing' -> 'directing' -> 'synthesizing'`):
+       1. **Stage 1 (`writing`):** Calls `geminiStory.generateStoryDraft(...)`, persists `story.json` (`status: 'draft'`) and updates `catalog.json`.
+       2. **Stage 2 (`directing`):** If `autoDirect` is `true`, updates job stage to `'directing'` (`progress: 35`, detail `'Stage 2/3: Auto-directing vocal delivery cues...'`), runs `geminiStory.directStoryScript(story)` + Validator 2, saves the directed `script` and `character_voices`, and sets `story.is_directed = true`. Wrapped in a graceful `try / catch` so that if the Director pass fails on a transient LLM error, the drafted story is still preserved and usable for Solo TTS synthesis.
+       3. **Stage 3 (`synthesizing`):** If `autoSynthesize` is `true` and `narratorVoiceId` is provided, updates job stage to `'synthesizing'` (`progress: 65`, detail `'Stage 3/3: Synthesizing full story narration...'`), resolves the `VoiceProfile` from storage, calls `tts.synthesizeFullStory(story, 'solo', { narratorVoice, onProgress })`, writes the `.wav` file, updates `story.audio_versions`, `story.default_audio_version_id`, `story.audio_url`, `story.duration_seconds`, and sets `story.status = 'published'`.
+     - **Backward Compatibility for Existing API Tests:** Existing tests in `tests/pipelineApi.test.ts` call `POST /api/admin/stories/write` with `{ mode: 'fresh', prompt: '...' }` (without `autoDirect: true`) and test `/direct` separately. Therefore, `server/routes/adminStories.ts` must only chain Stage 2 (`directStoryScript`) when `req.body?.autoDirect === true` (which `DirectorStudio.tsx` passes on 1-tap story creation), ensuring 100% of existing `tests/pipelineApi.test.ts` assertions continue to pass without modification.
+     - **Post-Creation Workbench & Multi-Voice Flexibility:** Once a story is created, opening it in the Admin Studio Workbench still shows the **📖 Storybook Preview**, **🎛️ Script Editor**, and **🎙️ Voice & Audio Versions (`VoiceStudioPanel`)** so the user can always generate additional audio versions with different voices or edit individual lines later.
+
+2. **Eliminate Repetitive `"Barnaby"` Character Naming:**
+   - **Root Cause:** `gemini-3.8-flash` has a strong pre-training statistical bias toward classic British woodland names (`Barnaby`, `Bramble`, `Pip`, `Milo`, `Oliver`, `Toby`, `Whiskers`, `Luna`, `Felix`, `Nutkin`) when generating children's stories, reinforced by `"Sir Barnaby"` in `shared/voiceSamples.ts:22` and `"Barnaby the owl"` in `scripts/seedLocalData.ts:207`.
+   - **Solution:**
+     - **Prompt Guardrail (`server/services/geminiStory.ts`):** Add a mandatory **ANTI-CLICHÉ & CHARACTER NAME DIVERSITY RULE** in `generateWriterDraft`'s `systemInstruction`:
+       - Explicitly ban overused default AI storybook names (`Barnaby`, `Bramble`, `Pip`, `Squeak`, `Oliver`, `Milo`, `Toby`, `Whiskers`, `Luna`, `Nutkin`, `Thimble`) unless the user's prompt explicitly asks for that name.
+       - Direct the model to draw fresh, vivid, culturally and phonetically varied character names from nature, astronomy, music, mythology, and global languages.
+     - **Catalog-Aware Dynamic Exclusion (`avoidCharacterNames?: string[]`):**
+       - In `server/routes/adminStories.ts` (before calling `geminiStory.generateStoryDraft` in `mode === 'fresh'`), read `storage.listStories()` to extract character names already used across existing stories and pass `avoidCharacterNames` into `generateStoryDraft` / `generateWriterDraft`, injecting `DO NOT reuse any of these recently used character names: [...]` into the Writer prompt.
+     - **Seed & Voice Sample Cleanup:**
+       - In `shared/voiceSamples.ts` (line 22), replace `"Sir Barnaby"` with `"Sir Cedric"`.
+       - In `scripts/seedLocalData.ts` (line 207), replace `"Barnaby the owl"` with `"Orin the owl"`.
+
+3. **Unify Vocabulary into Target Age Range & Add Dedicated Story Length Control (`StoryLength`):**
+   - **Remove Separate Vocabulary Complexity UI (`client/components/DirectorStudio.tsx`):**
+     - Remove the `VOCABULARY COMPLEXITY` pill row (`Simple`, `Standard`, `Enriched`, `Advanced`), the `⚙️ Custom Vocabulary` toggle button, and the custom vocabulary textarea from `DirectorStudio.tsx`.
+     - **Age Range Automatically Drives Linguistic & Narrative Depth:** Selecting a Target Age Range (`toddler` | `early-reader` | `elementary` | `young-reader`) now holistically controls vocabulary richness, sentence length, figurative language, plot structure, and emotional maturity in `buildPedagogicalInstruction(ageGroup, vocabularyLevel, customVocabularyInstructions)` inside `server/services/geminiStory.ts`.
+     - When `vocabularyLevel` is omitted by the UI, `buildPedagogicalInstruction` automatically maps `ageGroup` to its natural linguistic tier (`toddler -> simple`, `early-reader -> standard`, `elementary -> enriched`, `young-reader -> advanced`), while still honoring explicit `vocabularyLevel` or `customVocabularyInstructions` if passed directly by legacy API tests (`tests/pipelineApi.test.ts`).
+   - **Add Dedicated 4-Option Story Length Control (`StoryLength`):**
+     - Define `export type StoryLength = 'short' | 'medium' | 'long' | 'epic';` in `shared/types.ts` and add `story_length?: StoryLength;` to `StoryPromptMetadata`.
+     - Add a **⏱️ Story Length** 4-pill selector in `DirectorStudio.tsx` (right below **🎂 Target Age Range**):
+       - `short`: **`⚡ Quick (~1–2 min)`** — `6 to 8 script turns (~200–300 words total)`
+       - `medium` (Default): **`📖 Standard (~3–4 min)`** — `10 to 14 script turns (~450–650 words total)`
+       - `long`: **`🌙 Extended (~5–7 min)`** — `16 to 22 script turns (~800–1,100 words total)`
+       - `epic`: **`🏔️ Deep Dive (~8–10 min)`** — `24 to 30 script turns (~1,200–1,600 words total)`
+     - Update `generateWriterDraft` in `server/services/geminiStory.ts` so the system prompt dynamically enforces the turn-count and word-count target for the chosen `storyLength` (replacing the hardcoded `"Keep the story around 8 to 14 script turns"`).
+
+4. **Fix iPhone Safe-Area Bottom Bar & Edge Tab Clipping (`index.html` + `client/styles/kinetic.css`):**
+   - **Root Cause:** `index.html` line 5 lacked `viewport-fit=cover`, and `client/styles/kinetic.css` had zero `env(safe-area-inset-*)` rules. On iPhones with rounded screen corners and the bottom Home Indicator bar, fixed/sticky bottom bars (`.docked-audio-bar`, `.studio-sticky-footer`, `.studio-archive-drawer`, `.focus-composer-sheet`) and edge tab rows (`.studio-mobile-topbar`, `.workbench-tab-row`) clipped at the bottom and left/right curved edges.
+   - **Solution:**
+     - Update `index.html` line 5 to:
+       `<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />`
+     - Add CSS safe-area variables to `:root` in `client/styles/kinetic.css`:
+       ```css
+       --safe-top: env(safe-area-inset-top, 0px);
+       --safe-bottom: env(safe-area-inset-bottom, 0px);
+       --safe-left: env(safe-area-inset-left, 0px);
+       --safe-right: env(safe-area-inset-right, 0px);
+       ```
+     - Apply safe-area padding across all mobile bottom bars and horizontal tab strips in `client/styles/kinetic.css`:
+       - `.docked-audio-bar`: `padding-bottom: calc(0.5rem + var(--safe-bottom)); padding-left: max(0.75rem, var(--safe-left)); padding-right: max(0.75rem, var(--safe-right));`
+       - `.reader-wrapper` (at `@media (max-width: 768px)`): `padding-bottom: calc(9.5rem + var(--safe-bottom));`
+       - `.studio-sticky-footer`: `padding-bottom: calc(0.85rem + var(--safe-bottom)); padding-left: max(1rem, var(--safe-left)); padding-right: max(1rem, var(--safe-right));`
+       - `.studio-archive-drawer`: `padding-bottom: calc(1.25rem + var(--safe-bottom));`
+       - `.focus-composer-sheet`: `padding-bottom: calc(1rem + var(--safe-bottom));`
+       - `.studio-mobile-topbar` & `.workbench-tab-row`: add safe horizontal padding (`padding-left: max(0.75rem, var(--safe-left)); padding-right: max(0.75rem, var(--safe-right));`) and `scroll-padding-inline: 0.75rem;` so end tabs (`🎙️ 3. Voices`, `🎛️ Script Editor`) never clip against iPhone screen curvature.
+
+---
+
+### 20.2 Exact Shared Types (`shared/types.ts`) & API Contracts
+
+1. **`shared/types.ts`:**
+   - Add `StoryLength`:
+     ```ts
+     export type StoryLength = 'short' | 'medium' | 'long' | 'epic';
+     ```
+   - Update `StoryPromptMetadata`:
+     ```ts
+     export interface StoryPromptMetadata {
+       mode: 'fresh' | 'Bring-Your-Own-Script';
+       prompt?: string;
+       genre_tags?: string[];
+       age_group?: AgeGroup;
+       story_length?: StoryLength;
+       vocabulary_level?: VocabularyLevel;
+       custom_vocabulary_instructions?: string;
+       raw_manuscript?: string;
+     }
+     ```
+
+2. **`server/services/geminiStory.ts`:**
+   - Update `WriterInput`:
+     ```ts
+     export interface WriterInput {
+       prompt: string;
+       genreTags: string[];
+       ageGroup?: AgeGroup;
+       storyLength?: StoryLength;
+       vocabularyLevel?: VocabularyLevel;
+       customVocabularyInstructions?: string;
+       avoidCharacterNames?: string[];
+     }
+     ```
+   - Add helper `buildStoryLengthInstruction(storyLength?: StoryLength): string` returning explicit script turn count and word count targets (`short`: 6–8 turns / 200–300 words; `medium`: 10–14 turns / 450–650 words; `long`: 16–22 turns / 800–1,100 words; `epic`: 24–30 turns / 1,200–1,600 words).
+   - Update `buildPedagogicalInstruction(ageGroup?: AgeGroup, vocabularyLevel?: VocabularyLevel, customVocabularyInstructions?: string)`:
+     - When `vocabularyLevel` is not explicitly provided, auto-derive the linguistic complexity tier from `ageGroup` (`toddler -> 'simple'`, `early-reader -> 'standard'`, `elementary -> 'enriched'`, `young-reader -> 'advanced'`, default `'standard'`).
+     - Enrich each age group instruction so it governs vocabulary richness, sentence length, narrative pacing, and thematic maturity together.
+   - Add the **ANTI-CLICHÉ & CHARACTER NAME DIVERSITY RULE** in `generateWriterDraft` (banning `Barnaby`, `Bramble`, `Pip`, `Squeak`, `Oliver`, `Milo`, `Toby`, `Whiskers`, `Luna`, `Nutkin` unless explicitly present in `input.prompt`, and appending `input.avoidCharacterNames` when non-empty).
+   - Update `GeminiStoryService.generateStoryDraft` input type to accept `storyLength?: StoryLength` and `avoidCharacterNames?: string[]`, and store `story_length: input.storyLength || 'medium'` in `prompt_metadata`.
+
+3. **`server/routes/adminStories.ts` (`POST /api/admin/stories/write`):**
+   - Accept optional fields in `req.body`:
+     - `storyLength?: StoryLength` (validated against `['short', 'medium', 'long', 'epic']`)
+     - `autoDirect?: boolean`
+     - `autoSynthesize?: boolean`
+     - `narratorVoiceId?: string`
+   - Before calling `geminiStory.generateStoryDraft` in `'fresh'` mode, gather existing character names from `await storage.listStories()` so recently used character names are passed in `avoidCharacterNames`.
+   - Inside `runTask`:
+     - **Step 1 (`writing`):** Generate story draft (`geminiStory.generateStoryDraft`), save story & catalog.
+     - **Step 2 (`directing`):** If `autoDirect === true`, update job progress (`stage: 'directing', progress: 35, detail: 'Stage 2: Auto-directing vocal delivery cues...'`), call `geminiStory.directStoryScript`, validate via `validateDirectedScript`, update `story.script`, `story.character_voices`, `story.is_directed = true`, and save `story.json`. Wrap Step 2 in `try / catch` so that if `directStoryScript` fails, a warning is logged and the raw draft remains intact for Step 3 or manual editing.
+     - **Step 3 (`synthesizing`):** If `autoSynthesize === true` and `typeof narratorVoiceId === 'string' && narratorVoiceId.trim()`, update job progress (`stage: 'synthesizing', progress: 65, detail: 'Stage 3: Synthesizing full story audio...'`), resolve the `VoiceProfile` via `storage.listVoices()`, call `tts.synthesizeFullStory(story, 'solo', { narratorVoice, onProgress })`, save the `.wav` via `storage.saveAudio(story.id, audioBuffer, versionId)`, append the `AudioVersion`, set `story.status = 'published'`, and save `story.json` + `catalog.json`.
+
+4. **`client/api/client.ts`:**
+   - Update `writeStory` request payload interface to include:
+     ```ts
+     storyLength?: StoryLength;
+     autoDirect?: boolean;
+     autoSynthesize?: boolean;
+     narratorVoiceId?: string;
+     ```
+
+---
+
+### 20.3 Module-by-Module Implementation Checklist
+
+1. **`index.html` & `client/styles/kinetic.css`:**
+   - Add `viewport-fit=cover` to `<meta name="viewport">` in `index.html`.
+   - Define `--safe-top`, `--safe-bottom`, `--safe-left`, `--safe-right` in `:root` in `client/styles/kinetic.css`.
+   - Apply safe-area bottom and horizontal insets to `.docked-audio-bar`, `.reader-wrapper`, `.studio-sticky-footer`, `.studio-archive-drawer`, `.focus-composer-sheet`, `.studio-mobile-topbar`, and `.workbench-tab-row`.
+2. **`shared/voiceSamples.ts` & `scripts/seedLocalData.ts`:**
+   - Replace `"Sir Barnaby"` in `shared/voiceSamples.ts` (line 22) with `"Sir Cedric"`.
+   - Replace `"Barnaby the owl"` in `scripts/seedLocalData.ts` (line 207) with `"Orin the owl"`.
+3. **`shared/types.ts`, `server/services/geminiStory.ts`, `server/routes/adminStories.ts`, `client/api/client.ts`:**
+   - Implement `StoryLength`, unified age-driven pedagogical instructions, character name diversity rules + `avoidCharacterNames`, and chained `autoDirect` + `autoSynthesize` inside `POST /api/admin/stories/write`.
+4. **`client/components/DirectorStudio.tsx`:**
+   - Replace the old `VOCABULARY COMPLEXITY` & `Custom Vocabulary` UI with the new **⏱️ Story Length (`short` | `medium` | `long` | `epic`)** 4-pill selector (`data-testid="story-length-selector"`).
+   - Update Target Age Range helper subtitle to clarify that age range automatically adjusts vocabulary, sentence structure, and story depth.
+   - Add the **🎙️ Narrator Voice & Auto-Audio** card in Step 1 (`#step-1-panel`) with:
+     - Narrator voice `<select aria-label="Narrator Voice">` (persisted in `localStorage.getItem('story_preferred_narrator_voice')`, defaulting to `'prebuilt-kore'` or first available voice) + quick **`🔊 Preview`** button.
+     - Checkbox/toggle (`data-testid="auto-synthesize-toggle"`, default `true`): `"Automatically generate audio when story is ready"`.
+   - Update `handleWriteDraft` so clicking the primary action button sends `storyLength`, `autoDirect: true`, `autoSynthesize`, and `narratorVoiceId` to `api.writeStory(...)`.
+   - Keep `#step-1-panel`, `#step-2-panel`, `#step-3-panel`, `#step-3-voice-studio`, and `data-testid="mobile-step-draft" | "mobile-step-script" | "mobile-step-voices"` intact so existing Studio navigation and post-creation script editing / additional voice synthesis work seamlessly.
+
+---
+
+### 20.4 Exact Existing Test Files & Line Numbers to Update + New Phase 14 Tests
+
+1. **`tests/ui.test.tsx` (Lines 1512–1556):**
+   - Currently tests `"renders Age Range and Vocabulary Complexity selectors and sends them in writeStory API"` and clicks `Enriched (Sophisticated)` and `Custom Vocabulary`.
+   - Update this test to: `"renders Target Age Range, Story Length, and Narrator Voice controls and sends them in writeStory API"`:
+     - Verify `TARGET AGE RANGE:` pills (`Toddler (2–4)`, `Early Reader (5–7)`, `Elementary (8–10)`, `Young Reader (11+)`) and `STORY LENGTH:` pills (`⚡ Quick (~1–2 min)`, `📖 Standard (~3–4 min)`, `🌙 Extended (~5–7 min)`, `🏔️ Deep Dive (~8–10 min)`).
+     - Verify the separate `VOCABULARY COMPLEXITY:` selector is no longer rendered in `DirectorStudio`.
+     - Verify clicking `Elementary (8–10)` and `🌙 Extended (~5–7 min)` and submitting calls `writeStory` with `ageGroup: 'elementary'`, `storyLength: 'long'`, `autoDirect: true`.
+
+2. **`tests/e2e/storybook.spec.ts` (Lines 749–800):**
+   - Currently asserts `await expect(page.getByText('VOCABULARY COMPLEXITY:')).toBeVisible()` and clicks `Enriched (Sophisticated)` and `Custom Vocabulary`.
+   - Update lines 749–800 to assert `STORY LENGTH:` visibility, select `🌙 Extended (~5–7 min)` (`storyLength: 'long'`), and verify the request payload includes `ageGroup: 'elementary'` and `storyLength: 'long'`.
+
+3. **New Unit & Integration Suite (`tests/phase14WorkflowAndSafeArea.test.tsx`):**
+   - **Backend Chained Pipeline Tests:**
+     - Verify `POST /api/admin/stories/write` with `autoDirect: true, autoSynthesize: true, narratorVoiceId: 'prebuilt-kore', storyLength: 'short'` chains Writer -> Director -> Solo TTS and produces a `published` story with `is_directed === true`, `prompt_metadata.story_length === 'short'`, and a playable `audio_versions` entry.
+     - Verify `POST /api/admin/stories/write` with `autoDirect: true, autoSynthesize: false` chains Writer -> Director (`is_directed === true`, `status === 'draft'`) without invoking TTS.
+   - **Character Name Diversity & Pedagogical Prompt Tests:**
+     - Verify `generateWriterDraft` system prompt includes the anti-cliché ban list (`Barnaby`, `Bramble`, `Pip`, etc.), injects `avoidCharacterNames` when provided, and includes the exact word/turn target for each `StoryLength` (`short`, `medium`, `long`, `epic`).
+     - Verify `shared/voiceSamples.ts` does not contain `"Barnaby"`.
+   - **Frontend One-Tap Studio UI Tests:**
+     - Verify `DirectorStudio` Step 1 renders the Narrator Voice selector, `autoSynthesize` toggle, and Story Length pills, and triggers the chained `writeStory` call in a single tap.
+
+4. **New Playwright E2E Suite (`tests/e2e/qa-phase14.spec.ts`):**
+   - Verify `index.html` viewport meta tag contains `viewport-fit=cover`.
+   - Verify `.docked-audio-bar`, `.studio-mobile-topbar`, and `.workbench-tab-row` have non-clipped bounding boxes (`rect.left >= 0`, `rect.right <= window.innerWidth`, `rect.bottom <= window.innerHeight`) and zero horizontal overflow at `375x812` iPhone viewport.
+   - Capture verification screenshots in `qa-screenshots/`:
+     1. `qa-screenshots/phase14-mobile-onetap-create-dark.png` (`375x812` Mobile Step 1 showing Age Range, Story Length pills, and Narrator Voice + Auto-Audio card)
+     2. `qa-screenshots/phase14-mobile-reader-safearea-dark.png` (`375x812` Mobile Public Reader + Docked Audio Bar with safe-area padding)
+     3. `qa-screenshots/phase14-desktop-onetap-create-dark.png` (`1440x900` Desktop Studio Step 1 with Story Length and One-Tap Audio creation)
+
+---
+
+### 20.5 Recommended Execution Strategy & Subagent Grouping for Phase 14
+
+Per `AGENTS.md` Section 1.A & 1.C (Workload Evaluation & Context-Aware Subagent Grouping):
+- **Recommended Mode:** **Mode 2 (Hybrid) or Mode 3 (Single Cohesive `phase-builder` Flash Subagent)** with **1 single `phase-builder` subagent (`Model: "flash"`, `Workspace: "inherit"`)**:
+  - Because the `StoryLength` type, chained `POST /api/admin/stories/write` endpoint, `DirectorStudio.tsx` Step 1 UI, `kinetic.css` safe-area rules, and the updated Vitest/Playwright assertions (`tests/ui.test.tsx`, `tests/e2e/storybook.spec.ts`, `tests/phase14WorkflowAndSafeArea.test.tsx`, `tests/e2e/qa-phase14.spec.ts`) share tight payload and DOM contracts, assign all implementation and test files to **one single `phase-builder` subagent** rather than splitting across multiple subagents.
+  - **Documentation & Verification Ownership:** The Main Agent (Lead Architect) writes all standalone documentation (`HANDOFF_PLAN.md`, `docs/reviews/phase-14-review.md`), performs line-by-line diff review, inspects all `qa-screenshots/phase14-*.png` images firsthand with multimodal vision, runs `npm run typecheck`, `npx tsc -p tsconfig.server.json`, `npm test`, and `npm run build && npx playwright test` in WSL, and tags `phase-14-verified`.
