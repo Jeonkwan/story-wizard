@@ -788,7 +788,7 @@ Use your interactive browser capabilities (`/browser`) on `http://localhost:8080
 - [x] **Phase 11:** Standalone `🎙️ Voice Library` Tab, Upgraded Staged Voice Designer, Pace Controls & Story Narration Workflow (`phase-11-verified`)
 - [x] **Phase 12:** Library Deletion, Storybook Preview, Prompt Remix, and Age-Vocab Controls (`phase-12-verified`)
 - [x] **Phase 13:** Fireside Espresso UI Redesign, Dark-First Default, & Compact Mobile Studio Ergonomics (`phase-13-verified`)
-- [ ] **Phase 14:** One-Tap Chained Pipeline (`Write -> Auto-Direct -> Optional Auto-Synthesize`), Dedicated Story Length Control, Character Name Diversity, Age-Driven Complexity, & iPhone Safe-Area Support (`phase-14-verified`)
+- [x] **Phase 14:** One-Tap Chained Pipeline (`Write -> Auto-Direct -> Optional Auto-Synthesize`), Dedicated Story Length Control, Character Name Diversity, Age-Driven Complexity, & iPhone Safe-Area Support (`phase-14-verified`)
 
 ---
 
@@ -1628,3 +1628,20 @@ Per `AGENTS.md` Section 1.A & 1.C (Workload Evaluation & Context-Aware Subagent 
 - **Recommended Mode:** **Mode 2 (Hybrid) or Mode 3 (Single Cohesive `phase-builder` Flash Subagent)** with **1 single `phase-builder` subagent (`Model: "flash"`, `Workspace: "inherit"`)**:
   - Because the `StoryLength` type, chained `POST /api/admin/stories/write` endpoint, `DirectorStudio.tsx` Step 1 UI, `kinetic.css` safe-area rules, and the updated Vitest/Playwright assertions (`tests/ui.test.tsx`, `tests/e2e/storybook.spec.ts`, `tests/phase14WorkflowAndSafeArea.test.tsx`, `tests/e2e/qa-phase14.spec.ts`) share tight payload and DOM contracts, assign all implementation and test files to **one single `phase-builder` subagent** rather than splitting across multiple subagents.
   - **Documentation & Verification Ownership:** The Main Agent (Lead Architect) writes all standalone documentation (`HANDOFF_PLAN.md`, `docs/reviews/phase-14-review.md`), performs line-by-line diff review, inspects all `qa-screenshots/phase14-*.png` images firsthand with multimodal vision, runs `npm run typecheck`, `npx tsc -p tsconfig.server.json`, `npm test`, and `npm run build && npx playwright test` in WSL, and tags `phase-14-verified`.
+
+---
+
+### 20.6 Validation Gate & Verification Results
+
+- [x] **TypeScript Typecheck:** `npm run typecheck` passes with 0 errors across client, server, and shared modules.
+- [x] **Server ESM Build:** `npx tsc -p tsconfig.server.json` succeeds under `NodeNext` ESM module resolution with explicit `.js` import specifiers.
+- [x] **Unit & Integration Tests:** `npm test` passes **252/252 tests** across 14 test files, including `tests/phase14WorkflowAndSafeArea.test.tsx` (14/14) and `tests/ui.test.tsx` (28/28).
+- [x] **Native Node ESM Verification:** `tests/esm-build.test.ts` passes under native `node` dynamic import.
+- [x] **Playwright E2E Suite:** `npm run build && npx playwright test` passes **13/13 tests** cleanly, validating `viewport-fit=cover`, safe-area bounding boxes, and zero horizontal overflow at `375x812` mobile and `1440x900` desktop.
+- [x] **Visual QA Screenshots:** 3 visual checkpoints verified in `qa-screenshots/`:
+  - `qa-screenshots/phase14-mobile-onetap-create-dark.png`
+  - `qa-screenshots/phase14-mobile-reader-safearea-dark.png`
+  - `qa-screenshots/phase14-desktop-onetap-create-dark.png`
+- [x] **Completion Audit:** Authored at `docs/audits/phase-14-audit.md`.
+- [x] **Milestone Tag:** `phase-14-verified`.
+
