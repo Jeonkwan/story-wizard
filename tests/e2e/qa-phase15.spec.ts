@@ -38,7 +38,7 @@ test.describe('Phase 15: Fire-and-Go Background Generation, Durable Job History 
       elapsed_seconds: 14,
       title: 'A Gentle Dragon in the Whispering Forest',
       stage: 'drafting',
-      message: 'Drafting story with Gemini 3.8 Flash... (14s)',
+      message: 'Drafting story with Gemini 3.8 Flash...',
     };
 
     // Route /api/admin/jobs to return the in-flight job
@@ -199,7 +199,7 @@ test.describe('Phase 15: Fire-and-Go Background Generation, Durable Job History 
         elapsed_seconds: 8,
         title: 'Brave Firefly Adventures',
         stage: 'drafting',
-        message: 'Drafting story with Gemini 3.8 Flash... (8s)',
+        message: 'Drafting story with Gemini 3.8 Flash...',
       },
       {
         job_id: 'job-mobile-comp',

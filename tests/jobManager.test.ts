@@ -363,5 +363,51 @@ describe('Phase 7: Zero-DB Asynchronous JobManager Unit Tests', () => {
       const nonExistent = await jobManager.dismissJob('job_non_existent');
       expect(nonExistent).toBe(false);
     });
+
+    it('persists running synthesize/direct job to jobs.json on persistJobStart and reconciles to failed on server restart', async () => {
+      // 1. Create a synthesize job with autoPersist = false (as done in adminStories.ts)
+      const synthJob = jobManager.createJob('synthesize', 'test-bedtime-story', 'Synthesizing voice audio...', false, {
+        title: 'Bedtime Bear Narration',
+        stage: 'synthesizing',
+      });
+
+      // Initially not in jobs.json because autoPersist was false
+      const beforePersist = await storage.updateJsonAtomic<JobProgress[]>('jobs.json', (c) => c ?? [], []);
+      expect(beforePersist.some((j) => j.job_id === synthJob.job_id)).toBe(false);
+
+      // 2. Call persistJobStart (which now persists to jobs.json and updates active_job)
+      await jobManager.persistJobStart(synthJob.job_id);
+
+      const afterPersist = await storage.updateJsonAtomic<JobProgress[]>('jobs.json', (c) => c ?? [], []);
+      const foundInJobsJson = afterPersist.find((j) => j.job_id === synthJob.job_id);
+      expect(foundInJobsJson).toBeDefined();
+      expect(foundInJobsJson?.status).toBe('running');
+      expect(foundInJobsJson?.title).toBe('Bedtime Bear Narration');
+      expect(foundInJobsJson?.stage).toBe('synthesizing');
+
+      // Check story and catalog have active_job
+      const story = await storage.getStory('test-bedtime-story');
+      expect(story.active_job?.job_id).toBe(synthJob.job_id);
+      const catalog = await storage.getCatalog();
+      expect(catalog.find((c) => c.id === 'test-bedtime-story')?.active_job?.job_id).toBe(synthJob.job_id);
+
+      // 3. Simulate server restart with fresh JobManager
+      const freshJobManager = new JobManager(storage);
+      const reconciled = await freshJobManager.reconcileStaleJobs();
+      expect(reconciled).toBe(1);
+
+      // Verify jobs.json updated to failed
+      const jobsAfterRestart = await storage.updateJsonAtomic<JobProgress[]>('jobs.json', (c) => c ?? [], []);
+      const reconciledJob = jobsAfterRestart.find((j) => j.job_id === synthJob.job_id);
+      expect(reconciledJob?.status).toBe('failed');
+      expect(reconciledJob?.stage).toBe('failed');
+      expect(reconciledJob?.error).toContain('interrupted by a server restart');
+
+      // Verify story.active_job and catalog item active_job are cleared
+      const storyAfter = await storage.getStory('test-bedtime-story');
+      expect(storyAfter.active_job).toBeNull();
+      const catalogAfter = await storage.getCatalog();
+      expect(catalogAfter.find((c) => c.id === 'test-bedtime-story')?.active_job).toBeNull();
+    });
   });
 });

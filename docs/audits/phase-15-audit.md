@@ -3,7 +3,7 @@
 > **Target Audience:** Lead Architect / Senior Reviewing Agent  
 > **Milestone:** Phase 15 (Fire-and-Go Background Generation, Durable Job History, Activity Tray & Cloud Run `--no-cpu-throttling`)  
 > **Repository:** `/home/ubuntu/story-wizard` (`c:\Users\m93\projects\story-wizard`)  
-> **Status:** All Phase 15 Objectives & Verification Criteria 100% Complete & Passing (268/268 Unit & Integration Tests Green across 14 Vitest Test Files, 14/14 Playwright E2E Tests Passing, NodeNext Native ESM Build Verified)
+> **Status:** All Phase 15 Objectives & Verification Criteria 100% Complete & Passing (271/271 Unit & Integration Tests Green across 14 Vitest Test Files, 14/14 Playwright E2E Tests Passing, NodeNext Native ESM Build Verified)
 
 ---
 
@@ -26,7 +26,7 @@ All implementation work strictly adheres to project architectural guardrails:
 |---|---|---|---|
 | **TypeScript Typecheck (Client & Shared)** | `npm run typecheck` | **PASS (0 errors)** | Strict mode across all client components, hooks, and types |
 | **Server ESM Compilation** | `npx tsc -p tsconfig.server.json` | **PASS (0 errors)** | NodeNext ESM compiled cleanly into `dist/server` |
-| **Unit & Integration Suite** | `npm test` (`vitest run`) | **PASS (268/268)** | 14 test files passing, including `tests/jobManager.test.ts` (14/14), `tests/pipelineApi.test.ts` (23/23), and `tests/ui.test.tsx` (33/33) |
+| **Unit & Integration Suite** | `npm test` (`vitest run`) | **PASS (271/271)** | 14 test files passing, including `tests/jobManager.test.ts` (15/15), `tests/pipelineApi.test.ts` (23/23), and `tests/ui.test.tsx` (35/35) |
 | **Native Node ESM Verification** | `tests/esm-build.test.ts` | **PASS (1/1)** | Dynamic native Node ESM import under plain `node` |
 | **Playwright E2E Suite** | `npm run build && npx playwright test` | **PASS (14/14)** | All 14 E2E test specs green, including `storybook.spec.ts` (6/6) and `qa-phase15.spec.ts` (1/1) |
 | **Cloud Run Deployment Flag** | `tests/deploymentConfig.test.ts` | **PASS (27/27)** | Verified `--no-cpu-throttling` present in `deploy.sh` deployment arguments |
@@ -180,7 +180,34 @@ Running 14 tests using 1 worker
 
 ---
 
-## 5. Architectural Compliance & Tagging Notice
+## 5. Lead Architect Code Review Remediations
+
+Following independent architectural review in `docs/reviews/phase-15-review.md`, all 4 identified items have been completely resolved and verified:
+
+1. **Infinite Polling Loop Elimination (`DirectorStudio.tsx`):**
+   - Separated mount/`visibilitychange` listener (`[loadRecentJobs]`) from the polling interval effect.
+   - Derived a primitive boolean `hasRunningJobs = recentJobs.some((j) => j.status === 'running')` for the interval effect dependency `[loadRecentJobs, hasRunningJobs]`.
+   - Verified via new regression test in `tests/ui.test.tsx`: `fetchRecentJobs` is called exactly once on mount without tight re-render loops.
+
+2. **Async Closure Hijack Prevention on Queue Another / Story Switch (`DirectorStudio.tsx`):**
+   - Added monotonic `draftSubmissionIdRef` (incremented on `handleWriteStory`, `handleQueueAnother`, `handleStartNewStory`, `handleStartSequel`, `loadStoryIntoWorkbench`, `handleDeleteStory`) and `selectedStoryIdRef`.
+   - `handleWriteStory` verifies `draftSubmissionIdRef.current === mySubmissionId` before mutating foreground state or navigating workbench, letting background jobs finish cleanly in the activity tray.
+   - `handleAutoDirect` verifies `selectedStoryIdRef.current === targetStoryId` before updating workbench turns.
+   - Verified via new regression test in `tests/ui.test.tsx`: Clicking `➕ Queue Another Story` and submitting Story 2 prevents Story 1's later completion from hijacking Story 2's workbench or clearing `isWriting`.
+
+3. **Duplicated Elapsed Seconds Guard (`DirectorStudio.tsx` & `tests/e2e/qa-phase15.spec.ts`):**
+   - Removed hardcoded `(14s)` and `(8s)` suffixes from mock messages in `qa-phase15.spec.ts`.
+   - Added `/\(\d+s\)\s*$/.test(baseMsg)` regex guard in `DirectorStudio.tsx` to prevent duplicate `(14s) (14s)` rendering.
+   - Refreshed and visually inspected `qa-screenshots/phase15-activity-tray-running-dark.png` and `qa-screenshots/phase15-mobile-activity-tray-dark.png`, verifying clean single elapsed second counters.
+
+4. **Durable `direct` & `synthesize` Start Persistence & Atomic Catalog Clear (`server/services/jobManager.ts`):**
+   - Added `await this.saveJobToHistory(job)` inside `persistJobStart(jobId)` so non-draft jobs (`autoPersist = false`) are persisted immediately to `jobs.json` upon initiation.
+   - Updated `reconcileStaleJobs()` to clear stale `active_job` pointers atomically via `storage.updateJsonAtomic<CatalogItem[]>('catalog.json', ...)`.
+   - Verified via new regression test in `tests/jobManager.test.ts`: Synthesize job created with `autoPersist = false` persists to `jobs.json` on `persistJobStart()`, and transitions to `failed` (`'Interrupted by server restart'`) on restart while clearing catalog and story `active_job` flags.
+
+---
+
+## 6. Architectural Compliance & Tagging Notice
 
 - **Architectural Guardrails Checked:**
   - Zero unapproved dependencies added.

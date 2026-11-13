@@ -218,6 +218,12 @@ export function DirectorStudio({
 
   const [directingStoryId, setDirectingStoryId] = useState<string | null>(null);
   const hasQueuedAnotherRef = useRef<boolean>(false);
+  const draftSubmissionIdRef = useRef<number>(0);
+  const selectedStoryIdRef = useRef<string | null>(selectedStoryId);
+  useEffect(() => {
+    selectedStoryIdRef.current = selectedStoryId;
+  }, [selectedStoryId]);
+
   const [recentJobs, setRecentJobs] = useState<JobProgress[]>([]);
   const [activityTrayExpanded, setActivityTrayExpanded] = useState<boolean>(true);
   const [notificationPerm, setNotificationPerm] = useState<NotificationPermission>(() =>
@@ -229,6 +235,8 @@ export function DirectorStudio({
 
   // Load selected story details into workbench
   const loadStoryIntoWorkbench = useCallback(async (id: string) => {
+    draftSubmissionIdRef.current++;
+    selectedStoryIdRef.current = id;
     setSelectedStoryId(id);
     setViewMode('edit');
     setWorkbenchTab('preview');
@@ -493,6 +501,7 @@ export function DirectorStudio({
     }
   }, [loadStories, onCatalogChanged]);
 
+  // Mount & visibility change listener
   useEffect(() => {
     loadRecentJobs();
 
@@ -503,17 +512,24 @@ export function DirectorStudio({
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
-    const hasRunning = recentJobs.some((j) => j.status === 'running');
-    let pollInterval: ReturnType<typeof setInterval> | null = null;
-    if (hasRunning) {
-      pollInterval = setInterval(loadRecentJobs, 2000);
-    }
-
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      if (pollInterval) clearInterval(pollInterval);
     };
-  }, [loadRecentJobs, recentJobs]);
+  }, [loadRecentJobs]);
+
+  // Periodic polling interval only while jobs are running (primitive boolean prevents re-trigger loops)
+  const hasRunningJobs = recentJobs.some((j) => j.status === 'running');
+  useEffect(() => {
+    if (!hasRunningJobs) return;
+
+    const pollInterval = setInterval(() => {
+      loadRecentJobs();
+    }, 2000);
+
+    return () => {
+      clearInterval(pollInterval);
+    };
+  }, [loadRecentJobs, hasRunningJobs]);
 
   const handleDismissJob = async (jobId: string) => {
     try {
@@ -546,6 +562,7 @@ export function DirectorStudio({
 
   const handleQueueAnother = () => {
     hasQueuedAnotherRef.current = true;
+    draftSubmissionIdRef.current++;
     setIsWriting(false);
     setWriteError(null);
     setWritingElapsedSeconds(0);
@@ -716,6 +733,7 @@ export function DirectorStudio({
 
   const handleStartNewStory = () => {
     hasQueuedAnotherRef.current = false;
+    draftSubmissionIdRef.current++;
     setViewMode('create');
     setMobileActiveStep('draft');
     setSelectedStoryId(null);
@@ -735,6 +753,7 @@ export function DirectorStudio({
 
   const handleStartSequel = (storyId: string) => {
     hasQueuedAnotherRef.current = false;
+    draftSubmissionIdRef.current++;
     setViewMode('create');
     setCreateMode('sequel');
     setMobileActiveStep('draft');
@@ -775,19 +794,24 @@ export function DirectorStudio({
   const handleWriteStory = async (e: React.FormEvent) => {
     e.preventDefault();
     hasQueuedAnotherRef.current = false;
+    const mySubmissionId = ++draftSubmissionIdRef.current;
     setIsWriting(true);
     setWriteError(null);
     setWritingElapsedSeconds(0);
     writingTimerRef.current = setInterval(() => {
-      setWritingElapsedSeconds((sec) => sec + 1);
+      if (draftSubmissionIdRef.current === mySubmissionId) {
+        setWritingElapsedSeconds((sec) => sec + 1);
+      }
     }, 1000);
 
     try {
       let created: Story;
       if (createMode === 'fresh') {
         if (!freshPrompt.trim()) {
-          setWriteError('Please enter a story prompt.');
-          setIsWriting(false);
+          if (draftSubmissionIdRef.current === mySubmissionId) {
+            setWriteError('Please enter a story prompt.');
+            setIsWriting(false);
+          }
           return;
         }
         created = await writeStoryDraft(
@@ -807,20 +831,26 @@ export function DirectorStudio({
           {
             async: true,
             onProgress: (job) => {
-              setWritingElapsedSeconds(job.elapsed_seconds);
+              if (draftSubmissionIdRef.current === mySubmissionId) {
+                setWritingElapsedSeconds(job.elapsed_seconds);
+              }
               loadRecentJobs();
             },
           }
         );
       } else {
         if (!sequelPrompt.trim()) {
-          setWriteError('Please enter a sequel episode prompt.');
-          setIsWriting(false);
+          if (draftSubmissionIdRef.current === mySubmissionId) {
+            setWriteError('Please enter a sequel episode prompt.');
+            setIsWriting(false);
+          }
           return;
         }
         if (!sequelPreviousStoryId) {
-          setWriteError('Please select a previous episode for the sequel.');
-          setIsWriting(false);
+          if (draftSubmissionIdRef.current === mySubmissionId) {
+            setWriteError('Please select a previous episode for the sequel.');
+            setIsWriting(false);
+          }
           return;
         }
         created = await writeStoryDraft(
@@ -840,7 +870,9 @@ export function DirectorStudio({
           {
             async: true,
             onProgress: (job) => {
-              setWritingElapsedSeconds(job.elapsed_seconds);
+              if (draftSubmissionIdRef.current === mySubmissionId) {
+                setWritingElapsedSeconds(job.elapsed_seconds);
+              }
               loadRecentJobs();
             },
           }
@@ -850,16 +882,23 @@ export function DirectorStudio({
       await loadRecentJobs();
       await loadStories();
       onCatalogChanged?.();
-      setWorkbenchTab('preview');
-      await loadStoryIntoWorkbench(created.id);
-    } catch (err) {
-      setWriteError(err instanceof Error ? err.message : 'Draft generation failed');
-    } finally {
-      if (writingTimerRef.current) {
-        clearInterval(writingTimerRef.current);
-        writingTimerRef.current = null;
+
+      if (draftSubmissionIdRef.current === mySubmissionId) {
+        setWorkbenchTab('preview');
+        await loadStoryIntoWorkbench(created.id);
       }
-      setIsWriting(false);
+    } catch (err) {
+      if (draftSubmissionIdRef.current === mySubmissionId) {
+        setWriteError(err instanceof Error ? err.message : 'Draft generation failed');
+      }
+    } finally {
+      if (draftSubmissionIdRef.current === mySubmissionId) {
+        if (writingTimerRef.current) {
+          clearInterval(writingTimerRef.current);
+          writingTimerRef.current = null;
+        }
+        setIsWriting(false);
+      }
       await loadRecentJobs();
     }
   };
@@ -893,8 +932,9 @@ export function DirectorStudio({
   // Step 2: Auto-Direct Voices & Pacing
   const handleAutoDirect = async () => {
     if (!activeStory) return;
+    const targetStoryId = activeStory.id;
     setIsDirecting(true);
-    setDirectingStoryId(activeStory.id);
+    setDirectingStoryId(targetStoryId);
     setDirectError(null);
     setDirectingElapsedSeconds(0);
     directingTimerRef.current = setInterval(() => {
@@ -904,32 +944,41 @@ export function DirectorStudio({
       // Persist pending workbench edits first so auto-direct acts on latest user prose/characters
       await persistWorkbenchEdits();
 
-      const directed = await directStory(activeStory.id, {
+      const directed = await directStory(targetStoryId, {
         async: true,
         onProgress: (job) => {
-          setDirectingElapsedSeconds(job.elapsed_seconds);
+          if (selectedStoryIdRef.current === targetStoryId) {
+            setDirectingElapsedSeconds(job.elapsed_seconds);
+          }
           loadRecentJobs();
         },
       });
-      setActiveStory(directed);
-      setEditedTitle(directed.title);
-      setEditedSummary(directed.summary);
-      setEditedTags(directed.tags.join(', '));
-      setEditedCharacters(JSON.parse(JSON.stringify(directed.characters)));
-      setEditedTurns(JSON.parse(JSON.stringify(directed.script_turns)));
-      setSaveSuccess(false);
+
+      if (selectedStoryIdRef.current === targetStoryId) {
+        setActiveStory(directed);
+        setEditedTitle(directed.title);
+        setEditedSummary(directed.summary);
+        setEditedTags(directed.tags.join(', '));
+        setEditedCharacters(JSON.parse(JSON.stringify(directed.characters)));
+        setEditedTurns(JSON.parse(JSON.stringify(directed.script_turns)));
+        setSaveSuccess(false);
+      }
       await loadRecentJobs();
       await loadStories();
       onCatalogChanged?.();
     } catch (err) {
-      setDirectError(err instanceof Error ? err.message : 'Directing failed');
+      if (selectedStoryIdRef.current === targetStoryId) {
+        setDirectError(err instanceof Error ? err.message : 'Directing failed');
+      }
     } finally {
       if (directingTimerRef.current) {
         clearInterval(directingTimerRef.current);
         directingTimerRef.current = null;
       }
-      setIsDirecting(false);
-      setDirectingStoryId(null);
+      if (selectedStoryIdRef.current === targetStoryId || directingStoryId === targetStoryId) {
+        setIsDirecting(false);
+        setDirectingStoryId(null);
+      }
       await loadRecentJobs();
     }
   };
@@ -1095,6 +1144,7 @@ export function DirectorStudio({
   // Delete story
   const handleDeleteStory = async () => {
     if (!activeStory) return;
+    draftSubmissionIdRef.current++;
     setIsDeleting(true);
     setDeleteError(null);
 
@@ -1584,7 +1634,12 @@ export function DirectorStudio({
                           </div>
                           <div style={{ fontSize: '0.75rem', color: 'var(--ink-muted)' }}>
                             {isRunning
-                              ? `${job.message || (job.stage ? `Stage: ${job.stage}` : 'Processing...')} (${job.elapsed_seconds}s)`
+                              ? (() => {
+                                  const baseMsg = job.message || (job.stage ? `Stage: ${job.stage}` : 'Processing...');
+                                  return /\(\d+s\)\s*$/.test(baseMsg)
+                                    ? baseMsg
+                                    : `${baseMsg} (${job.elapsed_seconds}s)`;
+                                })()
                               : isCompleted
                               ? job.message || 'Generation complete!'
                               : job.error || job.message || 'Generation failed'}

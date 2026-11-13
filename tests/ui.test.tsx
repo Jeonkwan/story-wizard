@@ -2004,6 +2004,139 @@ describe('Phase 3 Admin Studio & UI Components', () => {
       // Verify synthesis progress card is dismissed
       expect(screen.queryByText(/Synthesizing audio turns with Gemini 3\.8 Flash TTS/i)).not.toBeInTheDocument();
     });
+
+    it('does not trigger a tight infinite polling loop of fetchRecentJobs on mount', async () => {
+      vi.spyOn(clientApi, 'fetchAdminStories').mockResolvedValue([]);
+      vi.spyOn(clientApi, 'fetchActiveJobs').mockResolvedValue([]);
+      vi.spyOn(clientApi, 'fetchVoices').mockResolvedValue([]);
+
+      const mockRunningJob: JobProgress = {
+        job_id: 'job-loop-check',
+        story_id: 'new',
+        type: 'draft',
+        status: 'running',
+        started_at: new Date().toISOString(),
+        elapsed_seconds: 1,
+        title: 'Running Job',
+        stage: 'drafting',
+      };
+
+      const fetchRecentJobsSpy = vi.spyOn(clientApi, 'fetchRecentJobs').mockResolvedValue([mockRunningJob]);
+
+      render(
+        <DirectorStudio
+          session={adminSessionFixture}
+          onLogout={() => {}}
+          onNavigateHome={() => {}}
+        />
+      );
+
+      // Wait a short tick for initial mount fetch to complete
+      await waitFor(() => {
+        expect(fetchRecentJobsSpy).toHaveBeenCalledTimes(1);
+      });
+
+      // Advance by 300ms (much less than 2,000ms polling interval)
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      // In a tight infinite re-render loop, this would have been called repeatedly
+      expect(fetchRecentJobsSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('clicking Queue Another Story and submitting second draft prevents Job 1 completion from hijacking Job 2 or resetting isWriting', async () => {
+      vi.spyOn(clientApi, 'fetchAdminStories').mockResolvedValue([]);
+      vi.spyOn(clientApi, 'fetchActiveJobs').mockResolvedValue([]);
+      vi.spyOn(clientApi, 'fetchRecentJobs').mockResolvedValue([]);
+      vi.spyOn(clientApi, 'fetchVoices').mockResolvedValue([]);
+      const fetchStorySpy = vi.spyOn(clientApi, 'fetchStory').mockResolvedValue(phase15StoryFixture);
+
+      // Create two deferred promises for writeStoryDraft calls
+      let resolveJob1!: (story: Story) => void;
+      const job1Promise = new Promise<Story>((resolve) => {
+        resolveJob1 = resolve;
+      });
+
+      let resolveJob2!: (story: Story) => void;
+      const job2Promise = new Promise<Story>((resolve) => {
+        resolveJob2 = resolve;
+      });
+
+      const writeDraftSpy = vi.spyOn(clientApi, 'writeStoryDraft')
+        .mockImplementationOnce(() => job1Promise)
+        .mockImplementationOnce(() => job2Promise);
+
+      render(
+        <DirectorStudio
+          session={adminSessionFixture}
+          onLogout={() => {}}
+          onNavigateHome={() => {}}
+        />
+      );
+
+      // 1. Fill prompt for Story 1 and submit
+      const promptInput = screen.getByPlaceholderText(/e\.g\. A comedic sci-fi adventure/i);
+      fireEvent.change(promptInput, { target: { value: 'First Story Prompt' } });
+
+      const submitBtn = screen.getByRole('button', { name: /✨ Create Story & Generate Audio|✍️ Write & Direct Story Draft/i });
+      fireEvent.click(submitBtn);
+
+      await waitFor(() => {
+        expect(writeDraftSpy).toHaveBeenCalledTimes(1);
+      });
+
+      // 2. Click "➕ Queue Another Story" while Job 1 is still in-flight
+      const queueAnotherBtn = await screen.findByTestId('queue-another-story-btn');
+      fireEvent.click(queueAnotherBtn);
+
+      // Inputs are reset, isWriting was cleared for Story 1
+      expect(promptInput).toHaveValue('');
+
+      // 3. Fill prompt for Story 2 and submit
+      fireEvent.change(promptInput, { target: { value: 'Second Story Prompt' } });
+      const submitBtn2 = screen.getByRole('button', { name: /✨ Create Story & Generate Audio|✍️ Write & Direct Story Draft/i });
+      fireEvent.click(submitBtn2);
+
+      await waitFor(() => {
+        expect(writeDraftSpy).toHaveBeenCalledTimes(2);
+      });
+
+      // Now Job 2 is in-flight (queue-another-story-btn is visible)
+      expect(screen.getByTestId('queue-another-story-btn')).toBeInTheDocument();
+
+      // 4. Resolve Job 1 (the older background job)
+      const finishedJob1Story: Story = {
+        ...phase15StoryFixture,
+        id: 'story-from-job-1',
+        title: 'Story 1 Title',
+      };
+      await act(async () => {
+        resolveJob1(finishedJob1Story);
+        await new Promise((r) => setTimeout(r, 50));
+      });
+
+      // 5. Assert: Job 1 completion MUST NOT have loaded Story 1 into workbench
+      expect(fetchStorySpy).not.toHaveBeenCalledWith('story-from-job-1');
+
+      // 6. Assert: Job 2 must STILL be in-flight in foreground (queue-another-story-btn remains visible)
+      expect(screen.getByTestId('queue-another-story-btn')).toBeInTheDocument();
+      expect(screen.queryByText('Story 1 Title')).not.toBeInTheDocument();
+
+      // 7. Finally resolve Job 2
+      const finishedJob2Story: Story = {
+        ...phase15StoryFixture,
+        id: 'story-from-job-2',
+        title: 'Story 2 Title',
+      };
+      await act(async () => {
+        resolveJob2(finishedJob2Story);
+        await new Promise((r) => setTimeout(r, 50));
+      });
+
+      // Now Job 2 (the current submission) loads into workbench
+      await waitFor(() => {
+        expect(fetchStorySpy).toHaveBeenCalledWith('story-from-job-2');
+      });
+    });
   });
 });
 

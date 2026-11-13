@@ -133,6 +133,10 @@ export class JobManager {
   async persistJobStart(jobId: string): Promise<void> {
     const job = this.jobs.get(jobId);
     if (!job || !this.storage) return;
+
+    // Always persist the running job to jobs.json
+    await this.saveJobToHistory(job);
+
     if (!job.story_id || job.story_id === 'new' || job.story_id === 'draft') return;
 
     const summary: ActiveJobSummary = {
@@ -290,30 +294,39 @@ export class JobManager {
 
     // 2. Clear stale active_job references in catalog.json and story.json
     try {
-      const catalog = await this.storage.getCatalog();
-      let catalogChanged = false;
-      for (const item of catalog) {
-        if (item.active_job) {
-          const liveJob = this.jobs.get(item.active_job.job_id);
-          if (!liveJob || liveJob.status !== 'running') {
-            item.active_job = null;
-            catalogChanged = true;
-            try {
-              const story = await this.storage.getStory(item.id);
-              if (story.active_job) {
-                story.active_job = null;
-                await this.storage.saveStory(story);
-              }
-            } catch (err) {
-              if (!(err instanceof StorageNotFoundError)) {
-                console.warn(`[JobManager] Failed to clear story active_job for ${item.id}:`, err);
+      const staleStoryIds: string[] = [];
+      await this.storage.updateJsonAtomic<CatalogItem[]>(
+        'catalog.json',
+        (current) => {
+          if (!Array.isArray(current)) return [];
+          const list = [...current];
+          for (let i = 0; i < list.length; i++) {
+            const item = list[i];
+            if (item && item.active_job) {
+              const liveJob = this.jobs.get(item.active_job.job_id);
+              if (!liveJob || liveJob.status !== 'running') {
+                list[i] = { ...item, active_job: null };
+                staleStoryIds.push(item.id);
               }
             }
           }
+          return list;
+        },
+        []
+      );
+
+      for (const storyId of staleStoryIds) {
+        try {
+          const story = await this.storage.getStory(storyId);
+          if (story.active_job) {
+            story.active_job = null;
+            await this.storage.saveStory(story);
+          }
+        } catch (err) {
+          if (!(err instanceof StorageNotFoundError)) {
+            console.warn(`[JobManager] Failed to clear story active_job for ${storyId}:`, err);
+          }
         }
-      }
-      if (catalogChanged) {
-        await this.storage.saveCatalog(catalog);
       }
     } catch (err) {
       if (!(err instanceof StorageNotFoundError)) {
