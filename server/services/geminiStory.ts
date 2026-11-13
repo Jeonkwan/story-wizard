@@ -66,25 +66,141 @@ export const BANNED_AI_CHARACTER_NAMES: readonly string[] = [
   'Thimble',
 ] as const;
 
+export interface StoryLengthTarget {
+  minTurns: number;
+  maxTurns: number;
+  minWords: number;
+  targetMinWords: number;
+  targetMaxWords: number;
+  turnTextGuidance: string;
+}
+
 /**
- * Builds explicit turn-count and word-count targets for Gemini 3.8 Writer LLM.
+ * Empirically calibrated turn and word-count targets per StoryLength tier
+ * (~115–136 WPM observed Gemini 3.8 TTS narration rate).
+ */
+export const STORY_LENGTH_TARGETS: Record<StoryLength, StoryLengthTarget> = {
+  short: {
+    minTurns: 6,
+    maxTurns: 8,
+    minWords: 150,
+    targetMinWords: 190,
+    targetMaxWords: 260,
+    turnTextGuidance:
+      '35–50 words for Narrator turns (2–3 sentences) and 25–35 words for character turns',
+  },
+  medium: {
+    minTurns: 12,
+    maxTurns: 14,
+    minWords: 360,
+    targetMinWords: 430,
+    targetMaxWords: 560,
+    turnTextGuidance:
+      '50–70 words for Narrator turns (3–4 sentences) and 30–45 words for character turns',
+  },
+  long: {
+    minTurns: 22,
+    maxTurns: 26,
+    minWords: 720,
+    targetMinWords: 800,
+    targetMaxWords: 980,
+    turnTextGuidance:
+      '55–75 words for Narrator turns (3–5 vivid sentences) and 35–50 words for character turns (2–4 sentences)',
+  },
+  epic: {
+    minTurns: 30,
+    maxTurns: 36,
+    minWords: 1000,
+    targetMinWords: 1150,
+    targetMaxWords: 1400,
+    turnTextGuidance:
+      '60–80 words for Narrator turns (4–5 vivid sentences) and 35–55 words for character turns (3–4 sentences)',
+  },
+};
+
+/**
+ * Counts spoken words across all script turns in a raw WriterOutputInput.
+ */
+export function countWriterDraftWords(draft: WriterOutputInput): number {
+  if (!Array.isArray(draft.script_turns)) return 0;
+  let total = 0;
+  for (const turn of draft.script_turns) {
+    if (typeof turn?.text === 'string') {
+      const cleaned = turn.text.replace(/<[^>]+>/g, ' ').trim();
+      if (cleaned) {
+        total += cleaned.split(/\s+/).length;
+      }
+    }
+  }
+  return total;
+}
+
+/**
+ * Builds explicit turn-count, per-turn word budgets, and multi-scene pacing targets
+ * for the Writer LLM so generated audio durations reliably match UI minute ranges
+ * (~115–136 WPM observed Gemini 3.8 TTS narration rate).
  *
  * @param storyLength Desired length tier: 'short', 'medium', 'long', or 'epic'
- * @returns Instruction string with target script turns and word count
+ * @returns Instruction string with target script turns, per-turn budgets, and word count
  */
 export function buildStoryLengthInstruction(storyLength?: StoryLength): string {
   const length = storyLength || DEFAULT_STORY_LENGTH;
   switch (length) {
     case 'short':
-      return 'Target Length: Short. Structure the story into 6 to 8 script turns (~200–300 words total). Keep scenes brisk, punchy, and contained.';
+      return (
+        'Target Length: Short (~1–2 minutes of spoken audio).\n' +
+        '- Structure the story into 6 to 8 script turns totaling 190 to 260 words.\n' +
+        '- Pacing & Turn Budget: Write 3 Narrator turns (35–50 words each, 2–3 sentences) and 3–5 character dialogue turns (25–35 words each). Keep scenes brisk, vivid, and complete.'
+      );
     case 'medium':
-      return 'Target Length: Medium. Structure the story into 10 to 14 script turns (~450–650 words total). Provide a balanced narrative arc with rich character interaction.';
+      return (
+        'Target Length: Medium (~3–4 minutes of spoken audio).\n' +
+        '- Structure the story into 12 to 14 script turns totaling 430 to 560 words (MINIMUM 410 words).\n' +
+        '- Pacing & Turn Budget: Write 5–6 descriptive Narrator turns (50–70 words each, 3–4 sentences) and 7–8 conversational character turns (30–45 words each, 2–3 sentences). Avoid terse 1-line or sound-only turns; weave playful sounds into full dialogue. Do not rush the ending.'
+      );
     case 'long':
-      return 'Target Length: Long. Structure the story into 16 to 22 script turns (~800–1,100 words total). Develop scenes thoroughly with multiple narrative beats and playful dialogue.';
+      return (
+        'Target Length: Long (~5–7 minutes of spoken audio).\n' +
+        '- Structure the story into 22 to 26 script turns totaling 800 to 980 words (STRICT MINIMUM 760 words — do NOT stop early, summarize, or rush the ending).\n' +
+        '- Pacing & Turn Budget: Write 10–12 rich Narrator turns (55–75 words each, 3–5 vivid descriptive sentences per turn) and 12–14 expressive character dialogue turns (35–50 words each, 2–4 sentences per turn). Never write short 1-sentence filler turns or standalone sound-effect lines; always weave funny sounds into full playful dialogue.\n' +
+        '- Story Structure: Develop 4 distinct, unhurried scenes (1. lively setup & surprising discovery, 2. playful exploration & comedic chaos, 3. hands-on craft/learning beat, 4. joyful climax & warm resolution).'
+      );
     case 'epic':
-      return 'Target Length: Epic. Structure the story into 24 to 30 script turns (~1,200–1,600 words total). Create an immersive, multi-scene adventure with deep dialogue and rich world-building.';
+      return (
+        'Target Length: Epic (~8–10 minutes of spoken audio).\n' +
+        '- Structure the story into 30 to 36 script turns totaling 1,150 to 1,400 words (STRICT MINIMUM 1,080 words — do NOT summarize or wrap up early).\n' +
+        '- Pacing & Turn Budget: Write 13–15 rich Narrator turns (60–80 words each, 4–5 vivid sentences per turn) and 17–21 expressive character dialogue turns (35–55 words each, 3–4 sentences of rich back-and-forth conversation). Never write terse 1-line turns or sound-only turns.\n' +
+        '- Story Structure: Build a full 5-act journey (1. vivid opening world, 2. big discovery, 3. escalating funny complication, 4. collaborative craft/problem-solving, 5. memorable finale & cozy closing).'
+      );
     default:
-      return 'Target Length: Medium. Structure the story into 10 to 14 script turns (~450–650 words total).';
+      return (
+        'Target Length: Medium (~3–4 minutes of spoken audio).\n' +
+        '- Structure the story into 12 to 14 script turns totaling 430 to 560 words (MINIMUM 410 words).\n' +
+        '- Pacing & Turn Budget: Write 5–6 descriptive Narrator turns (50–70 words each, 3–4 sentences) and 7–8 conversational character turns (30–45 words each, 2–3 sentences). Do not rush the ending.'
+      );
+  }
+}
+
+/**
+ * Concise recency reminder appended to the user prompt so low-thinking LLM passes
+ * reliably respect turn counts and per-turn depth.
+ *
+ * @param storyLength Desired length tier: 'short', 'medium', 'long', or 'epic'
+ * @returns Short length enforcement reminder string
+ */
+export function buildStoryLengthReminder(storyLength?: StoryLength): string {
+  const length = storyLength || DEFAULT_STORY_LENGTH;
+  switch (length) {
+    case 'short':
+      return 'Length Requirement: 6–8 turns (~190–260 words total).';
+    case 'medium':
+      return 'Length Requirement: 12–14 turns (~430–560 words total, minimum 410 words).';
+    case 'long':
+      return 'Length Requirement: 22–26 turns (~800–980 words total, strict minimum 760 words; write 3–5 rich sentences per Narrator turn and 2–4 sentences per Character turn).';
+    case 'epic':
+      return 'Length Requirement: 30–36 turns (~1,150–1,400 words total, strict minimum 1,080 words; write 4–5 rich sentences per Narrator turn and 3–4 sentences per Character turn across 5 full scenes).';
+    default:
+      return 'Length Requirement: 12–14 turns (~430–560 words total, minimum 410 words).';
   }
 }
 
@@ -378,7 +494,7 @@ export class GoogleGenAIStoryLLMProvider implements StoryLLMProvider {
     let systemInstruction =
       'You are a master storytelling author for Storyteller Studio. Write engaging, vivid, immersive narratives ' +
       'matching whatever genre, tone, mood, and pace the user requests (e.g. comedic, adventurous, sci-fi, dramatic, mystery, whimsical, or bedtime). ' +
-      'Maintain natural, punchy dialogue where each character speaks with a distinct personality. ' +
+      'Give each character a distinct, expressive conversational voice, and strictly follow the Target Length word-count, turn-budget, and multi-scene pacing rules below (do not write terse one-line turns when Medium, Long, or Epic length is requested). ' +
       'Structure the narrative into title, a 1-2 sentence summary, 2 to 5 relevant genre/mood tags, character profiles (never named "Narrator"), and script turns. ' +
       'Script turns alternate between "Narrator" and character speakers. Do not emit vocal sound-effect tags like <sigh> or <pause> at this stage; write pure narrative prose and dialogue.\n' +
       `${lengthInstruction}\n` +
@@ -409,6 +525,49 @@ export class GoogleGenAIStoryLLMProvider implements StoryLLMProvider {
       promptText += `\n\nReference Material:\n${input.referenceText.trim()}`;
     }
 
+    promptText += `\n\n${buildStoryLengthReminder(input.storyLength)}`;
+
+    const lengthKey: StoryLength = input.storyLength || DEFAULT_STORY_LENGTH;
+    const target = STORY_LENGTH_TARGETS[lengthKey] || STORY_LENGTH_TARGETS[DEFAULT_STORY_LENGTH];
+
+    const writerResponseSchema = {
+      type: Type.OBJECT,
+      required: ['title', 'summary', 'tags', 'characters', 'script_turns'],
+      properties: {
+        title: { type: Type.STRING },
+        summary: { type: Type.STRING },
+        tags: { type: Type.ARRAY, items: { type: Type.STRING } },
+        characters: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            required: ['name', 'traits'],
+            properties: {
+              name: { type: Type.STRING },
+              traits: { type: Type.STRING },
+            },
+          },
+        },
+        script_turns: {
+          type: Type.ARRAY,
+          minItems: String(target.minTurns),
+          description: `Ordered array of ${target.minTurns} to ${target.maxTurns} alternating Narrator and character turns totaling ${target.targetMinWords}–${target.targetMaxWords} words.`,
+          items: {
+            type: Type.OBJECT,
+            required: ['turn_id', 'speaker', 'text'],
+            properties: {
+              turn_id: { type: Type.INTEGER },
+              speaker: { type: Type.STRING },
+              text: {
+                type: Type.STRING,
+                description: `Pure spoken prose or dialogue (${target.turnTextGuidance}). Avoid brief 1-sentence filler turns.`,
+              },
+            },
+          },
+        },
+      },
+    };
+
     const response = await ai.models.generateContent({
       model: this.model,
       contents: promptText,
@@ -416,42 +575,52 @@ export class GoogleGenAIStoryLLMProvider implements StoryLLMProvider {
         systemInstruction,
         thinkingConfig: { thinkingLevel: this.thinkingLevel },
         responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          required: ['title', 'summary', 'tags', 'characters', 'script_turns'],
-          properties: {
-            title: { type: Type.STRING },
-            summary: { type: Type.STRING },
-            tags: { type: Type.ARRAY, items: { type: Type.STRING } },
-            characters: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                required: ['name', 'traits'],
-                properties: {
-                  name: { type: Type.STRING },
-                  traits: { type: Type.STRING },
-                },
-              },
-            },
-            script_turns: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                required: ['turn_id', 'speaker', 'text'],
-                properties: {
-                  turn_id: { type: Type.INTEGER },
-                  speaker: { type: Type.STRING },
-                  text: { type: Type.STRING },
-                },
-              },
-            },
-          },
-        },
+        responseSchema: writerResponseSchema,
       },
     });
 
-    return parseLLMJson<WriterOutputInput>(response.text, 'Writer draft');
+    const parsed = parseLLMJson<WriterOutputInput>(response.text, 'Writer draft');
+    const draftWords = countWriterDraftWords(parsed);
+
+    // Conditional 1-shot expansion only when a real draft (>= 50 words) undershoots
+    // the length tier's minimum word floor (protects against occasional LOW-thinking early wrap-ups).
+    if (draftWords >= 50 && draftWords < target.minWords) {
+      const currentTurns = Array.isArray(parsed.script_turns) ? parsed.script_turns.length : 0;
+      const missingWords = Math.max(150, target.targetMinWords - draftWords);
+      const extraTurns = Math.max(4, target.minTurns - currentTurns);
+      const expandPrompt =
+        `EXPANSION REQUIRED: The draft below only has ${draftWords} words across ${currentTurns} turns, which is ~${missingWords} words too short for "${lengthKey}".\n` +
+        `Do NOT merely copy or lightly paraphrase the draft. You MUST add at least ${missingWords} more words by:\n` +
+        `1. Inserting at least ${extraTurns} brand-new middle-scene turns with playful banter, sensory world details, and craft/learning beats.\n` +
+        `2. Expanding existing short turns so Narrator turns are 60–80 words (4–5 vivid sentences) and character turns are 35–55 words (2–4 expressive sentences).\n` +
+        `Final requirement: ${target.minTurns} to ${target.maxTurns} script turns totaling ${target.targetMinWords} to ${target.targetMaxWords} words (STRICT MINIMUM ${target.minWords} words). Do NOT emit vocal tags like <sigh>.\n\n` +
+        `Original User Request: ${input.prompt}\n\n` +
+        `Draft to Expand:\n${JSON.stringify(parsed)}`;
+
+      const expansionThinking =
+        this.thinkingLevel === ThinkingLevel.HIGH ? ThinkingLevel.HIGH : ThinkingLevel.MEDIUM;
+
+      try {
+        const expandedResp = await ai.models.generateContent({
+          model: this.model,
+          contents: expandPrompt,
+          config: {
+            systemInstruction,
+            thinkingConfig: { thinkingLevel: expansionThinking },
+            responseMimeType: 'application/json',
+            responseSchema: writerResponseSchema,
+          },
+        });
+        const expanded = parseLLMJson<WriterOutputInput>(expandedResp.text, 'Writer draft expansion');
+        if (countWriterDraftWords(expanded) > draftWords) {
+          return expanded;
+        }
+      } catch (expandErr) {
+        console.warn('[Writer] Conditional expansion pass failed; returning initial draft:', expandErr);
+      }
+    }
+
+    return parsed;
   }
 
   async directScript(input: DirectScriptInput): Promise<DirectorOutputInput> {

@@ -39,10 +39,10 @@ export interface StoryLengthPreset {
 }
 
 export const STORY_LENGTH_PRESETS: StoryLengthPreset[] = [
-  { id: 'short', label: '⚡ Quick (~1–2 min)', hint: '6–8 turns (~200–300 words)' },
-  { id: 'medium', label: '📖 Standard (~3–4 min)', hint: '10–14 turns (~450–650 words)' },
-  { id: 'long', label: '🌙 Extended (~5–7 min)', hint: '16–22 turns (~800–1,100 words)' },
-  { id: 'epic', label: '🏔️ Deep Dive (~8–10 min)', hint: '24–30 turns (~1,200–1,600 words)' },
+  { id: 'short', label: '⚡ Quick (~1–2 min)', hint: '6–8 turns (~190–260 words)' },
+  { id: 'medium', label: '📖 Standard (~3–4 min)', hint: '12–14 turns (~430–560 words)' },
+  { id: 'long', label: '🌙 Extended (~5–7 min)', hint: '22–26 turns (~800–980 words)' },
+  { id: 'epic', label: '🏔️ Deep Dive (~8–10 min)', hint: '30–36 turns (~1,150–1,400 words)' },
 ];
 
 const APPROVED_TAGS = [

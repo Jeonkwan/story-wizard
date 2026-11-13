@@ -19,10 +19,13 @@ import type {
 } from '../server/services/geminiStory.js';
 import {
   buildStoryLengthInstruction,
+  buildStoryLengthReminder,
   buildPedagogicalInstruction,
   buildCharacterDiversityInstruction,
   defaultVocabularyForAge,
   BANNED_AI_CHARACTER_NAMES,
+  GoogleGenAIStoryLLMProvider,
+  STORY_LENGTH_TARGETS,
 } from '../server/services/geminiStory.js';
 import type {
   TtsProvider,
@@ -355,19 +358,91 @@ describe('Phase 14: One-Tap Chained Pipeline, Story Length & Name Diversity Test
     it('buildStoryLengthInstruction generates exact turn-count and word targets for all tiers', () => {
       const shortInst = buildStoryLengthInstruction('short');
       expect(shortInst).toContain('6 to 8 script turns');
-      expect(shortInst).toContain('200–300 words total');
+      expect(shortInst).toContain('190 to 260 words');
 
       const mediumInst = buildStoryLengthInstruction('medium');
-      expect(mediumInst).toContain('10 to 14 script turns');
-      expect(mediumInst).toContain('450–650 words total');
+      expect(mediumInst).toContain('12 to 14 script turns');
+      expect(mediumInst).toContain('430 to 560 words');
+      expect(mediumInst).toContain('MINIMUM 410 words');
 
       const longInst = buildStoryLengthInstruction('long');
-      expect(longInst).toContain('16 to 22 script turns');
-      expect(longInst).toContain('800–1,100 words total');
+      expect(longInst).toContain('22 to 26 script turns');
+      expect(longInst).toContain('800 to 980 words');
+      expect(longInst).toContain('MINIMUM 760 words');
 
       const epicInst = buildStoryLengthInstruction('epic');
-      expect(epicInst).toContain('24 to 30 script turns');
-      expect(epicInst).toContain('1,200–1,600 words total');
+      expect(epicInst).toContain('30 to 36 script turns');
+      expect(epicInst).toContain('1,150 to 1,400 words');
+      expect(epicInst).toContain('MINIMUM 1,080 words');
+
+      expect(buildStoryLengthReminder('long')).toContain('22–26 turns');
+      expect(STORY_LENGTH_TARGETS.long.minWords).toBe(720);
+      expect(STORY_LENGTH_TARGETS.epic.minWords).toBe(1000);
+    });
+
+    it('GoogleGenAIStoryLLMProvider runs conditional expansion only when real draft undershoots length floor', async () => {
+      const longTurnText = Array.from({ length: 40 }, () => 'gelato').join(' ');
+      const shortRealDraft = {
+        title: 'Short Gelato Draft',
+        summary: 'Too short initially.',
+        tags: ['comedy'],
+        characters: [{ name: 'Bongo', traits: 'Chill capybara' }],
+        script_turns: Array.from({ length: 14 }, (_, idx) => ({
+          turn_id: idx + 1,
+          speaker: idx % 2 === 0 ? 'Narrator' : 'Bongo',
+          text: longTurnText, // 14 * 40 = 560 words (< 720 minWords for 'long')
+        })),
+      };
+      const expandedDraft = {
+        ...shortRealDraft,
+        script_turns: Array.from({ length: 22 }, (_, idx) => ({
+          turn_id: idx + 1,
+          speaker: idx % 2 === 0 ? 'Narrator' : 'Bongo',
+          text: longTurnText, // 22 * 40 = 880 words (>= 720)
+        })),
+      };
+
+      const calls: any[] = [];
+      const provider = new GoogleGenAIStoryLLMProvider('test-key', 'gemini-4-hydrogen', 'LOW');
+      (provider as any).ai = {
+        models: {
+          generateContent: async (args: any) => {
+            calls.push(args);
+            return {
+              text: JSON.stringify(calls.length === 1 ? shortRealDraft : expandedDraft),
+            };
+          },
+        },
+      };
+
+      const result = await provider.generateWriterDraft({
+        mode: 'fresh',
+        prompt: 'A capybara inside a gelato tub',
+        storyLength: 'long',
+      });
+
+      expect(calls).toHaveLength(2);
+      expect(calls[0].config.responseSchema.properties.script_turns.minItems).toBe('22');
+      expect(calls[1].contents).toContain('EXPANSION REQUIRED');
+      expect(result.script_turns).toHaveLength(22);
+
+      // Now verify when first call already meets minWords (>= 720), only 1 call is made
+      calls.length = 0;
+      (provider as any).ai = {
+        models: {
+          generateContent: async (args: any) => {
+            calls.push(args);
+            return { text: JSON.stringify(expandedDraft) };
+          },
+        },
+      };
+      const singleCallResult = await provider.generateWriterDraft({
+        mode: 'fresh',
+        prompt: 'A capybara inside a gelato tub',
+        storyLength: 'long',
+      });
+      expect(calls).toHaveLength(1);
+      expect(singleCallResult.script_turns).toHaveLength(22);
     });
 
     it('defaultVocabularyForAge correctly maps age ranges to vocabulary tiers', () => {
