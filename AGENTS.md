@@ -6,7 +6,7 @@ Always read `HANDOFF_PLAN.md`, `SUBAGENT_ORCHESTRATION_PLAYBOOK.md`, and check `
 
 ## 1. Architect-Orchestrator & Subagent Workflow
 
-Storyteller Studio uses a flexible, workload-aware agentic architecture led by the **Lead Architect / Orchestrator (Main Agent — High Reasoning / Pro)** paired with **Builder Subagents (`Model: "flash"` / Gemini 3.8 Flash)** when warranted by scope.
+Storyteller Studio uses a flexible, workload-aware agentic architecture led by the **Lead Architect / Orchestrator (Main Agent — Gemini 4 Hydrogen / High Reasoning)** paired with **Builder Subagents (Gemini 4 Hydrogen / `high` default reasoning effort — invoked via `Model: "inherit"` when parent runs Hydrogen High)** when warranted by scope.
 
 ### A. Workload Evaluation & 3 Execution Modes
 Before starting implementation (or during Orchestration Planning), the Main Agent must evaluate the **number of files, workload volume, and complexity**, and recommend/select the right execution mode rather than blindly spawning a subagent for everything:
@@ -14,9 +14,9 @@ Before starting implementation (or during Orchestration Planning), the Main Agen
 1. **Mode 1 — Direct Main Agent Execution (Small / Surgical Scope):**
    - For small or surgical tasks (e.g., 1–3 files, targeted bugfixes, config updates, or standalone documentation) where spawning a subagent would waste more tokens feeding context than executing directly, the Main Agent handles the work directly.
 2. **Mode 2 — Hybrid Approach (Main Agent + Subagent Split):**
-   - The Main Agent directly implements the core architectural pieces (e.g., `shared/types.ts`, critical state/service contracts, subtle edge-case fixes, and all project documentation) and delegates bounded, high-volume work (e.g., multi-component UI wiring, bulk unit tests, Playwright E2E suites, and screenshot capture) to a `flash` subagent within a clearly defined scope.
+   - The Main Agent directly implements the core architectural pieces (e.g., `shared/types.ts`, critical state/service contracts, subtle edge-case fixes, and all project documentation) and delegates bounded, high-volume work (e.g., multi-component UI wiring, bulk unit tests, Playwright E2E suites, and screenshot capture) to a **Gemini 4 Hydrogen** (`Model: "inherit"`, `high` reasoning effort) subagent within a clearly defined scope.
 3. **Mode 3 — Full Subagent Delegation (Large / Multi-File Feature Phases):**
-   - For large, multi-file feature phases with heavy implementation and test volume, the Main Agent delegates the phase code and test suite to a `flash` subagent while owning Firsthand Verification, Code Review, and Milestone Tagging.
+   - For large, multi-file feature phases with heavy implementation and test volume, the Main Agent delegates the phase code and test suite to a **Gemini 4 Hydrogen** (`Model: "inherit"`, `high` reasoning effort) subagent while owning Firsthand Verification, Code Review, and Milestone Tagging.
 
 ### B. Documentation vs. Inline Comments Ownership
 - **Standalone Documentation (Main Agent ONLY):** All repository, architectural, skill, and review documentation (`HANDOFF_PLAN.md`, `AGENTS.md`, `SUBAGENT_ORCHESTRATION_PLAYBOOK.md`, `README.md`, `.agents/skills/*/SKILL.md`, `docs/reviews/*.md`, and operational guides) **must be written by the Main Agent**.

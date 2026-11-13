@@ -1,12 +1,12 @@
 ---
 name: gemini-3-8-tts-studio
-description: Authoritative guide for generating multi-genre children's narratives, directing voice acting without rushing speech, designing/managing custom prompted voices, transcribing voice dictation, and synthesizing speech with @google/genai and Gemini 3.8 models (gemini-3.8-flash, gemini-3.8-flash-tts, gemini-3.8-flash-lite-tts).
+description: Authoritative guide for generating multi-genre children's narratives, directing voice acting without rushing speech, designing/managing custom prompted voices, transcribing voice dictation, and synthesizing speech with @google/genai, Gemini 4 Hydrogen (gemini-4-hydrogen), and Gemini 3.8 TTS models (gemini-3.8-flash-tts, gemini-3.8-flash-lite-tts).
 ---
 
-# Gemini 3.8 TTS, Voice Design & Story Studio Skill
+# Gemini Story Writer/Director (`gemini-4-hydrogen`) & Gemini 3.8 TTS Studio Skill
 
 ## Model Selection
-- Narrative Writer, Voice Director & Audio Dictation STT LLM: `gemini-3.8-flash` (`GEMINI_TEXT_MODEL`).
+- Narrative Writer, Voice Director & Audio Dictation STT LLM: `gemini-4-hydrogen` (`GEMINI_TEXT_MODEL`, with `thinkingConfig: { thinkingLevel: ThinkingLevel.LOW }` via `GEMINI_THINKING_LEVEL=LOW` for cost/latency control).
 - 5-Second Audition Preview TTS: `gemini-3.8-flash-lite-tts` (`GEMINI_TTS_LITE_MODEL`).
 - Full Studio Story TTS: `gemini-3.8-flash-tts` (`GEMINI_TTS_MODEL`).
 
@@ -32,11 +32,11 @@ description: Authoritative guide for generating multi-genre children's narrative
    - Reusing `draftGeminiVoiceName` lets the user audition different sample presets or paces on the exact same voice take; clicking **"Regenerate Take"** or discarding calls `ai.voices.delete(bareOldDraftId)` (after verifying the ID is not in saved `voices.json`).
    - Clicking **"Save Voice"** promotes `stagedGeminiVoiceName` directly into `voices.json` without calling `ai.voices.create` a second time, guaranteeing 100% vocal identity parity between preview and saved voice.
 
-## Multimodal Audio Dictation (Speech-to-Text with `gemini-3.8-flash`)
+## Multimodal Audio Dictation (Speech-to-Text with `gemini-4-hydrogen`)
 Pass recorded browser audio (`audio/webm`, `audio/mp4`, `audio/ogg`, `audio/wav`) inline via `Part.inlineData`:
 ```ts
 const response = await ai.models.generateContent({
-  model: config.geminiTextModel, // 'gemini-3.8-flash'
+  model: config.geminiTextModel, // 'gemini-4-hydrogen'
   contents: [
     {
       inlineData: {
@@ -46,6 +46,9 @@ const response = await ai.models.generateContent({
     },
     'Transcribe the spoken audio accurately with natural punctuation. Output ONLY the transcribed text without commentary or quotes.',
   ],
+  config: {
+    thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+  },
 });
 const transcript = (response.text || '').trim();
 ```

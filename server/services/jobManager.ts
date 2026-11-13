@@ -90,8 +90,8 @@ export class JobManager {
     const jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
     const defaultMessages: Record<JobType, string> = {
-      draft: 'Drafting story with Gemini 3.8 Flash...',
-      direct: 'Directing script and stage directions with Gemini 3.8 Flash...',
+      draft: 'Drafting story with Gemini 4 Hydrogen...',
+      direct: 'Directing script and stage directions with Gemini 4 Hydrogen...',
       synthesize: 'Synthesizing multi-speaker speech audio with Gemini 3.8 Flash TTS...',
     };
 
@@ -344,6 +344,7 @@ export class JobManager {
     const now = new Date().toISOString();
     let interruptedCount = 0;
     const interruptedJobs: JobProgress[] = [];
+    const clearPromises: Promise<void>[] = [];
 
     for (const job of this.jobs.values()) {
       if (job.status === 'running') {
@@ -360,7 +361,7 @@ export class JobManager {
         interruptedJobs.push({ ...job });
 
         if (this.storage && job.story_id && job.story_id !== 'new' && job.story_id !== 'draft') {
-          this.persistStoryActiveJob(job.story_id, null).catch(() => {});
+          clearPromises.push(this.persistStoryActiveJob(job.story_id, null).catch(() => {}));
         }
         if (
           this.storage &&
@@ -369,9 +370,15 @@ export class JobManager {
           job.result_story_id !== 'new' &&
           job.result_story_id !== 'draft'
         ) {
-          this.persistStoryActiveJob(job.result_story_id, null).catch(() => {});
+          clearPromises.push(
+            this.persistStoryActiveJob(job.result_story_id, null).catch(() => {})
+          );
         }
       }
+    }
+
+    if (clearPromises.length > 0) {
+      await Promise.all(clearPromises);
     }
 
     if (this.storage && interruptedJobs.length > 0) {
@@ -609,33 +616,35 @@ export class JobManager {
   async persistStoryActiveJob(storyId: string, summary: ActiveJobSummary | null): Promise<void> {
     if (!this.storage) return;
 
-    try {
-      const story = await this.storage.getStory(storyId);
-      story.active_job = summary;
-      await this.storage.saveStory(story);
+    await this.enqueuePersist(async () => {
+      try {
+        const story = await this.storage!.getStory(storyId);
+        story.active_job = summary;
+        await this.storage!.saveStory(story);
 
-      const catalogItem = storyToCatalogItem(story);
-      await this.storage.updateJsonAtomic<CatalogItem[]>(
-        'catalog.json',
-        (current) => {
-          const list = current ? [...current] : [];
-          const idx = list.findIndex((c) => c.id === story.id);
-          if (idx >= 0) {
-            list[idx] = catalogItem;
-          } else {
-            list.unshift(catalogItem);
-          }
-          return list;
-        },
-        []
-      );
-    } catch (err) {
-      if (err instanceof StorageNotFoundError) {
-        // Story does not exist yet (e.g. fresh draft) — ignore gracefully
-        return;
+        const catalogItem = storyToCatalogItem(story);
+        await this.storage!.updateJsonAtomic<CatalogItem[]>(
+          'catalog.json',
+          (current) => {
+            const list = current ? [...current] : [];
+            const idx = list.findIndex((c) => c.id === story.id);
+            if (idx >= 0) {
+              list[idx] = catalogItem;
+            } else {
+              list.unshift(catalogItem);
+            }
+            return list;
+          },
+          []
+        );
+      } catch (err) {
+        if (err instanceof StorageNotFoundError) {
+          // Story does not exist yet (e.g. fresh draft) — ignore gracefully
+          return;
+        }
+        throw err;
       }
-      throw err;
-    }
+    });
   }
 
   /**

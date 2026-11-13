@@ -9,18 +9,19 @@ import type { Story } from '../shared/types.js';
 async function runLiveSmoke() {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) {
-    console.log('[smoke:live] GEMINI_API_KEY not set. Skipping live Gemini 3.8 Flash smoke test.');
+    console.log('[smoke:live] GEMINI_API_KEY not set. Skipping live Gemini 4 Hydrogen smoke test.');
     process.exit(0);
   }
 
-  console.log('[smoke:live] GEMINI_API_KEY detected. Starting conditional live smoke test with gemini-3.8-flash...');
+  console.log('[smoke:live] GEMINI_API_KEY detected. Starting conditional live smoke test with gemini-4-hydrogen (thinkingLevel=LOW)...');
 
   const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'story-live-smoke-'));
   try {
     const config = loadConfig({
       DATA_DIR: tmpDir,
       GEMINI_API_KEY: apiKey,
-      GEMINI_TEXT_MODEL: process.env.GEMINI_TEXT_MODEL || 'gemini-3.8-flash',
+      GEMINI_TEXT_MODEL: process.env.GEMINI_TEXT_MODEL || 'gemini-4-hydrogen',
+      GEMINI_THINKING_LEVEL: process.env.GEMINI_THINKING_LEVEL || 'LOW',
     });
     const storage = new LocalStorageAdapter(tmpDir);
     const storyService = new GeminiStoryService(config, storage);
@@ -28,7 +29,7 @@ async function runLiveSmoke() {
     let draft: Story | null = null;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        console.log(`[smoke:live] Calling Gemini 3.8 Flash (generateStoryDraft, attempt ${attempt}/3)...`);
+        console.log(`[smoke:live] Calling Gemini 4 Hydrogen (generateStoryDraft, attempt ${attempt}/3)...`);
         draft = await storyService.generateStoryDraft({
           mode: 'fresh',
           prompt: 'A tiny gentle hedgehog named Bibi settles into a mossy den for sleep as stars appear.',
@@ -59,7 +60,7 @@ async function runLiveSmoke() {
     let directed: Story | null = null;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        console.log(`[smoke:live] Calling Gemini 3.8 Flash (directStoryScript, attempt ${attempt}/3)...`);
+        console.log(`[smoke:live] Calling Gemini 4 Hydrogen (directStoryScript, attempt ${attempt}/3)...`);
         directed = await storyService.directStoryScript(draft.id);
         break;
       } catch (err) {
@@ -92,7 +93,7 @@ async function runLiveSmoke() {
     );
     console.log('[smoke:live] Sample turn 1 directed text:', directed.script_turns[0].text);
     console.log('[smoke:live] Sample turn 1 style note:', directed.script_turns[0].style);
-    console.log('[smoke:live] ALL LIVE GEMINI 3.8 FLASH CHECKS PASSED!');
+    console.log('[smoke:live] ALL LIVE GEMINI 4 HYDROGEN CHECKS PASSED!');
   } finally {
     await fs.promises.rm(tmpDir, { recursive: true, force: true });
     console.log('[smoke:live] Temporary smoke directory cleaned up.');

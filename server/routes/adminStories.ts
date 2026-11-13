@@ -204,7 +204,7 @@ export function createAdminStoriesRouter(
       const job = jobManager.createJob(
         'draft',
         storyTarget,
-        'Drafting story with Gemini 3.8 Flash...',
+        'Drafting story with Gemini 4 Hydrogen...',
         true,
         {
           title: jobTitle,
@@ -354,7 +354,7 @@ export function createAdminStoriesRouter(
       const job = jobManager.createJob(
         'direct',
         id,
-        'Directing vocal expressions and pacing with Gemini 3.8 Flash...',
+        'Directing vocal expressions and pacing with Gemini 4 Hydrogen...',
         false,
         {
           title: storyTitle || id,

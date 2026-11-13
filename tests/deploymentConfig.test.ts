@@ -91,6 +91,25 @@ describe('Phase 8: Production Deployment Configuration & Fail-Closed Assertions'
       expect(config.sessionSecret.length).toBeGreaterThanOrEqual(32);
       expect(config.allowDevBypass).toBe(true);
     });
+
+    it('defaults text/multimodal LLM to gemini-4-hydrogen with LOW thinking level while keeping TTS models on Gemini 3.8', () => {
+      const config = loadConfig({});
+
+      expect(config.geminiTextModel).toBe('gemini-4-hydrogen');
+      expect(config.geminiThinkingLevel).toBe('LOW');
+      expect(config.geminiTtsModel).toBe('gemini-3.8-flash-tts');
+      expect(config.geminiTtsLiteModel).toBe('gemini-3.8-flash-lite-tts');
+    });
+
+    it('supports GEMINI_TEXT_MODEL and GEMINI_THINKING_LEVEL overrides', () => {
+      const config = loadConfig({
+        GEMINI_TEXT_MODEL: 'gemini-4-hydrogen-preview',
+        GEMINI_THINKING_LEVEL: ' medium ',
+      });
+
+      expect(config.geminiTextModel).toBe('gemini-4-hydrogen-preview');
+      expect(config.geminiThinkingLevel).toBe('MEDIUM');
+    });
   });
 
   describe('createStorageAdapter Factory Routing', () => {

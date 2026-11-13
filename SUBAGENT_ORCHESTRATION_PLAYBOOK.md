@@ -1,6 +1,6 @@
 # Architect & Subagent Orchestration Playbook
 
-> **Purpose:** A reusable, battle-tested workflow for orchestrating multi-phase software projects in Google Antigravity using a **Lead Architect / Reviewer** parent agent paired with **dedicated per-phase Builder Subagents** (`flash`).
+> **Purpose:** A reusable, battle-tested workflow for orchestrating multi-phase software projects in Google Antigravity using a **Lead Architect / Reviewer** parent agent paired with **dedicated per-phase Builder Subagents** (**Gemini 4 Hydrogen**, default `high` reasoning effort — invoked via `Model: "inherit"` when parent runs Hydrogen High).
 
 ---
 
@@ -14,13 +14,13 @@ When building a full-stack application in a single agent conversation, two failu
 
 Before dispatching work, the **Lead Architect & Orchestrator (Main Agent)** evaluates the **number of files, workload size, and complexity** to choose the right execution approach:
 - **Mode 1 — Direct Main Agent Execution:** Small/surgical tasks (1–3 files, quick bugfixes, config/type tweaks, or documentation) where spawning a subagent would waste tokens feeding context.
-- **Mode 2 — Hybrid Approach (Main Agent + Subagent):** Main Agent implements core contracts (`shared/types.ts`, key service interfaces, tricky logic, and all standalone documentation) and delegates bounded, high-volume tasks (multi-component UI, bulk tests, E2E suites) to a `flash` subagent.
-- **Mode 3 — Full Subagent Delegation:** Large, multi-file feature phases delegated end-to-end to a `flash` subagent (grouped into the same subagent when tasks share context) under strict Firsthand Review.
+- **Mode 2 — Hybrid Approach (Main Agent + Subagent):** Main Agent implements core contracts (`shared/types.ts`, key service interfaces, tricky logic, and all standalone documentation) and delegates bounded, high-volume tasks (multi-component UI, bulk tests, E2E suites) to a **Gemini 4 Hydrogen** (`Model: "inherit"`, `high` reasoning effort) subagent.
+- **Mode 3 — Full Subagent Delegation:** Large, multi-file feature phases delegated end-to-end to a **Gemini 4 Hydrogen** (`Model: "inherit"`, `high` reasoning effort) subagent (grouped into the same subagent when tasks share context) under strict Firsthand Review.
 
 | Role | Model Tier | Core Responsibilities | Ownership & Boundaries |
 | :--- | :--- | :--- | :--- |
-| **Lead Architect & Orchestrator** *(Parent Agent)* | High-Reasoning (`Pro` / `Argon`) | • Evaluates file count & complexity to choose **Direct**, **Hybrid**, or **Full Subagent** mode.<br>• Designs architecture, shared types, & API contracts (`HANDOFF_PLAN.md`, `AGENTS.md`, `.agents/skills/`).<br>• **Authors all standalone documentation** (`HANDOFF_PLAN.md`, `AGENTS.md`, `README.md`, skills, `docs/reviews/`).<br>• **Groups subagent tasks intelligently by shared context** so related work runs in the same subagent (`invoke_subagent`) without wasting tokens.<br>• **Reads every source file, test file, and UI screenshot firsthand.**<br>• Re-messages the **same** subagent (`send_message`) until 100% clean & owns `phase-N-verified` Git tags. | • **Standalone Docs:** Always written by the Main Agent.<br>• **Inline Comments / Docstrings:** Written by the Main Agent only for code the Main Agent writes.<br>• Never blindly trusts a subagent's self-audit report.<br>• Never spawns a brand-new subagent to fix bugs in an active phase. |
-| **Phase Builder Engineer** *(Subagent)* | Fast Execution (`flash`) | • Executes the assigned phase or hybrid scope end-to-end.<br>• Writes production code, **inline comments & JSDoc/TSDoc function docstrings for the code it writes**, unit/integration/E2E tests, and captures headless browser screenshots.<br>• Writes `docs/audits/phase-N-audit.md` and commits `feat(phase-N): ...`.<br>• Fixes every `[ ]` item in `docs/reviews/phase-N-review.md`, adds regression tests, and commits `fix(phase-N): ...`. | • **Inline Comments / Docstrings:** Writes inline comments and function docstrings for all code it authors.<br>• **Standalone Docs:** Never modifies repository architecture docs, `HANDOFF_PLAN.md`, `AGENTS.md`, or skills.<br>• Never creates or moves `phase-N-verified` Git tags. |
+| **Lead Architect & Orchestrator** *(Parent Agent)* | High-Reasoning (`Gemini 4 Hydrogen` High / `Pro`) | • Evaluates file count & complexity to choose **Direct**, **Hybrid**, or **Full Subagent** mode.<br>• Designs architecture, shared types, & API contracts (`HANDOFF_PLAN.md`, `AGENTS.md`, `.agents/skills/`).<br>• **Authors all standalone documentation** (`HANDOFF_PLAN.md`, `AGENTS.md`, `README.md`, skills, `docs/reviews/`).<br>• **Groups subagent tasks intelligently by shared context** so related work runs in the same subagent (`invoke_subagent`) without wasting tokens.<br>• **Reads every source file, test file, and UI screenshot firsthand.**<br>• Re-messages the **same** subagent (`send_message`) until 100% clean & owns `phase-N-verified` Git tags. | • **Standalone Docs:** Always written by the Main Agent.<br>• **Inline Comments / Docstrings:** Written by the Main Agent only for code the Main Agent writes.<br>• Never blindly trusts a subagent's self-audit report.<br>• Never spawns a brand-new subagent to fix bugs in an active phase. |
+| **Phase Builder Engineer** *(Subagent)* | High-Speed High-Reasoning (**Gemini 4 Hydrogen** High / `Model: "inherit"`) | • Executes the assigned phase or hybrid scope end-to-end.<br>• Writes production code, **inline comments & JSDoc/TSDoc function docstrings for the code it writes**, unit/integration/E2E tests, and captures headless browser screenshots.<br>• Writes `docs/audits/phase-N-audit.md` and commits `feat(phase-N): ...`.<br>• Fixes every `[ ]` item in `docs/reviews/phase-N-review.md`, adds regression tests, and commits `fix(phase-N): ...`. | • **Inline Comments / Docstrings:** Writes inline comments and function docstrings for all code it authors.<br>• **Standalone Docs:** Never modifies repository architecture docs, `HANDOFF_PLAN.md`, `AGENTS.md`, or skills.<br>• Never creates or moves `phase-N-verified` Git tags. |
 
 ---
 
@@ -28,7 +28,7 @@ Before dispatching work, the **Lead Architect & Orchestrator (Main Agent)** eval
 
 ```mermaid
 flowchart TD
-    A["1. Pre-Flight & Blueprint<br/>(Architect updates HANDOFF_PLAN.md, AGENTS.md, & probes SDKs)"] --> B["2. Spawn Dedicated Phase N Subagent<br/>(invoke_subagent with Model: 'flash')"]
+    A["1. Pre-Flight & Blueprint<br/>(Architect updates HANDOFF_PLAN.md, AGENTS.md, & probes SDKs)"] --> B["2. Spawn Dedicated Phase N Subagent<br/>(invoke_subagent on Gemini 4 Hydrogen High / Model: 'inherit')"]
     B --> C["Subagent Implements Phase N<br/>(Code + Tests + Screenshots + docs/audits/phase-N-audit.md)"]
     C --> D["3. Firsthand Architect Inspection<br/>(Read every file & screenshot + run typecheck/test/e2e/build)"]
     D --> E{"Any Bugs, Edge Cases,<br/>or Visual Flaws?"}
@@ -122,13 +122,13 @@ Call `define_subagent` once at the start of your orchestration session:
 ---
 
 ### 5.2 Spawning a Dedicated Phase Subagent (`invoke_subagent`)
-Invoke one `flash` subagent per phase:
+Invoke one **Gemini 4 Hydrogen** (`high` reasoning effort — `Model: "inherit"` when the parent coordinator runs Gemini 4 Hydrogen High) subagent per phase:
 
 ```text
 Tool: invoke_subagent
 - TypeName: "phase-builder"
 - Role: "Phase <N> <Short Title> Builder"
-- Model: "flash"
+- Model: "inherit" # Uses Gemini 4 Hydrogen (default high reasoning effort)
 - Workspace: "inherit"
 - Prompt:
 You are assigned to execute **Phase <N> (<Phase Title>)** of `<Project Name>` in `<Workspace Path>`.
@@ -214,8 +214,8 @@ Act as the **Lead Architect, Code Reviewer, and Subagent Orchestrator** for this
    - Read (or author) `HANDOFF_PLAN.md` and `AGENTS.md` so the project is divided into clear, testable phases (`Phase 0`, `Phase 1`, ...) with explicit contracts and validation gates.
    - Before spawning a subagent for a phase that uses external SDKs or APIs, inspect the installed `.d.ts` type definitions and run a quick live probe if credentials are present so all contracts in `HANDOFF_PLAN.md` and `.agents/skills/` are 100% accurate.
 
-2. **One Dedicated `flash` Subagent per Phase:**
-   - Define a `phase-builder` subagent (`define_subagent`) and invoke **one dedicated subagent per phase** (`invoke_subagent` with `Model: "flash"`).
+2. **One Dedicated Gemini 4 Hydrogen (`high`) Subagent per Phase:**
+   - Define a `phase-builder` subagent (`define_subagent`) and invoke **one dedicated subagent per phase** on **Gemini 4 Hydrogen** (`high` default reasoning effort — `invoke_subagent` with `Model: "inherit"` when parent runs Hydrogen High).
    - Instruct the subagent to implement the phase, run all tests/builds, write `docs/audits/phase-N-audit.md`, and commit `feat(phase-N): ...`, while withholding the `phase-N-verified` git tag.
 
 3. **Independent Firsthand Review (Never Trust Self-Audits Blindly):**
@@ -223,5 +223,5 @@ Act as the **Lead Architect, Code Reviewer, and Subagent Orchestrator** for this
    - If you spot any bugs, edge cases, missing tests, or visual flaws, document them as `[ ]` items in `docs/reviews/phase-N-review.md`, commit the review doc, and send instructions via `send_message` to the **same** phase subagent (`conversationId`) to fix them, add regression tests, mark `[x]`, and commit `fix(phase-N): address code review findings`.
 
 4. **Milestone Tagging & Progression:**
-   - Only after your firsthand re-verification is 100% green and `git status` is clean, tag `phase-N-verified` and proceed to `Phase N+1` with a fresh `flash` subagent.
+   - Only after your firsthand re-verification is 100% green and `git status` is clean, tag `phase-N-verified` and proceed to `Phase N+1` with a fresh Gemini 4 Hydrogen (`high`) subagent.
 ```

@@ -602,7 +602,7 @@ test.describe('Phase 4 Voice Audition Studio & Versions E2E', () => {
                     status: 'running',
                     started_at: new Date(Date.now() - 6000).toISOString(),
                     elapsed_seconds: 6,
-                    message: 'Drafting story with Gemini 3.8 Flash...',
+                    message: 'Drafting story with Gemini 4 Hydrogen...',
                   },
                 ]
               : [],
@@ -627,7 +627,7 @@ test.describe('Phase 4 Voice Audition Studio & Versions E2E', () => {
             started_at: new Date(Date.now() - 6000).toISOString(),
             elapsed_seconds: isComplete ? 10 : 7,
             result_story_id: '2026-11-04-sleepy-little-train',
-            message: isComplete ? 'Story draft complete!' : 'Drafting story with Gemini 3.8 Flash...',
+            message: isComplete ? 'Story draft complete!' : 'Drafting story with Gemini 4 Hydrogen...',
           },
         }),
       });
@@ -673,7 +673,7 @@ test.describe('Phase 4 Voice Audition Studio & Versions E2E', () => {
     // Verify progress card is visible
     const progressCard = page.locator('.tactile-progress-card');
     await expect(progressCard).toBeVisible();
-    await expect(progressCard.locator('strong')).toHaveText(/Drafting story with Gemini 3\.8 Flash/i);
+    await expect(progressCard.locator('strong')).toHaveText(/Drafting story with Gemini 4 Hydrogen/i);
 
     // 2. SIMULATE REFRESH / APP SWITCH MID-GENERATION
     isReloaded = true;
@@ -687,7 +687,7 @@ test.describe('Phase 4 Voice Audition Studio & Versions E2E', () => {
 
     // VERIFY REFRESH RESILIENCE: Progress card is IMMEDIATELY restored upon page reload!
     await expect(progressCard).toBeVisible();
-    await expect(progressCard.locator('strong')).toHaveText(/Drafting story with Gemini 3\.8 Flash/i);
+    await expect(progressCard.locator('strong')).toHaveText(/Drafting story with Gemini 4 Hydrogen/i);
 
     // Verify submit button is disabled to prevent accidental double-submission
     const writingBtn = page.getByRole('button', { name: /Creating Story & Narration|Writing Draft\.\.\./i });

@@ -2163,11 +2163,11 @@ export function DirectorStudio({
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
                     <span className="spinner-tactile" style={{ fontSize: '1.2rem' }}>✍️</span>
                     <strong style={{ fontSize: '1rem', color: 'var(--ink-primary)' }}>
-                      Drafting story with Gemini 3.8 Flash... {writingElapsedSeconds}s
+                      Drafting story with Gemini 4 Hydrogen... {writingElapsedSeconds}s
                     </strong>
                   </div>
                   <p style={{ margin: '0 0 0.75rem 0', fontSize: '0.85rem', color: 'var(--ink-muted)' }}>
-                    ✍️ Drafting story with Gemini 3.8 Flash... {writingElapsedSeconds}s (typically 8–15s). Creating characters and script turns. Running in the background — you can safely switch stories, queue another, or close this tab.
+                    ✍️ Drafting story with Gemini 4 Hydrogen... {writingElapsedSeconds}s (typically 8–15s). Creating characters and script turns. Running in the background — you can safely switch stories, queue another, or close this tab.
                   </p>
                   <div className="tactile-progress-bar-container" style={{ marginBottom: '0.75rem' }}>
                     <div className="tactile-progress-bar-indeterminate" />
@@ -2444,7 +2444,7 @@ export function DirectorStudio({
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
                       <span className="spinner-tactile" style={{ fontSize: '1.2rem' }}>🎬</span>
                       <strong style={{ fontSize: '1rem', color: 'var(--ink-primary)' }}>
-                        Directing vocal expressions and pacing with Gemini 3.8 Flash... {directingElapsedSeconds}s
+                        Directing vocal expressions and pacing with Gemini 4 Hydrogen... {directingElapsedSeconds}s
                       </strong>
                     </div>
                     <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--ink-muted)' }}>
@@ -2529,7 +2529,7 @@ export function DirectorStudio({
                     🎬 Step 2: Auto-Direct Voices &amp; Pacing
                   </h3>
                   <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--ink-muted)' }}>
-                    Instructs Gemini 3.8 Flash to annotate turns with emotional acting styles, insert natural vocal tags, and propose voice designs matching the story&apos;s genre. Spoken words are preserved verbatim.
+                    Instructs Gemini 4 Hydrogen to annotate turns with emotional acting styles, insert natural vocal tags, and propose voice designs matching the story&apos;s genre. Spoken words are preserved verbatim.
                   </p>
                 </div>
                 <button
@@ -2565,11 +2565,11 @@ export function DirectorStudio({
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
                     <span className="spinner-tactile" style={{ fontSize: '1.2rem' }}>🎬</span>
                     <strong style={{ fontSize: '1rem', color: 'var(--ink-primary)' }}>
-                      Directing vocal expressions and pacing with Gemini 3.8 Flash... {directingElapsedSeconds}s
+                      Directing vocal expressions and pacing with Gemini 4 Hydrogen... {directingElapsedSeconds}s
                     </strong>
                   </div>
                   <p style={{ margin: '0 0 0.75rem 0', fontSize: '0.85rem', color: 'var(--ink-muted)' }}>
-                    🎬 Directing vocal expressions and pacing with Gemini 3.8 Flash... {directingElapsedSeconds}s (typically 5–12s). Adding emotional cues and audio tags.
+                    🎬 Directing vocal expressions and pacing with Gemini 4 Hydrogen... {directingElapsedSeconds}s (typically 5–12s). Adding emotional cues and audio tags.
                   </p>
                   <div className="tactile-progress-bar-container">
                     <div className="tactile-progress-bar-indeterminate" />

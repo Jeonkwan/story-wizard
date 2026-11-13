@@ -16,10 +16,12 @@ import type {
   GenerateWriterDraftInput,
   DirectScriptInput,
 } from '../server/services/geminiStory.js';
+import { ThinkingLevel } from '@google/genai';
 import {
   parseLLMJson,
   storyToCatalogItem,
   GoogleGenAIStoryLLMProvider,
+  resolveThinkingLevel,
 } from '../server/services/geminiStory.js';
 import type {
   WriterOutputInput,
@@ -1061,6 +1063,89 @@ describe('Phase 3: Admin Studio & Writer-Director Pipeline Integration Tests', (
       // Story active_job should be cleared on completion
       const story = await storage.getStory(jobRes.body.job.result_story_id);
       expect(story.active_job).toBeNull();
+    });
+  });
+
+  describe('Phase 16: Gemini 4 Hydrogen & LOW Thinking Level Configuration', () => {
+    it('resolveThinkingLevel normalizes configured levels and defaults to ThinkingLevel.LOW', () => {
+      expect(resolveThinkingLevel()).toBe(ThinkingLevel.LOW);
+      expect(resolveThinkingLevel('')).toBe(ThinkingLevel.LOW);
+      expect(resolveThinkingLevel('low')).toBe(ThinkingLevel.LOW);
+      expect(resolveThinkingLevel('MINIMAL')).toBe(ThinkingLevel.MINIMAL);
+      expect(resolveThinkingLevel('medium')).toBe(ThinkingLevel.MEDIUM);
+      expect(resolveThinkingLevel('HIGH')).toBe(ThinkingLevel.HIGH);
+      expect(resolveThinkingLevel('unknown-value')).toBe(ThinkingLevel.LOW);
+    });
+
+    it('GoogleGenAIStoryLLMProvider uses gemini-4-hydrogen and thinkingLevel LOW across draft, direct, and transcribe calls', async () => {
+      const capturedCalls: Array<{ model: string; config: any }> = [];
+
+      const mockAi = {
+        models: {
+          generateContent: async (args: any) => {
+            capturedCalls.push({ model: args.model, config: args.config });
+            if (args.config?.responseSchema?.required?.includes('voice_candidates')) {
+              return {
+                text: JSON.stringify({
+                  script_turns: [
+                    {
+                      turn_id: 1,
+                      speaker: 'Narrator',
+                      style: 'Warm cozy storytelling',
+                      text: 'Once upon a star.',
+                    },
+                  ],
+                  voice_candidates: [
+                    {
+                      label: 'Warm Narrator',
+                      description: 'Gentle cozy storyteller',
+                      suggested_for: 'Narrator',
+                    },
+                  ],
+                }),
+              };
+            }
+            if (args.config?.responseSchema?.required?.includes('characters')) {
+              return {
+                text: JSON.stringify({
+                  title: 'Hydrogen Starlight',
+                  summary: 'A quiet night under stars.',
+                  tags: ['bedtime'],
+                  characters: [{ name: 'Pip', traits: 'Curious squirrel' }],
+                  script_turns: [
+                    { turn_id: 1, speaker: 'Narrator', text: 'Once upon a star.' },
+                  ],
+                }),
+              };
+            }
+            return { text: 'Tell a gentle story about a sleepy squirrel.' };
+          },
+        },
+      };
+
+      const provider = new GoogleGenAIStoryLLMProvider('test-key');
+      (provider as any).ai = mockAi;
+
+      await provider.generateWriterDraft({ mode: 'fresh', prompt: 'Sleepy squirrel' });
+      await provider.directScript({
+        title: 'Hydrogen Starlight',
+        summary: 'A quiet night under stars.',
+        characters: [{ name: 'Pip', traits: 'Curious squirrel' }],
+        script_turns: [{ turn_id: 1, speaker: 'Narrator', style: '', text: 'Once upon a star.' }],
+      });
+      const transcript = await provider.transcribeAudio({
+        audioBase64: 'AAAA',
+        mimeType: 'audio/webm',
+      });
+
+      expect(transcript).toBe('Tell a gentle story about a sleepy squirrel.');
+      expect(capturedCalls).toHaveLength(3);
+      for (const call of capturedCalls) {
+        expect(call.model).toBe('gemini-4-hydrogen');
+        expect(call.config?.thinkingConfig).toEqual({
+          thinkingLevel: ThinkingLevel.LOW,
+        });
+      }
     });
   });
 });

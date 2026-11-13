@@ -1064,7 +1064,7 @@ describe('Phase 3 Admin Studio & UI Components', () => {
       });
 
       const statusCard = screen.getByRole('status');
-      expect(statusCard).toHaveTextContent(/Drafting story with Gemini 3.8 Flash/i);
+      expect(statusCard).toHaveTextContent(/Drafting story with Gemini 4 Hydrogen/i);
       expect(statusCard).toHaveTextContent(/safely switch stories|close this tab/i);
 
       // Resolve the draft
@@ -1249,7 +1249,7 @@ describe('Phase 3 Admin Studio & UI Components', () => {
           status: 'running',
           started_at: new Date().toISOString(),
           elapsed_seconds: 14,
-          message: 'Drafting story with Gemini 3.8 Flash...',
+          message: 'Drafting story with Gemini 4 Hydrogen...',
         },
       ]);
       vi.spyOn(clientApi, 'fetchJobStatus').mockResolvedValue({
@@ -1277,7 +1277,7 @@ describe('Phase 3 Admin Studio & UI Components', () => {
       await waitFor(() => {
         const statusEl = screen.getByRole('status');
         expect(statusEl).toBeInTheDocument();
-        expect(statusEl).toHaveTextContent(/Drafting story with Gemini 3\.8 Flash\.\.\. 14s/i);
+        expect(statusEl).toHaveTextContent(/Drafting story with Gemini 4 Hydrogen\.\.\. 14s/i);
       });
 
       // Verify prompt textarea and submit buttons are disabled

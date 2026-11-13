@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
 import type { AppConfig } from '../config.js';
 import type { StorageAdapter } from '../storage/storageAdapter.js';
 import { validateSlug, SLUG_REGEX } from '../storage/storageAdapter.js';
@@ -313,17 +313,40 @@ export function parseLLMJson<T>(rawText: string | undefined, stage: string): T {
   }
 }
 
+const THINKING_LEVEL_MAP: Record<string, ThinkingLevel> = {
+  MINIMAL: ThinkingLevel.MINIMAL,
+  LOW: ThinkingLevel.LOW,
+  MEDIUM: ThinkingLevel.MEDIUM,
+  HIGH: ThinkingLevel.HIGH,
+  THINKING_LEVEL_UNSPECIFIED: ThinkingLevel.THINKING_LEVEL_UNSPECIFIED,
+};
+
 /**
- * Production StoryLLMProvider backed by @google/genai and gemini-3.8-flash.
+ * Normalizes a string or ThinkingLevel enum into a @google/genai ThinkingLevel,
+ * defaulting to ThinkingLevel.LOW for cost and latency control.
+ */
+export function resolveThinkingLevel(level?: string): ThinkingLevel {
+  const normalized = (level || 'LOW').trim().toUpperCase();
+  return THINKING_LEVEL_MAP[normalized] ?? ThinkingLevel.LOW;
+}
+
+/**
+ * Production StoryLLMProvider backed by @google/genai and gemini-4-hydrogen.
  */
 export class GoogleGenAIStoryLLMProvider implements StoryLLMProvider {
   private ai: GoogleGenAI | null = null;
   private apiKey: string;
   private model: string;
+  private thinkingLevel: ThinkingLevel;
 
-  constructor(apiKey: string, model = 'gemini-3.8-flash') {
+  constructor(
+    apiKey: string,
+    model = 'gemini-4-hydrogen',
+    thinkingLevel: string | ThinkingLevel = ThinkingLevel.LOW
+  ) {
     this.apiKey = apiKey;
     this.model = model;
+    this.thinkingLevel = resolveThinkingLevel(thinkingLevel);
   }
 
   private getClient(): GoogleGenAI {
@@ -391,6 +414,7 @@ export class GoogleGenAIStoryLLMProvider implements StoryLLMProvider {
       contents: promptText,
       config: {
         systemInstruction,
+        thinkingConfig: { thinkingLevel: this.thinkingLevel },
         responseMimeType: 'application/json',
         responseSchema: {
           type: Type.OBJECT,
@@ -451,6 +475,7 @@ export class GoogleGenAIStoryLLMProvider implements StoryLLMProvider {
       contents: promptText,
       config: {
         systemInstruction,
+        thinkingConfig: { thinkingLevel: this.thinkingLevel },
         responseMimeType: 'application/json',
         responseSchema: {
           type: Type.OBJECT,
@@ -508,6 +533,9 @@ export class GoogleGenAIStoryLLMProvider implements StoryLLMProvider {
         },
         prompt,
       ],
+      config: {
+        thinkingConfig: { thinkingLevel: this.thinkingLevel },
+      },
     });
 
     return (response.text || '').trim();
@@ -542,7 +570,11 @@ export class GeminiStoryService {
     this.storage = storage;
     this.llmProvider =
       llmProvider ||
-      new GoogleGenAIStoryLLMProvider(config.geminiApiKey, config.geminiTextModel);
+      new GoogleGenAIStoryLLMProvider(
+        config.geminiApiKey,
+        config.geminiTextModel,
+        config.geminiThinkingLevel
+      );
   }
 
   async generateStoryDraft(input: GenerateStoryDraftRequest): Promise<Story> {

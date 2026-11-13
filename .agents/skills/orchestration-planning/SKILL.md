@@ -26,7 +26,7 @@ When Orchestration Planning Mode is active:
 2. **Surface Doubts & Clarify Early:** Present clear findings, recommendations, and trade-offs (with visual previews in `<appDataDir>/brain/<conversation-id>/scratch/` when UI changes are involved) and confirm key decisions with the user before locking the blueprint.
 
 ### Step 2: Exhaustive Context & Test-Impact Audit
-Because the next Orchestrator Agent session will start with a fresh context window and delegate implementation to a fast `flash` subagent, gather all high-leverage technical context upfront:
+Because the next Orchestrator Agent session will start with a fresh context window and may delegate implementation to a **Gemini 4 Hydrogen** (`high` reasoning effort) subagent, gather all high-leverage technical context upfront:
 1. **Backward-Compatibility & Shared Contracts:** Identify existing types, CSS custom properties, API routes, or storage schemas referenced across the codebase so the new implementation does not silently break inline styles or callers.
 2. **Exact Impacted Test Files & Line Numbers:** Grep and read `tests/**/*.test.ts(x)` and `tests/e2e/**/*.spec.ts` to find every existing assertion that will be affected by the planned changes (e.g., default states, DOM structure, computed styles, border widths, or theme sequences). Record the exact file paths and line numbers so the subagent updates them cleanly on the first pass.
 
@@ -37,9 +37,9 @@ Evaluate the **number of files, workload size, and architectural complexity**, a
    - **Mode 1 — Direct Main Agent Execution (No Subagent Needed):**
      - Recommend this when the change is small or surgical (e.g., 1–3 files, targeted bugfix, small config/type adjustment, or standalone documentation) where spawning a subagent would waste more tokens feeding context than executing directly.
    - **Mode 2 — Hybrid Execution (Main Agent + Subagent Partnership):**
-     - Recommend this when the Main Agent should directly implement foundational/high-reasoning pieces (e.g., `shared/types.ts`, core API/service contracts, subtle state logic, and all standalone documentation) while delegating bounded, high-volume tasks (e.g., multi-component UI updates, bulk unit tests, Playwright E2E specs, and screenshot capture) to a `flash` subagent within its scope.
+     - Recommend this when the Main Agent should directly implement foundational/high-reasoning pieces (e.g., `shared/types.ts`, core API/service contracts, subtle state logic, and all standalone documentation) while delegating bounded, high-volume tasks (e.g., multi-component UI updates, bulk unit tests, Playwright E2E specs, and screenshot capture) to a **Gemini 4 Hydrogen** (`Model: "inherit"`, `high` reasoning effort) subagent within its scope.
    - **Mode 3 — Full Subagent Delegation (Large / Multi-File Feature Phases):**
-     - Recommend this when a phase involves heavy multi-file implementation and extensive test suites best executed end-to-end by a `flash` subagent under the Main Agent's Firsthand Verification and Review Loop.
+     - Recommend this when a phase involves heavy multi-file implementation and extensive test suites best executed end-to-end by a **Gemini 4 Hydrogen** (`Model: "inherit"`, `high` reasoning effort) subagent under the Main Agent's Firsthand Verification and Review Loop.
 
 2. **Documentation vs. Inline Code Comments Ownership Rule (Non-Negotiable):**
    - **Standalone Documentation -> Main Agent ONLY:** All project, architecture, skill, and review documentation (`HANDOFF_PLAN.md`, `AGENTS.md`, `SUBAGENT_ORCHESTRATION_PLAYBOOK.md`, `README.md`, `.agents/skills/*/SKILL.md`, `docs/reviews/*.md`, guides) **must be authored by the Main Agent**.
@@ -74,7 +74,7 @@ Always tailor and output this template at the end of an Orchestration Planning s
 You are the Lead Architect & Orchestrator Agent for Storyteller Studio (`story-wizard`).
 
 Before taking any action, read these three files in full:
-1. `AGENTS.md` (strict two-tier Architect + Flash Subagent workflow, non-negotiable technical guardrails, and firsthand verification rules)
+1. `AGENTS.md` (workload-aware Architect + Gemini 4 Hydrogen High Subagent workflow, non-negotiable technical guardrails, and firsthand verification rules)
 2. `SUBAGENT_ORCHESTRATION_PLAYBOOK.md` (subagent definition, context-aware task grouping, deadlock recovery, and iterative review loop)
 3. `HANDOFF_PLAN.md` — specifically **Section <M> (Phase <N>: <Phase Title>)**, which contains the complete, user-approved specification, exact contracts, component/module checklist, and exact line numbers of existing unit/E2E tests that must be updated.
 
@@ -88,8 +88,8 @@ Before taking any action, read these three files in full:
 - Always sync changes between `/mnt/c/Users/m93/projects/story-wizard` and `/home/ubuntu/story-wizard` before running `npm run typecheck`, `npm test`, `npm run build`, or `npx playwright test`.
 
 ### Your Orchestration Mission:
-1. **Execution Mode & Subagent Strategy:** <State the recommended mode based on file count/complexity: (A) Direct Main Agent Execution, (B) Hybrid Approach (specify exact files Main Agent handles vs. exact scope delegated to `phase-builder` `flash` subagent), or (C) Full Subagent Delegation (and whether grouped into one cohesive `phase-builder` subagent or split across decoupled phases). Note: All standalone documentation must be written by the Main Agent, while inline comments and function docstrings are written by whoever writes the code.>
-2. If spawning a subagent (Hybrid or Full Delegation), define `phase-builder` via `define_subagent` (`EnableWriteTools: true`, `EnableSubagentTools: false`, `EnableMCPTools: false`) and invoke with `Model: "flash"`, `Workspace: "inherit"`.
+1. **Execution Mode & Subagent Strategy:** <State the recommended mode based on file count/complexity: (A) Direct Main Agent Execution, (B) Hybrid Approach (specify exact files Main Agent handles vs. exact scope delegated to `phase-builder` Gemini 4 Hydrogen subagent), or (C) Full Subagent Delegation (and whether grouped into one cohesive `phase-builder` subagent or split across decoupled phases). Note: All standalone documentation must be written by the Main Agent, while inline comments and function docstrings are written by whoever writes the code.>
+2. If spawning a subagent (Hybrid or Full Delegation), define `phase-builder` via `define_subagent` (`EnableWriteTools: true`, `EnableSubagentTools: false`, `EnableMCPTools: false`) and invoke with **Gemini 4 Hydrogen (`high` default reasoning effort — `Model: "inherit"` when parent runs Hydrogen High)** and `Workspace: "inherit"`.
 3. When the subagent completes, perform strict **Firsthand Verification** (never blindly trust the subagent's self-audit):
    - Read every modified/created source and test file line-by-line (`read_file` / `git diff`).
    - Inspect all captured `qa-screenshots/phase<N>-*.png` images using `read_file` vision.

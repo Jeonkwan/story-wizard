@@ -51,7 +51,7 @@
                                          v                                                                                      v
                        +-----------------------------------+                                          +-----------------------------------+
                        |          Google Gemini API        |                                          |  GCS Bucket (or ./data/ Fallback) |
-                       | - gemini-3.8-flash (Writer/Dir)   |                                          | - catalog.json   (ifGenMatch)     |
+                       | - gemini-4-hydrogen (Writer/Dir)  |                                          | - catalog.json   (ifGenMatch)     |
                        | - gemini-3.8-flash-lite-tts (5s)  |                                          | - voices.json    (ifGenMatch)     |
                        | - gemini-3.8-flash-tts (Full WAV) |                                          | - stories/{id}/story.json         |
                        | - ai.voices.create (Voice Design) |                                          | - stories/{id}/audios/{ver}.wav   |
@@ -60,7 +60,7 @@
 
 ### Key Architectural Decisions (Refined from Initial Draft)
 1. **Model Selection:**
-   - Narrative Writer & Voice Director LLM: `gemini-3.8-flash` (configurable via `GEMINI_TEXT_MODEL`; replaces deprecated `gemini-3.5-flash`).
+   - Narrative Writer, Voice Director & Multimodal STT LLM: `gemini-4-hydrogen` (configurable via `GEMINI_TEXT_MODEL`, using `thinkingConfig: { thinkingLevel: ThinkingLevel.LOW }` via `GEMINI_THINKING_LEVEL=LOW` for cost/latency control).
    - 5-Second Audition Preview TTS: `gemini-3.8-flash-lite-tts` (`GEMINI_TTS_LITE_MODEL`).
    - Full Studio Story TTS: `gemini-3.8-flash-tts` (`GEMINI_TTS_MODEL`).
 2. **Draft vs. Published Lifecycle:**
@@ -109,7 +109,7 @@ Keep the codebase flat and modular (single `package.json` at root for simple Clo
 │   │   ├── wav.ts               # extractPcmFromWavOrRaw(), createSilencePcm(), wrapPcmAsWav()
 │   │   └── validators.ts        # validateWriterOutput() (Val 1) & validateDirectorOutput() (Val 2)
 │   ├── services/
-│   │   ├── geminiStory.ts       # Writer LLM & Director LLM calls (gemini-3.8-flash)
+│   │   ├── geminiStory.ts       # Writer LLM, Director LLM & STT calls (gemini-4-hydrogen, LOW thinking)
 │   │   └── geminiTts.ts         # Preview TTS, Voices API create/list, Chunked Full TTS
 │   └── routes/
 │       ├── public.ts            # GET /api/catalog, /api/stories/:id, /api/stories/:id/audios/:file
@@ -163,7 +163,8 @@ Keep the codebase flat and modular (single `package.json` at root for simple Clo
 | `PORT` | No | `8080` | HTTP port for Cloud Run & local server |
 | `NODE_ENV` | Yes | `development` | `development` \| `test` \| `production` |
 | `GEMINI_API_KEY` | Yes | — | API key passed to `new GoogleGenAI({ apiKey })` |
-| `GEMINI_TEXT_MODEL` | No | `gemini-3.8-flash` | Model for Writer & Director stages |
+| `GEMINI_TEXT_MODEL` | No | `gemini-4-hydrogen` | Model for Writer, Director & audio transcription stages |
+| `GEMINI_THINKING_LEVEL` | No | `LOW` | Thinking effort level (`MINIMAL` \| `LOW` \| `MEDIUM` \| `HIGH`) for text/multimodal calls |
 | `GEMINI_TTS_MODEL` | No | `gemini-3.8-flash-tts` | Model for full studio audio synthesis |
 | `GEMINI_TTS_LITE_MODEL` | No | `gemini-3.8-flash-lite-tts` | Model for 5-second voice audition previews |
 | `GCS_BUCKET_NAME` | Yes (Cloud Run) | `""` | If unset/empty, `StorageAdapter` uses local `DATA_DIR` |
@@ -306,13 +307,14 @@ export function createGenAIClient(apiKey = process.env.GEMINI_API_KEY) {
 }
 ```
 
-### 5.2 Writer & Director Structured Output (`gemini-3.8-flash`)
+### 5.2 Writer & Director Structured Output (`gemini-4-hydrogen`)
 ```ts
 const response = await ai.models.generateContent({
-  model: config.geminiTextModel, // "gemini-3.8-flash"
+  model: config.geminiTextModel, // "gemini-4-hydrogen"
   contents: promptText,
   config: {
     systemInstruction: writerSystemPrompt,
+    thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
     responseMimeType: 'application/json',
     responseSchema: {
       type: Type.OBJECT,
@@ -789,6 +791,8 @@ Use your interactive browser capabilities (`/browser`) on `http://localhost:8080
 - [x] **Phase 12:** Library Deletion, Storybook Preview, Prompt Remix, and Age-Vocab Controls (`phase-12-verified`)
 - [x] **Phase 13:** Fireside Espresso UI Redesign, Dark-First Default, & Compact Mobile Studio Ergonomics (`phase-13-verified`)
 - [x] **Phase 14:** One-Tap Chained Pipeline (`Write -> Auto-Direct -> Optional Auto-Synthesize`), Dedicated Story Length Control, Character Name Diversity, Age-Driven Complexity, & iPhone Safe-Area Support (`phase-14-verified`)
+- [x] **Phase 15:** Fire-and-Go Background Generation, Durable Job History (`jobs.json`), Activity Tray & Cloud Run `--no-cpu-throttling` (`phase-15-verified`)
+- [x] **Phase 16:** Switch Text/Multimodal LLM to `gemini-4-hydrogen` (`LOW` Reasoning Effort) & Update Subagent Policy to Gemini 4 Hydrogen (`High`) (`phase-16-verified`)
 
 ---
 
@@ -1693,5 +1697,34 @@ Although Phase 7 introduced `JobManager` and `?async=true`, users still felt for
 - [x] `npm test` passes (updating `tests/ui.test.tsx` copy assertions from `"Please keep this tab open"` to background-safe copy, adding unit/API/UI tests in `tests/jobManager.test.ts`, `tests/pipelineApi.test.ts`, `tests/deploymentConfig.test.ts`, `tests/ui.test.tsx`).
 - [x] `npm run build && npx playwright test` passes including `tests/e2e/storybook.spec.ts` and `tests/e2e/qa-phase15.spec.ts` with screenshots in `qa-screenshots/phase15-*.png`.
 - [x] Completion audit saved to `docs/audits/phase-15-audit.md`.
+
+---
+
+## 22. Phase 16 — Switch Text/Multimodal LLM to `gemini-4-hydrogen` (`LOW` Reasoning Effort) & Subagent Model Policy Update
+
+### 22.1 Scope & Guardrails
+1. **Text/Multimodal Model Only (Do NOT change TTS models):**
+   - Switch default text/multimodal LLM from `gemini-3.8-flash` to `gemini-4-hydrogen` in:
+     - `server/config.ts` (`geminiTextModel: env.GEMINI_TEXT_MODEL || 'gemini-4-hydrogen'`)
+     - `server/services/geminiStory.ts` (`GoogleGenAIStoryLLMProvider` default `model` and JSDoc)
+     - `.env.example` (`GEMINI_TEXT_MODEL=gemini-4-hydrogen`)
+     - `scripts/smokePhase3Live.ts` and stale text/transcription comments (`server/routes/adminTranscribe.ts`), plus Writer/Director status copy (`server/routes/adminStories.ts`, `server/services/jobManager.ts`, `client/components/DirectorStudio.tsx`).
+   - **Keep `gemini-3.8-flash-tts` and `gemini-3.8-flash-lite-tts` untouched.**
+2. **Reasoning Effort Cost Control (`GEMINI_THINKING_LEVEL=LOW`):**
+   - Add `geminiThinkingLevel: string` to `AppConfig` (`server/config.ts`), configurable via `GEMINI_THINKING_LEVEL` defaulting to `'LOW'` (and document `GEMINI_THINKING_LEVEL=LOW` in `.env.example`).
+   - Import `ThinkingLevel` from `@google/genai` in `server/services/geminiStory.ts` and pass `thinkingConfig: { thinkingLevel: this.thinkingLevel }` across all `ai.models.generateContent` calls in `GoogleGenAIStoryLLMProvider` (`generateWriterDraft`, `directScript`, `transcribeAudio`).
+   - Wire `config.geminiThinkingLevel` from `GeminiStoryService` into `GoogleGenAIStoryLLMProvider`.
+3. **Subagent Policy Documentation Update:**
+   - Update `AGENTS.md`, `SUBAGENT_ORCHESTRATION_PLAYBOOK.md`, `.agents/skills/orchestration-planning/SKILL.md`, and `.agents/skills/gemini-3-8-tts-studio/SKILL.md` so builder subagent guidance recommends **Gemini 4 Hydrogen** (`high` default reasoning effort; invoked via `Model: "inherit"` when the parent runs Hydrogen High) instead of `flash`.
+4. **Execution Mode:** Mode 1 (Direct Main Agent Execution) per `AGENTS.md` Section 1.A because changes are surgical across config, one service provider, documentation, and targeted unit/test assertions.
+
+### 22.2 Validation Gate
+- [x] Unit tests verify `loadConfig()` defaults `geminiTextModel` to `'gemini-4-hydrogen'` and `geminiThinkingLevel` to `'LOW'` (with env override support).
+- [x] Unit tests verify `GoogleGenAIStoryLLMProvider` passes `model: 'gemini-4-hydrogen'` and `config.thinkingConfig.thinkingLevel === ThinkingLevel.LOW` in `generateWriterDraft`, `directScript`, and `transcribeAudio`.
+- [x] `npm run typecheck`, `npx tsc -p tsconfig.server.json`, `npm test` (275/275 across 14 files including `tests/esm-build.test.ts`), and `npm run build` pass with exit code `0`.
+- [x] Playwright E2E (`npx playwright test`) passes cleanly (14/14 specs).
+- [~] Conditional live smoke check (`scripts/smokePhase3Live.ts`): Skipped cleanly because no live `GEMINI_API_KEY` is configured in `.env`.
+- [x] Completion audit written to `docs/audits/phase-16-audit.md` and milestone tagged `phase-16-verified`.
+
 
 

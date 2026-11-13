@@ -26,7 +26,7 @@ export function createAdminTranscribeRouter(
 
   router.use(requireAdmin);
 
-  // POST /api/admin/transcribe — multimodal speech-to-text dictation via gemini-3.8-flash
+  // POST /api/admin/transcribe — multimodal speech-to-text dictation via gemini-4-hydrogen
   router.post(
     '/transcribe',
     asyncHandler(async (req: Request, res: Response) => {

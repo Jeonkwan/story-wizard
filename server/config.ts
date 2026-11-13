@@ -3,6 +3,7 @@ export interface AppConfig {
   nodeEnv: string;
   geminiApiKey: string;
   geminiTextModel: string;
+  geminiThinkingLevel: string;
   geminiTtsModel: string;
   geminiTtsLiteModel: string;
   gcsBucketName: string;
@@ -34,7 +35,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     port: parseInt(env.PORT || '8080', 10),
     nodeEnv,
     geminiApiKey: env.GEMINI_API_KEY || '',
-    geminiTextModel: env.GEMINI_TEXT_MODEL || 'gemini-3.8-flash',
+    geminiTextModel: env.GEMINI_TEXT_MODEL || 'gemini-4-hydrogen',
+    geminiThinkingLevel: (env.GEMINI_THINKING_LEVEL || 'LOW').trim().toUpperCase() || 'LOW',
     geminiTtsModel: env.GEMINI_TTS_MODEL || 'gemini-3.8-flash-tts',
     geminiTtsLiteModel: env.GEMINI_TTS_LITE_MODEL || 'gemini-3.8-flash-lite-tts',
     gcsBucketName: env.GCS_BUCKET_NAME || '',
