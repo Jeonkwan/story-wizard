@@ -56,6 +56,7 @@ export function createApp(options: CreateAppOptions = {}): express.Express {
     new GeminiTtsService(config, storage, options.ttsProvider);
 
   const jobManager = options.jobManager || defaultJobManager;
+  jobManager.setStorage(storage);
 
   const app = express();
 

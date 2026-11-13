@@ -14,7 +14,7 @@ import type {
   VoicePace,
 } from '../../shared/types';
 
-export type { StoryAgeRange, StoryLength, StoryVocabularyLevel, StoryPromptMetadata };
+export type { StoryAgeRange, StoryLength, StoryVocabularyLevel, StoryPromptMetadata, JobProgress };
 
 export class ApiError extends Error {
   constructor(
@@ -94,6 +94,26 @@ export interface AsyncJobOptions {
   async?: boolean;
   onProgress?: (job: JobProgress) => void;
   pollIntervalMs?: number;
+}
+
+export async function fetchRecentJobs(limit = 20): Promise<JobProgress[]> {
+  try {
+    const res = await fetch(`/api/admin/jobs?limit=${limit}`);
+    if (!res.ok) {
+      return [];
+    }
+    const data = await handleResponse<{ jobs: JobProgress[] }>(res);
+    return Array.isArray(data?.jobs) ? data.jobs : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function dismissJob(jobId: string): Promise<{ ok: boolean }> {
+  const res = await fetch(`/api/admin/jobs/${encodeURIComponent(jobId)}`, {
+    method: 'DELETE',
+  });
+  return handleResponse<{ ok: boolean }>(res);
 }
 
 export async function fetchActiveJobs(storyId?: string): Promise<JobProgress[]> {

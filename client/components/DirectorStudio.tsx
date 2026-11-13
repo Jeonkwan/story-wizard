@@ -8,6 +8,8 @@ import type {
   StoryLength,
   StoryVocabularyLevel,
   VoiceEntry,
+  JobProgress,
+  JobType,
 } from '../../shared/types';
 import { cleanTextForReader } from '../../shared/textClean';
 import {
@@ -22,6 +24,8 @@ import {
   deleteStory,
   fetchActiveJobs,
   fetchJobStatus,
+  fetchRecentJobs,
+  dismissJob,
   type AdminSession,
 } from '../api/client';
 import { VoiceStudioPanel } from './VoiceStudioPanel';
@@ -212,19 +216,16 @@ export function DirectorStudio({
     };
   }, []);
 
-  // Prevent accidental navigation or tab closure while generation is active
-  useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (isWriting || isDirecting) {
-        e.preventDefault();
-        e.returnValue = '';
-      }
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-  }, [isWriting, isDirecting]);
+  const [directingStoryId, setDirectingStoryId] = useState<string | null>(null);
+  const hasQueuedAnotherRef = useRef<boolean>(false);
+  const [recentJobs, setRecentJobs] = useState<JobProgress[]>([]);
+  const [activityTrayExpanded, setActivityTrayExpanded] = useState<boolean>(true);
+  const [notificationPerm, setNotificationPerm] = useState<NotificationPermission>(() =>
+    typeof Notification !== 'undefined' ? Notification.permission : 'default'
+  );
+  const prevJobsMapRef = useRef<Map<string, JobProgress>>(new Map());
+
+  // Prevent accidental navigation removed for Phase 15 fire-and-go background resilience
 
   // Load selected story details into workbench
   const loadStoryIntoWorkbench = useCallback(async (id: string) => {
@@ -358,6 +359,7 @@ export function DirectorStudio({
             directingTimerRef.current = null;
           }
           setIsDirecting(false);
+          setDirectingStoryId(null);
           const directed = await fetchStory(storyId);
           setActiveStory(directed);
           setEditedTitle(directed.title);
@@ -377,6 +379,7 @@ export function DirectorStudio({
             directingTimerRef.current = null;
           }
           setIsDirecting(false);
+          setDirectingStoryId(null);
           setDirectError(job.error || 'Directing failed');
         }
       } catch {
@@ -391,21 +394,22 @@ export function DirectorStudio({
       const activeJobs = await fetchActiveJobs();
       if (!Array.isArray(activeJobs) || activeJobs.length === 0) return;
 
-      // 1. Check for running draft job
+      // 1. Check for running draft job — do not force viewMode create if user is viewing edit
       const draftJob = activeJobs.find((j) => j.type === 'draft' && j.status === 'running');
       if (draftJob) {
-        setViewMode('create');
-        setIsWriting(true);
-        setWriteError(null);
-        setWritingElapsedSeconds(draftJob.elapsed_seconds || 0);
+        if (!hasQueuedAnotherRef.current && viewMode === 'create') {
+          setIsWriting(true);
+          setWriteError(null);
+          setWritingElapsedSeconds(draftJob.elapsed_seconds || 0);
 
-        if (!writingTimerRef.current) {
-          writingTimerRef.current = setInterval(() => {
-            setWritingElapsedSeconds((sec) => sec + 1);
-          }, 1000);
+          if (!writingTimerRef.current) {
+            writingTimerRef.current = setInterval(() => {
+              setWritingElapsedSeconds((sec) => sec + 1);
+            }, 1000);
+          }
+          startPollingDraftJob(draftJob.job_id);
+          return;
         }
-        startPollingDraftJob(draftJob.job_id);
-        return;
       }
 
       // 2. Check for running direct job
@@ -418,6 +422,7 @@ export function DirectorStudio({
         );
         if (directJob) {
           setIsDirecting(true);
+          setDirectingStoryId(activeStory.id);
           setDirectError(null);
           setDirectingElapsedSeconds(directJob.elapsed_seconds || 0);
 
@@ -432,7 +437,136 @@ export function DirectorStudio({
     } catch {
       // Graceful fallback
     }
-  }, [activeStory, startPollingDraftJob, startPollingDirectJob]);
+  }, [activeStory, viewMode, startPollingDraftJob, startPollingDirectJob]);
+
+  // Phase 15 Generation Activity Tray: Poll recent jobs and handle notifications
+  const loadRecentJobs = useCallback(async () => {
+    try {
+      const jobs = await fetchRecentJobs(20);
+      setRecentJobs(jobs);
+
+      let shouldRefreshStories = false;
+      const prevMap = prevJobsMapRef.current;
+
+      for (const j of jobs) {
+        const prev = prevMap.get(j.job_id);
+        if (
+          prev &&
+          prev.status === 'running' &&
+          (j.status === 'completed' || j.status === 'failed')
+        ) {
+          shouldRefreshStories = true;
+          if (
+            typeof Notification !== 'undefined' &&
+            Notification.permission === 'granted' &&
+            document.hidden
+          ) {
+            try {
+              if (j.status === 'completed') {
+                new Notification('Storyteller Studio: Story Ready!', {
+                  body: `"${j.title || j.story_id}" has finished generating!`,
+                });
+              } else {
+                new Notification('Storyteller Studio: Generation Failed', {
+                  body: `"${j.title || j.story_id}" failed: ${j.error || 'Unknown error'}`,
+                });
+              }
+            } catch {
+              // Ignore notification errors
+            }
+          }
+        }
+      }
+
+      if (shouldRefreshStories) {
+        loadStories();
+        onCatalogChanged?.();
+      }
+
+      const nextMap = new Map<string, JobProgress>();
+      for (const j of jobs) {
+        nextMap.set(j.job_id, j);
+      }
+      prevJobsMapRef.current = nextMap;
+    } catch {
+      // Ignore background fetch errors
+    }
+  }, [loadStories, onCatalogChanged]);
+
+  useEffect(() => {
+    loadRecentJobs();
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        loadRecentJobs();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    const hasRunning = recentJobs.some((j) => j.status === 'running');
+    let pollInterval: ReturnType<typeof setInterval> | null = null;
+    if (hasRunning) {
+      pollInterval = setInterval(loadRecentJobs, 2000);
+    }
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (pollInterval) clearInterval(pollInterval);
+    };
+  }, [loadRecentJobs, recentJobs]);
+
+  const handleDismissJob = async (jobId: string) => {
+    try {
+      await dismissJob(jobId);
+      setRecentJobs((prev) => prev.filter((j) => j.job_id !== jobId));
+    } catch (err) {
+      console.warn('[DirectorStudio] Failed to dismiss job:', err);
+    }
+  };
+
+  const handleOpenCompletedStory = async (job: JobProgress) => {
+    const targetId = job.result_story_id || job.story_id;
+    if (targetId && targetId !== 'new' && targetId !== 'draft') {
+      await loadStoryIntoWorkbench(targetId);
+      await loadStories();
+      onCatalogChanged?.();
+    }
+  };
+
+  const handleRequestNotification = async () => {
+    if (typeof Notification !== 'undefined' && Notification.requestPermission) {
+      try {
+        const perm = await Notification.requestPermission();
+        setNotificationPerm(perm);
+      } catch {
+        // Ignore
+      }
+    }
+  };
+
+  const handleQueueAnother = () => {
+    hasQueuedAnotherRef.current = true;
+    setIsWriting(false);
+    setWriteError(null);
+    setWritingElapsedSeconds(0);
+    if (writingTimerRef.current) {
+      clearInterval(writingTimerRef.current);
+      writingTimerRef.current = null;
+    }
+    if (draftPollTimerRef.current) {
+      clearInterval(draftPollTimerRef.current);
+      draftPollTimerRef.current = null;
+    }
+    setFreshPrompt('');
+    setFreshReferenceText('');
+    setSelectedGenrePreset('any');
+    setSequelPrompt('');
+    setSequelReferenceText('');
+    setSequelPreviousStoryId('');
+    setSequelPreviousStory(null);
+    setCreateMode('fresh');
+    setViewMode('create');
+  };
 
   useEffect(() => {
     checkActiveJobs();
@@ -581,6 +715,7 @@ export function DirectorStudio({
   };
 
   const handleStartNewStory = () => {
+    hasQueuedAnotherRef.current = false;
     setViewMode('create');
     setMobileActiveStep('draft');
     setSelectedStoryId(null);
@@ -599,6 +734,7 @@ export function DirectorStudio({
   };
 
   const handleStartSequel = (storyId: string) => {
+    hasQueuedAnotherRef.current = false;
     setViewMode('create');
     setCreateMode('sequel');
     setMobileActiveStep('draft');
@@ -638,6 +774,7 @@ export function DirectorStudio({
   // Step 1: Write Story Draft
   const handleWriteStory = async (e: React.FormEvent) => {
     e.preventDefault();
+    hasQueuedAnotherRef.current = false;
     setIsWriting(true);
     setWriteError(null);
     setWritingElapsedSeconds(0);
@@ -669,7 +806,10 @@ export function DirectorStudio({
           },
           {
             async: true,
-            onProgress: (job) => setWritingElapsedSeconds(job.elapsed_seconds),
+            onProgress: (job) => {
+              setWritingElapsedSeconds(job.elapsed_seconds);
+              loadRecentJobs();
+            },
           }
         );
       } else {
@@ -699,11 +839,15 @@ export function DirectorStudio({
           },
           {
             async: true,
-            onProgress: (job) => setWritingElapsedSeconds(job.elapsed_seconds),
+            onProgress: (job) => {
+              setWritingElapsedSeconds(job.elapsed_seconds);
+              loadRecentJobs();
+            },
           }
         );
       }
 
+      await loadRecentJobs();
       await loadStories();
       onCatalogChanged?.();
       setWorkbenchTab('preview');
@@ -716,6 +860,7 @@ export function DirectorStudio({
         writingTimerRef.current = null;
       }
       setIsWriting(false);
+      await loadRecentJobs();
     }
   };
 
@@ -749,6 +894,7 @@ export function DirectorStudio({
   const handleAutoDirect = async () => {
     if (!activeStory) return;
     setIsDirecting(true);
+    setDirectingStoryId(activeStory.id);
     setDirectError(null);
     setDirectingElapsedSeconds(0);
     directingTimerRef.current = setInterval(() => {
@@ -760,7 +906,10 @@ export function DirectorStudio({
 
       const directed = await directStory(activeStory.id, {
         async: true,
-        onProgress: (job) => setDirectingElapsedSeconds(job.elapsed_seconds),
+        onProgress: (job) => {
+          setDirectingElapsedSeconds(job.elapsed_seconds);
+          loadRecentJobs();
+        },
       });
       setActiveStory(directed);
       setEditedTitle(directed.title);
@@ -769,6 +918,7 @@ export function DirectorStudio({
       setEditedCharacters(JSON.parse(JSON.stringify(directed.characters)));
       setEditedTurns(JSON.parse(JSON.stringify(directed.script_turns)));
       setSaveSuccess(false);
+      await loadRecentJobs();
       await loadStories();
       onCatalogChanged?.();
     } catch (err) {
@@ -779,6 +929,8 @@ export function DirectorStudio({
         directingTimerRef.current = null;
       }
       setIsDirecting(false);
+      setDirectingStoryId(null);
+      await loadRecentJobs();
     }
   };
 
@@ -965,6 +1117,54 @@ export function DirectorStudio({
     activeStory?.status === 'draft' &&
     (!activeStory.audio_versions || activeStory.audio_versions.length === 0);
 
+  const isCurrentStoryDirecting = isDirecting && directingStoryId === activeStory?.id;
+
+  const inFlightDraftJobs = recentJobs.filter(
+    (j) => j.status === 'running' && (j.story_id === 'new' || j.story_id === 'draft' || !j.story_id)
+  );
+
+  const getStoryActiveBadge = (item: CatalogItem) => {
+    let jobType: JobType | string | undefined = item.active_job?.type;
+    let jobStage: string | undefined;
+
+    const matchingRunningJob = recentJobs.find(
+      (j) => j.status === 'running' && (j.story_id === item.id || j.result_story_id === item.id)
+    );
+    if (matchingRunningJob) {
+      jobType = matchingRunningJob.type;
+      jobStage = matchingRunningJob.stage;
+    }
+
+    if (!jobType && !jobStage) return null;
+
+    if (jobStage === 'drafting' || jobType === 'draft') {
+      return (
+        <span className="badge-tactile badge-tactile-running" style={{ fontSize: '0.68rem' }}>
+          ⏳ Drafting...
+        </span>
+      );
+    }
+    if (jobStage === 'directing' || jobType === 'direct') {
+      return (
+        <span className="badge-tactile badge-tactile-running" style={{ fontSize: '0.68rem' }}>
+          🎬 Directing...
+        </span>
+      );
+    }
+    if (jobStage === 'synthesizing' || jobType === 'synthesize') {
+      return (
+        <span className="badge-tactile badge-tactile-running" style={{ fontSize: '0.68rem' }}>
+          🎧 Synthesizing...
+        </span>
+      );
+    }
+    return (
+      <span className="badge-tactile badge-tactile-running" style={{ fontSize: '0.68rem' }}>
+        ⏳ Generating...
+      </span>
+    );
+  };
+
   return (
     <div className="studio-container">
       {/* -------------------------------------------------------------
@@ -1054,7 +1254,6 @@ export function DirectorStudio({
                   setMobileDrawerOpen(false);
                   setMobileActiveStep('draft');
                 }}
-                disabled={isWriting || isDirecting}
                 data-testid="drawer-new-story-btn"
                 style={{ width: '100%' }}
               >
@@ -1063,46 +1262,70 @@ export function DirectorStudio({
             </div>
 
             <div className="studio-archive-drawer-content">
+              {inFlightDraftJobs.map((j) => (
+                <div
+                  key={j.job_id}
+                  className="studio-story-item card-tactile"
+                  style={{
+                    borderStyle: 'dashed',
+                    borderColor: 'var(--accent-primary)',
+                    marginBottom: '0.6rem',
+                    padding: '0.65rem',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                    <span className="badge-tactile badge-tactile-running" style={{ fontSize: '0.68rem' }}>
+                      ⏳ GENERATING
+                    </span>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>
+                      {j.elapsed_seconds}s
+                    </span>
+                  </div>
+                  <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>
+                    {j.title || 'Drafting new story...'}
+                  </div>
+                </div>
+              ))}
+
               {loadingStories ? (
                 <p style={{ fontStyle: 'italic', fontSize: '0.85rem', color: 'var(--ink-muted)' }}>
                   Loading stories...
                 </p>
               ) : storiesError ? (
                 <p style={{ color: 'var(--accent-state)', fontSize: '0.85rem' }}>{storiesError}</p>
-              ) : stories.length === 0 ? (
+              ) : stories.length === 0 && inFlightDraftJobs.length === 0 ? (
                 <p style={{ fontSize: '0.85rem', color: 'var(--ink-muted)', fontStyle: 'italic' }}>
                   No stories created yet.
                 </p>
               ) : (
                 stories.map((item) => {
                   const isSelected = selectedStoryId === item.id;
-                  const isBusy = isWriting || isDirecting;
                   return (
                     <div
                       key={item.id}
                       className={`studio-story-item card-tactile ${isSelected ? 'studio-story-item-active' : ''}`}
                       onClick={() => {
-                        if (!isBusy) {
-                          loadStoryIntoWorkbench(item.id);
-                          setMobileDrawerOpen(false);
-                          setMobileActiveStep('script');
-                        }
+                        loadStoryIntoWorkbench(item.id);
+                        setMobileDrawerOpen(false);
+                        setMobileActiveStep('script');
                       }}
                       style={{
-                        cursor: isBusy ? 'not-allowed' : 'pointer',
-                        opacity: isBusy ? 0.7 : 1,
+                        cursor: 'pointer',
                         marginBottom: '0.6rem',
                         padding: '0.65rem',
                       }}
                       data-testid={`drawer-story-item-${item.id}`}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.25rem' }}>
-                        <span
-                          className={`badge-tactile ${item.status === 'published' ? 'badge-tactile-published' : 'badge-tactile-draft'}`}
-                          style={{ fontSize: '0.7rem' }}
-                        >
-                          {item.status.toUpperCase()}
-                        </span>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.25rem', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                          <span
+                            className={`badge-tactile ${item.status === 'published' ? 'badge-tactile-published' : 'badge-tactile-draft'}`}
+                            style={{ fontSize: '0.7rem' }}
+                          >
+                            {item.status.toUpperCase()}
+                          </span>
+                          {getStoryActiveBadge(item)}
+                        </div>
                         {item.series_id && (
                           <span className="badge-tactile" style={{ fontSize: '0.65rem' }}>
                             Ep #{item.episode_number ?? 1}
@@ -1156,7 +1379,6 @@ export function DirectorStudio({
             type="button"
             className="btn-tactile btn-tactile-primary"
             onClick={handleStartNewStory}
-            disabled={isWriting || isDirecting}
             style={{ width: '100%', marginBottom: '0.75rem' }}
           >
             ➕ New Story
@@ -1165,7 +1387,6 @@ export function DirectorStudio({
             type="button"
             className="btn-tactile"
             onClick={onNavigateHome}
-            disabled={isWriting || isDirecting}
             style={{ width: '100%', fontSize: '0.8rem' }}
           >
             ← Public Library
@@ -1177,41 +1398,67 @@ export function DirectorStudio({
             STORIES ({stories.length})
           </h3>
 
+          {inFlightDraftJobs.map((j) => (
+            <div
+              key={j.job_id}
+              className="studio-story-item card-tactile"
+              style={{
+                borderStyle: 'dashed',
+                borderColor: 'var(--accent-primary)',
+                marginBottom: '0.6rem',
+                padding: '0.65rem',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                <span className="badge-tactile badge-tactile-running" style={{ fontSize: '0.68rem' }}>
+                  ⏳ GENERATING
+                </span>
+                <span style={{ fontSize: '0.7rem', color: 'var(--ink-muted)' }}>
+                  {j.elapsed_seconds}s
+                </span>
+              </div>
+              <div style={{ fontWeight: 600, fontSize: '0.88rem' }}>
+                {j.title || 'Drafting new story...'}
+              </div>
+            </div>
+          ))}
+
           {loadingStories ? (
             <p style={{ fontStyle: 'italic', fontSize: '0.85rem', color: 'var(--ink-muted)' }}>
               Loading stories...
             </p>
           ) : storiesError ? (
             <p style={{ color: 'var(--accent-state)', fontSize: '0.85rem' }}>{storiesError}</p>
-          ) : stories.length === 0 ? (
+          ) : stories.length === 0 && inFlightDraftJobs.length === 0 ? (
             <p style={{ fontSize: '0.85rem', color: 'var(--ink-muted)', fontStyle: 'italic' }}>
               No stories created yet.
             </p>
           ) : (
             stories.map((item) => {
               const isSelected = selectedStoryId === item.id;
-              const isBusy = isWriting || isDirecting;
               return (
                 <div
                   key={item.id}
                   className={`studio-story-item card-tactile ${isSelected ? 'studio-story-item-active' : ''}`}
                   onClick={() => {
-                    if (!isBusy) loadStoryIntoWorkbench(item.id);
+                    loadStoryIntoWorkbench(item.id);
                   }}
                   style={{
-                    cursor: isBusy ? 'not-allowed' : 'pointer',
-                    opacity: isBusy ? 0.7 : 1,
+                    cursor: 'pointer',
                     marginBottom: '0.6rem',
                     padding: '0.65rem',
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.25rem' }}>
-                    <span
-                      className={`badge-tactile ${item.status === 'published' ? 'badge-tactile-published' : 'badge-tactile-draft'}`}
-                      style={{ fontSize: '0.7rem' }}
-                    >
-                      {item.status.toUpperCase()}
-                    </span>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.25rem', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                      <span
+                        className={`badge-tactile ${item.status === 'published' ? 'badge-tactile-published' : 'badge-tactile-draft'}`}
+                        style={{ fontSize: '0.7rem' }}
+                      >
+                        {item.status.toUpperCase()}
+                      </span>
+                      {getStoryActiveBadge(item)}
+                    </div>
                     {item.series_id && (
                       <span className="badge-tactile" style={{ fontSize: '0.65rem' }}>
                         Ep #{item.episode_number ?? 1}
@@ -1226,10 +1473,9 @@ export function DirectorStudio({
                       type="button"
                       className="btn-tactile"
                       style={{ fontSize: '0.7rem', padding: '0.2rem 0.4rem' }}
-                      disabled={isBusy}
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (!isBusy) handleStartSequel(item.id);
+                        handleStartSequel(item.id);
                       }}
                       title="Create sequel episode from this story"
                     >
@@ -1247,6 +1493,136 @@ export function DirectorStudio({
        * MAIN PANEL: Creation Form OR Story Workbench
        * ------------------------------------------------------------- */}
       <main className="studio-main">
+        {/* Global Generation Activity Tray */}
+        {recentJobs.length > 0 && (
+          <div
+            className="generation-activity-tray card-tactile"
+            data-testid="generation-activity-tray"
+            style={{ marginBottom: '1.5rem' }}
+          >
+            <div className="activity-tray-header">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                <span style={{ fontSize: '1.1rem' }}>⚡</span>
+                <strong style={{ fontSize: '0.95rem' }}>Generation Activity</strong>
+                <span className="badge-tactile" style={{ fontSize: '0.75rem' }}>
+                  {recentJobs.filter((j) => j.status === 'running').length > 0
+                    ? `${recentJobs.filter((j) => j.status === 'running').length} running`
+                    : `${recentJobs.length} total`}
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                {notificationPerm === 'default' && (
+                  <button
+                    type="button"
+                    className="btn-tactile"
+                    onClick={handleRequestNotification}
+                    title="Enable desktop notifications when generation finishes"
+                    style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }}
+                  >
+                    🔔 Notify me
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="btn-tactile"
+                  onClick={() => setActivityTrayExpanded((prev) => !prev)}
+                  aria-expanded={activityTrayExpanded}
+                  style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }}
+                >
+                  {activityTrayExpanded ? 'Hide ▲' : 'Show ▼'}
+                </button>
+              </div>
+            </div>
+
+            {activityTrayExpanded && (
+              <div className="activity-jobs-list" style={{ marginTop: '0.75rem' }}>
+                {recentJobs.map((job) => {
+                  const isRunning = job.status === 'running';
+                  const isCompleted = job.status === 'completed';
+                  const isFailed = job.status === 'failed';
+
+                  return (
+                    <div
+                      key={job.job_id}
+                      className="activity-job-row card-tactile"
+                      data-testid={`activity-job-${job.job_id}`}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '0.75rem',
+                        padding: '0.6rem 0.85rem',
+                        marginBottom: '0.5rem',
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flex: 1, minWidth: '220px' }}>
+                        <span
+                          className={`badge-tactile ${
+                            isRunning
+                              ? 'badge-tactile-running'
+                              : isCompleted
+                              ? 'badge-tactile-ready'
+                              : 'badge-tactile-failed'
+                          }`}
+                          style={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }}
+                        >
+                          {isRunning ? '⏳ Running' : isCompleted ? '✓ Ready' : '⚠️ Failed'}
+                        </span>
+                        <div style={{ minWidth: 0 }}>
+                          <div
+                            style={{
+                              fontWeight: 600,
+                              fontSize: '0.88rem',
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              maxWidth: '360px',
+                            }}
+                          >
+                            {job.title || job.story_id || 'Story Generation'}
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--ink-muted)' }}>
+                            {isRunning
+                              ? `${job.message || (job.stage ? `Stage: ${job.stage}` : 'Processing...')} (${job.elapsed_seconds}s)`
+                              : isCompleted
+                              ? job.message || 'Generation complete!'
+                              : job.error || job.message || 'Generation failed'}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        {isCompleted && (
+                          <button
+                            type="button"
+                            className="btn-tactile btn-tactile-primary"
+                            onClick={() => handleOpenCompletedStory(job)}
+                            style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }}
+                          >
+                            Open Story →
+                          </button>
+                        )}
+                        {(isCompleted || isFailed) && (
+                          <button
+                            type="button"
+                            className="btn-tactile"
+                            onClick={() => handleDismissJob(job.job_id)}
+                            aria-label={`Dismiss ${job.title || job.job_id}`}
+                            title="Dismiss job"
+                            style={{ fontSize: '0.75rem', padding: '0.25rem 0.5rem' }}
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
         {viewMode === 'create' ? (
           /* =========================================================
            * CREATION WORKFLOW (Mode A / Mode B)
@@ -1736,10 +2112,21 @@ export function DirectorStudio({
                     </strong>
                   </div>
                   <p style={{ margin: '0 0 0.75rem 0', fontSize: '0.85rem', color: 'var(--ink-muted)' }}>
-                    ✍️ Drafting story with Gemini 3.8 Flash... {writingElapsedSeconds}s (typically 8–15s). Creating characters and script turns. Please keep this tab open.
+                    ✍️ Drafting story with Gemini 3.8 Flash... {writingElapsedSeconds}s (typically 8–15s). Creating characters and script turns. Running in the background — you can safely switch stories, queue another, or close this tab.
                   </p>
-                  <div className="tactile-progress-bar-container">
+                  <div className="tactile-progress-bar-container" style={{ marginBottom: '0.75rem' }}>
                     <div className="tactile-progress-bar-indeterminate" />
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <button
+                      type="button"
+                      className="btn-tactile"
+                      data-testid="queue-another-story-btn"
+                      onClick={handleQueueAnother}
+                      style={{ fontSize: '0.85rem', padding: '0.35rem 0.75rem' }}
+                    >
+                      ➕ Queue Another Story
+                    </button>
                   </div>
                 </div>
               )}
@@ -1768,7 +2155,7 @@ export function DirectorStudio({
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                   <span className={`badge-tactile ${activeStory.status === 'published' ? 'badge-tactile-published' : 'badge-tactile-draft'}`}>
-                    {activeStory.status.toUpperCase()}
+                    {(activeStory.status || 'draft').toUpperCase()}
                   </span>
                   {activeStory.series_context && (
                     <span className="badge-tactile">
@@ -1785,7 +2172,7 @@ export function DirectorStudio({
                     type="button"
                     className="btn-tactile"
                     onClick={() => handleStartSequel(activeStory.id)}
-                    disabled={isDirecting}
+                    disabled={isCurrentStoryDirecting}
                     title="Start next sequel episode"
                   >
                     Start Sequel
@@ -1795,7 +2182,7 @@ export function DirectorStudio({
                     type="button"
                     className={`btn-tactile ${activeStory.status === 'draft' ? 'btn-tactile-published' : ''}`}
                     onClick={handleToggleStatus}
-                    disabled={isPublishing || isPublishDisabled || isDirecting}
+                    disabled={isPublishing || isPublishDisabled || isCurrentStoryDirecting}
                     title={isPublishDisabled ? 'Cannot publish story with 0 audio versions' : undefined}
                   >
                     {isPublishing
@@ -1810,7 +2197,7 @@ export function DirectorStudio({
                       type="button"
                       className="btn-tactile"
                       style={{ color: 'var(--accent-state)' }}
-                      disabled={isDirecting}
+                      disabled={isCurrentStoryDirecting}
                       onClick={() => setShowDeleteConfirm(true)}
                     >
                       🗑 Delete Story
@@ -1825,14 +2212,14 @@ export function DirectorStudio({
                         className="btn-tactile"
                         style={{ color: 'var(--accent-state)', borderColor: 'var(--accent-state)' }}
                         onClick={handleDeleteStory}
-                        disabled={isDeleting || isDirecting}
+                        disabled={isDeleting || isCurrentStoryDirecting}
                       >
                         {isDeleting ? 'Deleting...' : 'Confirm'}
                       </button>
                       <button
                         type="button"
                         className="btn-tactile"
-                        disabled={isDirecting}
+                        disabled={isCurrentStoryDirecting}
                         onClick={() => setShowDeleteConfirm(false)}
                       >
                         Cancel
@@ -1958,9 +2345,9 @@ export function DirectorStudio({
                       type="button"
                       className="btn-tactile btn-tactile-primary"
                       onClick={handleAutoDirect}
-                      disabled={isDirecting}
+                      disabled={isCurrentStoryDirecting}
                     >
-                      {isDirecting
+                      {isCurrentStoryDirecting
                         ? `🎬 Directing Script... (${directingElapsedSeconds}s)`
                         : '🎬 Step 2: Auto-Direct Voices & Pacing'}
                     </button>
@@ -1987,7 +2374,7 @@ export function DirectorStudio({
                   </div>
                 </div>
 
-                {isDirecting && (
+                {isCurrentStoryDirecting && (
                   <div
                     className="card-tactile tactile-progress-card"
                     role="status"
@@ -2094,9 +2481,9 @@ export function DirectorStudio({
                   type="button"
                   className="btn-tactile btn-tactile-primary"
                   onClick={handleAutoDirect}
-                  disabled={isDirecting}
+                  disabled={isCurrentStoryDirecting}
                 >
-                  {isDirecting
+                  {isCurrentStoryDirecting
                     ? `🎬 Directing Script... (${directingElapsedSeconds}s)`
                     : '🎬 2. Auto-Direct Voices & Pacing'}
                 </button>
@@ -2108,7 +2495,7 @@ export function DirectorStudio({
                 </p>
               )}
 
-              {isDirecting && (
+              {isCurrentStoryDirecting && (
                 <div
                   className="card-tactile tactile-progress-card"
                   role="status"

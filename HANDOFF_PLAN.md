@@ -1645,3 +1645,53 @@ Per `AGENTS.md` Section 1.A & 1.C (Workload Evaluation & Context-Aware Subagent 
 - [x] **Completion Audit:** Authored at `docs/audits/phase-14-audit.md`.
 - [x] **Milestone Tag:** `phase-14-verified`.
 
+---
+
+## 21. Phase 15 — Fire-and-Go Background Generation, Durable Job History (`jobs.json`), Activity Tray & Cloud Run `--no-cpu-throttling`
+
+### 21.1 Problem & Goals
+Although Phase 7 introduced `JobManager` and `?async=true`, users still felt forced to keep the browser tab open and wait because:
+1. `DirectorStudio.tsx` and `VoiceStudioPanel.tsx` registered `beforeunload` confirmation dialogs and displayed `"Please keep this tab open."`.
+2. `DirectorStudio.tsx` locked the sidebar, `New Story`, `Public Library`, and `Sequel →` buttons while `isWriting || isDirecting`, and `checkActiveJobs()` hijacked the UI back to `viewMode = 'create'` whenever a `draft` job was running.
+3. `JobManager` stored job records only in an in-memory `Map`, leaving no record of completed or failed jobs if the user closed the tab and returned later (and leaving orphaned `story.active_job` pointers on disk if the container restarted, causing `VoiceStudioPanel` to poll `404` endlessly).
+4. `deploy.sh` lacked `--no-cpu-throttling`, allowing Cloud Run to throttle CPU once `202 Accepted` closed the HTTP request and the user closed the tab.
+
+### 21.2 Exact Contracts & Architecture (Layer 1 + B1)
+1. **`shared/types.ts`:**
+   - Extend `JobProgress` with optional fields: `title?: string`, `stage?: string`, `finished_at?: string`.
+2. **Durable Job Persistence & Reconciliation (`server/services/jobManager.ts`, `server/index.ts`, `server/app.ts`):**
+   - Persist recent jobs in `jobs.json` via `storage.updateJsonAtomic<JobProgress[]>('jobs.json', ...)` using a serialized async write chain per `JobManager` instance so rapid updates never race or lose data.
+   - Keep `JOB_PRUNE_TTL_MS = 15 * 60 * 1000` for `cleanupOldJobs()` in-memory pruning, while retaining up to `MAX_PERSISTED_JOBS = 30` jobs for up to `JOB_HISTORY_TTL_MS = 24 * 60 * 60 * 1000` (24 hours) in `jobs.json`.
+   - **`reconcileStaleJobs()`:** Called at server startup (and lazily once if `storage` is bound after construction). Any `running` job in `jobs.json` not present in the active process `Map`, plus any `CatalogItem.active_job` in `catalog.json` not actively running in memory, is reconciled as `failed` (`error: 'Generation was interrupted by a server restart. Please try again.'`, `message: 'Interrupted by server restart'`, `finished_at: now`) and its `story.active_job` is cleared to `null`.
+   - **`markRunningJobsInterrupted(reason?: string)`:** Called on `SIGTERM` / `SIGINT` in `server/index.ts` before exiting so Cloud Run scale-down/redeploy never leaves dangling `running` jobs.
+   - **`getRecentJobs(limit = 20)` / `getJobAsync(jobId)` / `dismissJob(jobId)`:** Merges active in-memory jobs with persisted `jobs.json` history, sorted newest first; supports dismissing completed/failed jobs from `jobs.json`.
+3. **Admin Job & Story Routes (`server/routes/adminStories.ts`):**
+   - `GET /api/admin/jobs`: Returns `{ jobs: JobProgress[] }` (running + recent completed/failed jobs).
+   - `GET /api/admin/jobs/:jobId`: Uses `await jobManager.getJobAsync(jobId)` so completed/failed persisted jobs remain readable.
+   - `DELETE /api/admin/jobs/:jobId`: Dismisses a completed/failed job from `jobs.json` (returns `409` if job is still `running`).
+   - `POST /api/admin/stories/write`, `POST /api/admin/stories/:id/direct`, `POST /api/admin/stories/:id/synthesize`:
+     - Populate `title` (truncated prompt preview for new drafts, or story title once drafted/loaded) and `stage` (`'drafting'`, `'directing'`, `'synthesizing'`, `'completed'`, `'failed'`).
+     - Ensure `story.active_job` is persisted when a newly drafted story enters Stage 2 (`directing`) / Stage 3 (`synthesizing`), and cleared on completion/failure.
+4. **Cloud Run B1 (`deploy.sh`):**
+   - Add `--no-cpu-throttling` to `DEPLOY_ARGS` and dry-run echo output in `deploy.sh`.
+5. **Client API & Fire-and-Go Studio UX (`client/api/client.ts`, `DirectorStudio.tsx`, `VoiceStudioPanel.tsx`, `client/styles/kinetic.css`):**
+   - Add `fetchRecentJobs()` (`GET /api/admin/jobs`) and `dismissJob(jobId)` (`DELETE /api/admin/jobs/:jobId`).
+   - Remove `window.addEventListener('beforeunload', ...)` from `DirectorStudio.tsx` and `VoiceStudioPanel.tsx`.
+   - Replace `"Please keep this tab open."` with reassuring background copy (`"Running in the background — you can safely switch stories, queue another, or close this tab."`).
+   - Remove navigation lockouts (`disabled={isWriting || isDirecting}`) from sidebar stories, mobile drawer stories, `➕ New Story`, `← Public Library`, and `Sequel →`. Lock editing/submitting only for the specific `activeStory.id` currently running a `direct` or `synthesize` job.
+   - In `DirectorStudio.tsx`:
+     - Add a non-blocking **Generation Activity** tray (`data-testid="generation-activity-tray"`) showing running, recently completed (`"Open Story →"` + dismiss `✕`), and failed (`error` + dismiss `✕`) jobs across sessions, plus an opt-in `"🔔 Notify me"` button using the Web `Notification` API when supported.
+     - Add a **`➕ Queue Another Story`** button inside the Step 1 progress card so users can fire multiple stories back-to-back without waiting.
+     - Render live `active_job` status badges on sidebar story cards and synthetic rows for in-flight `'new'` drafts.
+     - Do not hijack `viewMode` away from `'edit'` in `checkActiveJobs()` when the user is viewing another story.
+   - In `VoiceStudioPanel.tsx`:
+     - Stop polling immediately if `fetchJobStatus` returns HTTP `404` (`ApiError` with `status === 404`) and show a clear recoverable message instead of polling `404` indefinitely.
+
+### 21.3 Validation Gate
+- [x] `npm run typecheck` passes with 0 errors.
+- [x] `npx tsc -p tsconfig.server.json` compiles cleanly under `NodeNext` ESM.
+- [x] `npm test` passes (updating `tests/ui.test.tsx` copy assertions from `"Please keep this tab open"` to background-safe copy, adding unit/API/UI tests in `tests/jobManager.test.ts`, `tests/pipelineApi.test.ts`, `tests/deploymentConfig.test.ts`, `tests/ui.test.tsx`).
+- [x] `npm run build && npx playwright test` passes including `tests/e2e/storybook.spec.ts` and `tests/e2e/qa-phase15.spec.ts` with screenshots in `qa-screenshots/phase15-*.png`.
+- [x] Completion audit saved to `docs/audits/phase-15-audit.md`.
+
+

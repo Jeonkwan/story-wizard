@@ -39,6 +39,16 @@ export function createAdminStoriesRouter(
   // All admin story routes require admin authentication
   router.use(requireAdmin);
 
+  // GET /api/admin/jobs
+  router.get(
+    '/jobs',
+    asyncHandler(async (req: Request, res: Response) => {
+      const limit = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) : 20;
+      const jobs = await jobManager.getRecentJobs(isNaN(limit) ? 20 : limit);
+      res.json({ jobs });
+    })
+  );
+
   // GET /api/admin/jobs/active
   router.get(
     '/jobs/active',
@@ -55,12 +65,26 @@ export function createAdminStoriesRouter(
     '/jobs/:jobId',
     asyncHandler(async (req: Request, res: Response) => {
       const { jobId } = req.params;
-      const job = jobManager.getJob(jobId);
+      const job = await jobManager.getJobAsync(jobId);
       if (!job) {
         res.status(404).json({ error: `Job not found: "${jobId}"` });
         return;
       }
       res.json({ job });
+    })
+  );
+
+  // DELETE /api/admin/jobs/:jobId
+  router.delete(
+    '/jobs/:jobId',
+    asyncHandler(async (req: Request, res: Response) => {
+      const { jobId } = req.params;
+      const dismissed = await jobManager.dismissJob(jobId);
+      if (!dismissed) {
+        res.status(404).json({ error: `Job not found: "${jobId}"` });
+        return;
+      }
+      res.json({ ok: true });
     })
   );
 
@@ -175,7 +199,18 @@ export function createAdminStoriesRouter(
 
       const isAsync = req.query.async === 'true';
       const storyTarget = mode === 'sequel' && previousStoryId ? String(previousStoryId).trim() : 'new';
-      const job = jobManager.createJob('draft', storyTarget, 'Drafting story with Gemini 3.8 Flash...');
+      const promptPreview = prompt.trim().slice(0, 60);
+      const jobTitle = mode === 'sequel' ? `Sequel: ${promptPreview}` : promptPreview;
+      const job = jobManager.createJob(
+        'draft',
+        storyTarget,
+        'Drafting story with Gemini 3.8 Flash...',
+        true,
+        {
+          title: jobTitle,
+          stage: 'drafting',
+        }
+      );
 
       const runDraft = async () => {
         try {
@@ -198,10 +233,23 @@ export function createAdminStoriesRouter(
 
           let currentStory = story;
 
+          // Immediately update job with created story ID and title
+          await jobManager.updateJobAsync(job.job_id, {
+            story_id: currentStory.id,
+            result_story_id: currentStory.id,
+            title: currentStory.title,
+          });
+
+          // Ensure active_job is persisted to story and catalog during subsequent stages
+          if (autoDirect === true || (autoSynthesize === true && narratorVoiceId)) {
+            await jobManager.persistJobStart(job.job_id);
+          }
+
           // Step 2: Auto-Direct if requested
           if (autoDirect === true) {
             await jobManager.updateJobAsync(job.job_id, {
               status: 'running',
+              stage: 'directing',
               story_id: currentStory.id,
               result_story_id: currentStory.id,
               message: 'Stage 2/3: Auto-directing vocal delivery cues...',
@@ -224,6 +272,7 @@ export function createAdminStoriesRouter(
           ) {
             await jobManager.updateJobAsync(job.job_id, {
               status: 'running',
+              stage: 'synthesizing',
               story_id: currentStory.id,
               result_story_id: currentStory.id,
               message: 'Stage 3/3: Synthesizing full story narration...',
@@ -250,6 +299,8 @@ export function createAdminStoriesRouter(
           currentStory.active_job = null;
           await jobManager.updateJobAsync(job.job_id, {
             status: 'completed',
+            stage: 'completed',
+            finished_at: new Date().toISOString(),
             result_story_id: currentStory.id,
             story_id: currentStory.id,
             message:
@@ -263,6 +314,8 @@ export function createAdminStoriesRouter(
         } catch (err) {
           await jobManager.updateJobAsync(job.job_id, {
             status: 'failed',
+            stage: 'failed',
+            finished_at: new Date().toISOString(),
             error: err instanceof Error ? err.message : 'Draft generation failed',
             message: 'Draft generation failed',
           });
@@ -291,11 +344,22 @@ export function createAdminStoriesRouter(
       validateSlug(id, 'id');
 
       const isAsync = req.query.async === 'true';
+      let storyTitle: string | undefined;
+      try {
+        const s = await storage.getStory(id);
+        storyTitle = s.title;
+      } catch {
+        // Ignore read error; fallback to id
+      }
       const job = jobManager.createJob(
         'direct',
         id,
         'Directing vocal expressions and pacing with Gemini 3.8 Flash...',
-        false
+        false,
+        {
+          title: storyTitle || id,
+          stage: 'directing',
+        }
       );
       await jobManager.persistJobStart(job.job_id);
 
@@ -305,6 +369,8 @@ export function createAdminStoriesRouter(
           story.active_job = null;
           await jobManager.updateJobAsync(job.job_id, {
             status: 'completed',
+            stage: 'completed',
+            finished_at: new Date().toISOString(),
             result_story_id: story.id,
             message: 'Directing complete!',
           });
@@ -312,6 +378,8 @@ export function createAdminStoriesRouter(
         } catch (err) {
           await jobManager.updateJobAsync(job.job_id, {
             status: 'failed',
+            stage: 'failed',
+            finished_at: new Date().toISOString(),
             error: err instanceof Error ? err.message : 'Directing failed',
             message: 'Directing failed',
           });
@@ -502,11 +570,22 @@ export function createAdminStoriesRouter(
       }
 
       const isAsync = req.query.async === 'true';
+      let storyTitle: string | undefined;
+      try {
+        const s = await storage.getStory(id);
+        storyTitle = s.title;
+      } catch {
+        // Ignore read error; fallback to id
+      }
       const job = jobManager.createJob(
         'synthesize',
         id,
         'Synthesizing multi-speaker speech audio with Gemini 3.8 Flash TTS...',
-        false
+        false,
+        {
+          title: storyTitle || id,
+          stage: 'synthesizing',
+        }
       );
       await jobManager.persistJobStart(job.job_id);
 
@@ -520,6 +599,8 @@ export function createAdminStoriesRouter(
           updatedStory.active_job = null;
           await jobManager.updateJobAsync(job.job_id, {
             status: 'completed',
+            stage: 'completed',
+            finished_at: new Date().toISOString(),
             result_story_id: updatedStory.id,
             message: 'Audio synthesis complete!',
           });
@@ -527,6 +608,8 @@ export function createAdminStoriesRouter(
         } catch (err) {
           await jobManager.updateJobAsync(job.job_id, {
             status: 'failed',
+            stage: 'failed',
+            finished_at: new Date().toISOString(),
             error: err instanceof Error ? err.message : 'Audio synthesis failed',
             message: 'Audio synthesis failed',
           });

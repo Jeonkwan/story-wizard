@@ -535,6 +535,7 @@ describe('Phase 10: DirectorStudio Focus Composer & Dictation Integration', () =
   beforeEach(() => {
     vi.spyOn(clientApi, 'fetchAdminStories').mockResolvedValue([]);
     vi.spyOn(clientApi, 'fetchActiveJobs').mockResolvedValue([]);
+    vi.spyOn(clientApi, 'fetchRecentJobs').mockResolvedValue([]);
     vi.spyOn(clientApi, 'fetchVoices').mockResolvedValue([]);
   });
 

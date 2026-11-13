@@ -951,4 +951,116 @@ describe('Phase 3: Admin Studio & Writer-Director Pipeline Integration Tests', (
       expect(capturedSystemInstruction).toContain('Sophisticated, literary expressions');
     });
   });
+
+  describe('Phase 15: Durable Job History & Background Endpoints', () => {
+    it('GET /api/admin/jobs returns recent jobs list', async () => {
+      const app = createTestApp();
+      const res = await request(app)
+        .get('/api/admin/jobs')
+        .set('Cookie', getAdminCookie());
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body.jobs)).toBe(true);
+    });
+
+    it('GET /api/admin/jobs/:jobId returns persisted completed job', async () => {
+      const app = createTestApp();
+
+      // Trigger an async write job
+      const writeRes = await request(app)
+        .post('/api/admin/stories/write?async=true')
+        .set('Cookie', getAdminCookie())
+        .send({
+          mode: 'fresh',
+          prompt: 'A gentle bear under stars',
+        });
+
+      expect(writeRes.status).toBe(202);
+      const jobId = writeRes.body.jobId;
+      expect(jobId).toBeDefined();
+
+      // Wait a moment for background draft to complete
+      await new Promise((resolve) => setTimeout(resolve, 150));
+
+      const jobRes = await request(app)
+        .get(`/api/admin/jobs/${jobId}`)
+        .set('Cookie', getAdminCookie());
+
+      expect(jobRes.status).toBe(200);
+      expect(jobRes.body.job.job_id).toBe(jobId);
+      expect(jobRes.body.job.status).toBe('completed');
+      expect(jobRes.body.job.title).toBe('The Cozy Woodpecker');
+      expect(jobRes.body.job.stage).toBe('completed');
+      expect(jobRes.body.job.finished_at).toBeDefined();
+    });
+
+    it('DELETE /api/admin/jobs/:jobId dismisses completed job with 200, rejects running with 409, returns 404 for missing', async () => {
+      const app = createTestApp();
+
+      // Missing job
+      const missingRes = await request(app)
+        .delete('/api/admin/jobs/job_missing_123')
+        .set('Cookie', getAdminCookie());
+      expect(missingRes.status).toBe(404);
+
+      // Trigger async write
+      const writeRes = await request(app)
+        .post('/api/admin/stories/write?async=true')
+        .set('Cookie', getAdminCookie())
+        .send({
+          mode: 'fresh',
+          prompt: 'A quick little bird',
+        });
+
+      const jobId = writeRes.body.jobId;
+
+      // Wait for it to complete
+      await new Promise((resolve) => setTimeout(resolve, 150));
+
+      // Dismiss completed job
+      const dismissRes = await request(app)
+        .delete(`/api/admin/jobs/${jobId}`)
+        .set('Cookie', getAdminCookie());
+      expect(dismissRes.status).toBe(200);
+      expect(dismissRes.body.ok).toBe(true);
+
+      // Verify now 404
+      const afterRes = await request(app)
+        .get(`/api/admin/jobs/${jobId}`)
+        .set('Cookie', getAdminCookie());
+      expect(afterRes.status).toBe(404);
+    });
+
+    it('Chained write?async=true sets title, stage, and tracks active_job', async () => {
+      const app = createTestApp();
+
+      const writeRes = await request(app)
+        .post('/api/admin/stories/write?async=true')
+        .set('Cookie', getAdminCookie())
+        .send({
+          mode: 'fresh',
+          prompt: 'A brave raccoon explores the meadow',
+          autoDirect: true,
+        });
+
+      expect(writeRes.status).toBe(202);
+      const jobId = writeRes.body.jobId;
+
+      // Wait for full pipeline execution to finish
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      const jobRes = await request(app)
+        .get(`/api/admin/jobs/${jobId}`)
+        .set('Cookie', getAdminCookie());
+
+      expect(jobRes.status).toBe(200);
+      expect(jobRes.body.job.status).toBe('completed');
+      expect(jobRes.body.job.stage).toBe('completed');
+      expect(jobRes.body.job.result_story_id).toBeDefined();
+
+      // Story active_job should be cleared on completion
+      const story = await storage.getStory(jobRes.body.job.result_story_id);
+      expect(story.active_job).toBeNull();
+    });
+  });
 });

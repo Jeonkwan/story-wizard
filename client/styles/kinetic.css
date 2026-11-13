@@ -919,6 +919,70 @@ body {
   border-color: var(--accent-state);
 }
 
+.badge-tactile-running {
+  background-color: var(--accent-module-bg);
+  color: var(--accent-module);
+  border-color: var(--accent-module);
+}
+
+.badge-tactile-ready {
+  background-color: var(--accent-root-bg);
+  color: var(--accent-root);
+  border-color: var(--accent-root);
+}
+
+.badge-tactile-failed {
+  background-color: var(--accent-state-bg);
+  color: var(--accent-state);
+  border-color: var(--accent-state);
+}
+
+/* Phase 15 Generation Activity Tray */
+.generation-activity-tray {
+  padding: 1rem 1.25rem;
+  border: 2px solid var(--ink-primary);
+  background-color: var(--bg-surface);
+  box-shadow: var(--shadow-tactile);
+}
+
+.activity-tray-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.activity-jobs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.activity-job-row {
+  background-color: var(--bg-well);
+  border: 1px solid var(--border-soft);
+  transition: border-color var(--duration-fast);
+}
+
+.activity-job-row:hover {
+  border-color: var(--ink-primary);
+}
+
+@media (max-width: 640px) {
+  .generation-activity-tray {
+    padding: 0.85rem;
+  }
+  .activity-job-row {
+    flex-direction: column;
+    align-items: flex-start !important;
+    gap: 0.5rem;
+  }
+  .activity-job-row > div:last-child {
+    align-self: flex-end;
+  }
+}
+
 .btn-tactile-published {
   background-color: var(--accent-root-bg);
   color: var(--accent-root);

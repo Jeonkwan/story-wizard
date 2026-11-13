@@ -14,6 +14,14 @@ test.describe('Phase 13: Fireside Espresso UI Redesign, Dark-First Default & Com
 
     await context.grantPermissions(['clipboard-read', 'clipboard-write']).catch(() => {});
 
+    await page.route('https://accounts.google.com/**', (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/javascript',
+        body: 'window.google = { accounts: { id: { initialize() {}, renderButton() {}, prompt() {} } } };',
+      });
+    });
+
     // =========================================================================
     // 1. Mobile Viewport (375x812): Studio Step 1 in Fireside Espresso Dark
     // =========================================================================

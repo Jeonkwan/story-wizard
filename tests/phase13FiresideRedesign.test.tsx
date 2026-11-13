@@ -154,6 +154,7 @@ describe('Phase 13: DirectorStudio Compact Mobile Ergonomics & Drawer', () => {
     vi.spyOn(clientApi, 'fetchAdminStories').mockResolvedValue(mockStories);
     vi.spyOn(clientApi, 'fetchStory').mockResolvedValue(mockStoryDetail);
     vi.spyOn(clientApi, 'fetchActiveJobs').mockResolvedValue([]);
+    vi.spyOn(clientApi, 'fetchRecentJobs').mockResolvedValue([]);
     vi.spyOn(clientApi, 'fetchVoices').mockResolvedValue([]);
   });
 

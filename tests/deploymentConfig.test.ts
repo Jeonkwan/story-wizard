@@ -436,6 +436,7 @@ describe('Phase 8: Cloud Run & DevOps Hygiene Specifications', () => {
       // Scaling strategy parameters
       expect(content).toContain('--min-instances=0');
       expect(content).toContain('--max-instances=1');
+      expect(content).toContain('--no-cpu-throttling');
       expect(content).toContain('--concurrency=80');
       expect(content).toContain('--timeout=300');
       expect(content).toContain('--memory=512Mi');

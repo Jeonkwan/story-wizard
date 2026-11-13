@@ -2,9 +2,15 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { JobManager, JOB_PRUNE_TTL_MS } from '../server/services/jobManager.js';
+import {
+  JobManager,
+  JOB_PRUNE_TTL_MS,
+  MAX_PERSISTED_JOBS,
+  JOB_HISTORY_TTL_MS,
+} from '../server/services/jobManager.js';
 import { LocalStorageAdapter } from '../server/storage/localStorage.js';
-import type { Story, CatalogItem } from '../shared/types.js';
+import { ConflictError } from '../server/lib/validators.js';
+import type { Story, CatalogItem, JobProgress } from '../shared/types.js';
 
 describe('Phase 7: Zero-DB Asynchronous JobManager Unit Tests', () => {
   let tmpDir: string;
@@ -181,5 +187,181 @@ describe('Phase 7: Zero-DB Asynchronous JobManager Unit Tests', () => {
     const catalogAfter = await storage.getCatalog();
     const itemAfter = catalogAfter.find((c) => c.id === 'test-bedtime-story');
     expect(itemAfter?.active_job).toBeNull();
+  });
+
+  describe('Phase 15: Durable Job History, Restart Reconciliation & Dismissal', () => {
+    it('exports MAX_PERSISTED_JOBS=30 and JOB_HISTORY_TTL_MS=24h', () => {
+      expect(MAX_PERSISTED_JOBS).toBe(30);
+      expect(JOB_HISTORY_TTL_MS).toBe(24 * 60 * 60 * 1000);
+      expect(JOB_PRUNE_TTL_MS).toBe(15 * 60 * 1000);
+    });
+
+    it('persists job creation and completion into jobs.json with stage and finished_at', async () => {
+      const job = jobManager.createJob('draft', 'new', 'Writing...', true, {
+        title: 'Story about a brave fox',
+        stage: 'drafting',
+      });
+      expect(job.title).toBe('Story about a brave fox');
+      expect(job.stage).toBe('drafting');
+
+      // Wait for async persistence
+      await new Promise((resolve) => setTimeout(resolve, 60));
+
+      const persistedJobs = await storage.updateJsonAtomic<JobProgress[]>('jobs.json', (c) => c ?? [], []);
+      expect(persistedJobs.length).toBe(1);
+      expect(persistedJobs[0].job_id).toBe(job.job_id);
+      expect(persistedJobs[0].title).toBe('Story about a brave fox');
+      expect(persistedJobs[0].stage).toBe('drafting');
+      expect(persistedJobs[0].status).toBe('running');
+
+      // Update to completed
+      await jobManager.updateJobAsync(job.job_id, {
+        status: 'completed',
+        result_story_id: 'test-bedtime-story',
+      });
+
+      const persistedJobsAfter = await storage.updateJsonAtomic<JobProgress[]>('jobs.json', (c) => c ?? [], []);
+      expect(persistedJobsAfter[0].status).toBe('completed');
+      expect(persistedJobsAfter[0].stage).toBe('completed');
+      expect(persistedJobsAfter[0].finished_at).toBeDefined();
+    });
+
+    it('reconciles stale running jobs on server restart, marking orphan jobs failed and clearing active_job', async () => {
+      // Simulate jobs.json written by a previous server run before crash/restart
+      const staleJobId = 'job_stale_12345';
+      const staleJob: JobProgress = {
+        job_id: staleJobId,
+        story_id: 'test-bedtime-story',
+        type: 'direct',
+        status: 'running',
+        started_at: new Date(Date.now() - 30_000).toISOString(),
+        elapsed_seconds: 30,
+        title: 'Bedtime Bear',
+        stage: 'directing',
+      };
+      await storage.updateJsonAtomic<JobProgress[]>('jobs.json', () => [staleJob], []);
+
+      // Story and catalog both have active_job pointing to this stale job
+      await jobManager.persistStoryActiveJob('test-bedtime-story', {
+        job_id: staleJobId,
+        type: 'direct',
+        started_at: staleJob.started_at,
+      });
+
+      const storyBefore = await storage.getStory('test-bedtime-story');
+      expect(storyBefore.active_job?.job_id).toBe(staleJobId);
+
+      // Create a fresh JobManager instance simulating new server process
+      const freshJobManager = new JobManager(storage);
+      const reconciledCount = await freshJobManager.reconcileStaleJobs();
+      expect(reconciledCount).toBe(1);
+
+      // Verify jobs.json has marked the job failed
+      const jobs = await storage.updateJsonAtomic<JobProgress[]>('jobs.json', (c) => c ?? [], []);
+      expect(jobs[0].status).toBe('failed');
+      expect(jobs[0].stage).toBe('failed');
+      expect(jobs[0].finished_at).toBeDefined();
+      expect(jobs[0].message).toBe('Interrupted by server restart');
+      expect(jobs[0].error).toContain('interrupted by a server restart');
+
+      // Verify active_job cleared on story and catalog
+      const storyAfter = await storage.getStory('test-bedtime-story');
+      expect(storyAfter.active_job).toBeNull();
+
+      const catalogAfter = await storage.getCatalog();
+      const catalogItem = catalogAfter.find((c) => c.id === 'test-bedtime-story');
+      expect(catalogItem?.active_job).toBeNull();
+    });
+
+    it('marks running in-memory jobs as interrupted during graceful shutdown', async () => {
+      const liveJob = jobManager.createJob('direct', 'test-bedtime-story', 'Directing...', true, {
+        title: 'Bedtime Bear Directing',
+        stage: 'directing',
+      });
+      await new Promise((resolve) => setTimeout(resolve, 60));
+
+      const count = await jobManager.markRunningJobsInterrupted('Interrupted by server shutdown/deploy');
+      expect(count).toBe(1);
+
+      const retrieved = jobManager.getJob(liveJob.job_id);
+      expect(retrieved?.status).toBe('failed');
+      expect(retrieved?.stage).toBe('failed');
+      expect(retrieved?.message).toBe('Interrupted by server shutdown/deploy');
+      expect(retrieved?.error).toBe('Interrupted by server shutdown/deploy');
+      expect(retrieved?.finished_at).toBeDefined();
+
+      const story = await storage.getStory('test-bedtime-story');
+      expect(story.active_job).toBeNull();
+    });
+
+    it('retrieves recent jobs merging in-memory state and jobs.json, sorting newest first', async () => {
+      // Create job 1 (older)
+      const job1 = jobManager.createJob('draft', 'new', 'Writing...', true, {
+        title: 'Story 1',
+      });
+      jobManager.updateJob(job1.job_id, {
+        status: 'completed',
+        started_at: new Date(Date.now() - 10_000).toISOString(),
+      });
+
+      // Create job 2 (newer)
+      const job2 = jobManager.createJob('direct', 'test-bedtime-story', 'Directing...', true, {
+        title: 'Story 2',
+      });
+      jobManager.updateJob(job2.job_id, {
+        status: 'running',
+        started_at: new Date(Date.now() - 2_000).toISOString(),
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 60));
+
+      const recent = await jobManager.getRecentJobs();
+      expect(recent.length).toBeGreaterThanOrEqual(2);
+      expect(recent[0].job_id).toBe(job2.job_id); // Newer first
+      expect(recent[1].job_id).toBe(job1.job_id);
+      expect(recent[0].elapsed_seconds).toBeGreaterThanOrEqual(2);
+    });
+
+    it('retrieves job asynchronously by checking in-memory first then falling back to jobs.json', async () => {
+      const job = jobManager.createJob('draft', 'new', 'Drafting...', true);
+      await jobManager.updateJobAsync(job.job_id, {
+        status: 'completed',
+        result_story_id: 'test-bedtime-story',
+      });
+
+      // In-memory lookup
+      const inMemoryFound = await jobManager.getJobAsync(job.job_id);
+      expect(inMemoryFound).not.toBeNull();
+      expect(inMemoryFound?.job_id).toBe(job.job_id);
+
+      // Now clear in-memory map to test jobs.json fallback
+      jobManager.clear();
+      expect(jobManager.getJob(job.job_id)).toBeNull();
+
+      const diskFound = await jobManager.getJobAsync(job.job_id);
+      expect(diskFound).not.toBeNull();
+      expect(diskFound?.job_id).toBe(job.job_id);
+      expect(diskFound?.status).toBe('completed');
+    });
+
+    it('dismisses completed/failed jobs from memory and jobs.json, and rejects dismissing running jobs with ConflictError', async () => {
+      const runningJob = jobManager.createJob('direct', 'test-bedtime-story');
+      await expect(jobManager.dismissJob(runningJob.job_id)).rejects.toThrow(ConflictError);
+
+      // Mark completed
+      await jobManager.updateJobAsync(runningJob.job_id, { status: 'completed' });
+
+      // Dismiss completed job
+      const dismissed = await jobManager.dismissJob(runningJob.job_id);
+      expect(dismissed).toBe(true);
+
+      // Verify removed from in-memory and disk
+      expect(jobManager.getJob(runningJob.job_id)).toBeNull();
+      expect(await jobManager.getJobAsync(runningJob.job_id)).toBeNull();
+
+      // Dismiss non-existent job returns false
+      const nonExistent = await jobManager.dismissJob('job_non_existent');
+      expect(nonExistent).toBe(false);
+    });
   });
 });

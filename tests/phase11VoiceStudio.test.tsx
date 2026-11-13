@@ -137,6 +137,7 @@ describe('Phase 11: Staged Voice Designer, Voice Library & Narration Workflow', 
     vi.spyOn(clientApi, 'fetchCatalog').mockResolvedValue(mockStories);
     vi.spyOn(clientApi, 'fetchStory').mockResolvedValue(mockDetailedStory);
     vi.spyOn(clientApi, 'fetchActiveJobs').mockResolvedValue([]);
+    vi.spyOn(clientApi, 'fetchRecentJobs').mockResolvedValue([]);
   });
 
   afterEach(() => {

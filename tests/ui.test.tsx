@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { useState } from 'react';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import type { AudioVersion, CatalogItem, Story } from '../shared/types';
+import type { AudioVersion, CatalogItem, JobProgress, Story } from '../shared/types';
 import { StoryReader } from '../client/components/StoryReader';
 import { StoryCatalog } from '../client/components/StoryCatalog';
 import { AudioPlayerBar } from '../client/components/AudioPlayerBar';
@@ -1014,6 +1014,27 @@ describe('Phase 3 Admin Studio & UI Components', () => {
 
     it('DirectorStudio shows prominent animated progress card and disables inputs during writing', async () => {
       vi.spyOn(clientApi, 'fetchAdminStories').mockResolvedValue([]);
+      vi.spyOn(clientApi, 'fetchActiveJobs').mockResolvedValue([]);
+      vi.spyOn(clientApi, 'fetchRecentJobs').mockResolvedValue([]);
+      vi.spyOn(clientApi, 'fetchRecentJobs').mockResolvedValue([]);
+      vi.spyOn(clientApi, 'fetchRecentJobs').mockResolvedValue([]);
+      vi.spyOn(clientApi, 'fetchVoices').mockResolvedValue([]);
+      vi.spyOn(clientApi, 'fetchStory').mockResolvedValue({
+        id: 'new-robot-story',
+        status: 'draft',
+        title: 'New Robot Story',
+        summary: 'Summary',
+        tags: ['comedy'],
+        characters: [],
+        script_turns: [
+          { turn_id: 1, speaker: 'Narrator', style: '', text: 'Turn 1' },
+          { turn_id: 2, speaker: 'Narrator', style: '', text: 'Turn 2' },
+        ],
+        audio_versions: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      } as any);
+
       // Mock writeStoryDraft with delayed promise to inspect busy state
       let resolveWrite: (val: any) => void;
       const writePromise = new Promise((resolve) => {
@@ -1044,12 +1065,13 @@ describe('Phase 3 Admin Studio & UI Components', () => {
 
       const statusCard = screen.getByRole('status');
       expect(statusCard).toHaveTextContent(/Drafting story with Gemini 3.8 Flash/i);
-      expect(statusCard).toHaveTextContent(/Please keep this tab open/i);
+      expect(statusCard).toHaveTextContent(/safely switch stories|close this tab/i);
 
       // Resolve the draft
       await act(async () => {
         resolveWrite!({
           id: 'new-robot-story',
+          status: 'draft',
           title: 'New Robot Story',
           summary: 'Summary',
           tags: ['comedy'],
@@ -1059,6 +1081,8 @@ describe('Phase 3 Admin Studio & UI Components', () => {
             { turn_id: 2, speaker: 'Narrator', style: '', text: 'Turn 2' },
           ],
           audio_versions: [],
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
         });
       });
 
@@ -1139,7 +1163,7 @@ describe('Phase 3 Admin Studio & UI Components', () => {
 
       const progressCard = screen.getByRole('status');
       expect(progressCard).toHaveTextContent(/Synthesizing audio turns with Gemini 3.8 Flash TTS/i);
-      expect(progressCard).toHaveTextContent(/Please keep this tab open/i);
+      expect(progressCard).toHaveTextContent(/safely switch stories|close this tab/i);
 
       // Complete synthesis
       await act(async () => {
@@ -1512,6 +1536,8 @@ describe('Phase 3 Admin Studio & UI Components', () => {
     it('DirectorStudio renders Target Age Range, Story Length, and Narrator Voice controls and sends them in writeStory API', async () => {
       vi.spyOn(clientApi, 'fetchAdminStories').mockResolvedValue([]);
       vi.spyOn(clientApi, 'fetchActiveJobs').mockResolvedValue([]);
+      vi.spyOn(clientApi, 'fetchRecentJobs').mockResolvedValue([]);
+      vi.spyOn(clientApi, 'fetchRecentJobs').mockResolvedValue([]);
       vi.spyOn(clientApi, 'fetchVoices').mockResolvedValue([
         {
           id: 'prebuilt-kore',
@@ -1603,6 +1629,7 @@ describe('Phase 3 Admin Studio & UI Components', () => {
       vi.spyOn(clientApi, 'fetchAdminStories').mockResolvedValue([phase12CatalogItem]);
       vi.spyOn(clientApi, 'fetchStory').mockResolvedValue(phase12StoryFixture);
       vi.spyOn(clientApi, 'fetchActiveJobs').mockResolvedValue([]);
+      vi.spyOn(clientApi, 'fetchRecentJobs').mockResolvedValue([]);
 
       render(
         <DirectorStudio
@@ -1647,6 +1674,7 @@ describe('Phase 3 Admin Studio & UI Components', () => {
       vi.spyOn(clientApi, 'fetchAdminStories').mockResolvedValue([phase12CatalogItem]);
       vi.spyOn(clientApi, 'fetchStory').mockResolvedValue(phase12StoryFixture);
       vi.spyOn(clientApi, 'fetchActiveJobs').mockResolvedValue([]);
+      vi.spyOn(clientApi, 'fetchRecentJobs').mockResolvedValue([]);
 
       render(
         <DirectorStudio
@@ -1671,6 +1699,310 @@ describe('Phase 3 Admin Studio & UI Components', () => {
       const promptTextarea = screen.getByPlaceholderText(/A comedic sci-fi adventure/i);
       expect(promptTextarea).toHaveValue('A tiny dragon lighting stars across the evening sky for sleepy animals.');
       expect(screen.getByRole('button', { name: /Ages 5–7 · Early Reader/i })).toHaveClass('active');
+    });
+  });
+
+  describe('Phase 15 UI: Fire-and-Go Background Jobs, Activity Tray & Unload Safety', () => {
+    const adminSessionFixture: clientApi.AdminSession = {
+      authenticated: true,
+      email: 'curator@storyteller.studio',
+      devBypassEnabled: true,
+    };
+
+    const phase15StoryFixture: Story = {
+      id: 'phase15-story-1',
+      status: 'published',
+      title: 'The Brave Firefly',
+      summary: 'A glowing firefly lights the deep dark woods.',
+      tags: ['bedtime', 'firefly'],
+      series_context: null,
+      characters: [{ name: 'Glow', traits: 'Tiny bright firefly' }],
+      script_turns: [
+        { turn_id: 1, speaker: 'Narrator', style: 'Soothing', text: 'Night fell over the whisper trees.' },
+        { turn_id: 2, speaker: 'Glow', style: 'Soft glow', text: 'I will light the trail!' },
+      ],
+      voice_candidates: [],
+      audio_versions: [],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    const phase15CatalogItem: CatalogItem = {
+      id: 'phase15-story-1',
+      status: 'draft',
+      title: 'The Brave Firefly',
+      summary: 'A glowing firefly lights the deep dark woods.',
+      tags: ['bedtime', 'firefly'],
+      series_id: null,
+      episode_number: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      default_audio_url: null,
+      audio_versions_count: 0,
+      active_job: null,
+    };
+
+    it('triggers zero beforeunload confirmation dialog during active drafting or synthesis', async () => {
+      vi.spyOn(clientApi, 'fetchAdminStories').mockResolvedValue([phase15CatalogItem]);
+      vi.spyOn(clientApi, 'fetchActiveJobs').mockResolvedValue([
+        {
+          job_id: 'job-phase15-draft',
+          story_id: 'new',
+          type: 'draft',
+          status: 'running',
+          started_at: new Date().toISOString(),
+          elapsed_seconds: 5,
+        },
+      ]);
+      vi.spyOn(clientApi, 'fetchRecentJobs').mockResolvedValue([]);
+      vi.spyOn(clientApi, 'fetchVoices').mockResolvedValue([]);
+
+      render(
+        <DirectorStudio
+          session={adminSessionFixture}
+          onLogout={() => {}}
+          onNavigateHome={() => {}}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByRole('status')).toBeInTheDocument();
+      });
+
+      // Dispatch beforeunload event
+      const event = new Event('beforeunload', { cancelable: true });
+      window.dispatchEvent(event);
+
+      // Verify beforeunload was NOT intercepted / default was NOT prevented
+      expect(event.defaultPrevented).toBe(false);
+    });
+
+    it('keeps sidebar story cards, ➕ New Story, and ← Public Library enabled while drafting', async () => {
+      vi.spyOn(clientApi, 'fetchAdminStories').mockResolvedValue([phase15CatalogItem]);
+      vi.spyOn(clientApi, 'fetchActiveJobs').mockResolvedValue([
+        {
+          job_id: 'job-phase15-draft',
+          story_id: 'new',
+          type: 'draft',
+          status: 'running',
+          started_at: new Date().toISOString(),
+          elapsed_seconds: 5,
+        },
+      ]);
+      vi.spyOn(clientApi, 'fetchRecentJobs').mockResolvedValue([]);
+      vi.spyOn(clientApi, 'fetchVoices').mockResolvedValue([]);
+      const fetchStorySpy = vi.spyOn(clientApi, 'fetchStory').mockResolvedValue(phase15StoryFixture);
+
+      render(
+        <DirectorStudio
+          session={adminSessionFixture}
+          onLogout={() => {}}
+          onNavigateHome={() => {}}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.getByRole('status')).toBeInTheDocument();
+      });
+
+      // ➕ New Story and ← Public Library are NOT disabled
+      const newStoryBtn = screen.getByRole('button', { name: /➕ New Story/i });
+      const publicLibraryBtn = screen.getByRole('button', { name: /← Public Library/i });
+      expect(newStoryBtn).not.toBeDisabled();
+      expect(publicLibraryBtn).not.toBeDisabled();
+
+      // Sidebar story item is clickable even while drafting
+      const storyItem = screen.getByText('The Brave Firefly');
+      fireEvent.click(storyItem);
+
+      await waitFor(() => {
+        expect(fetchStorySpy).toHaveBeenCalledWith('phase15-story-1');
+      });
+    });
+
+    it('resets Step 1 form when clicking ➕ Queue Another Story while activity tray continues tracking', async () => {
+      vi.spyOn(clientApi, 'fetchAdminStories').mockResolvedValue([]);
+      vi.spyOn(clientApi, 'fetchActiveJobs').mockResolvedValue([
+        {
+          job_id: 'job-phase15-bg',
+          story_id: 'new',
+          type: 'draft',
+          status: 'running',
+          started_at: new Date().toISOString(),
+          elapsed_seconds: 12,
+          title: 'Forest Adventures',
+        },
+      ]);
+      vi.spyOn(clientApi, 'fetchRecentJobs').mockResolvedValue([
+        {
+          job_id: 'job-phase15-bg',
+          story_id: 'new',
+          type: 'draft',
+          status: 'running',
+          started_at: new Date().toISOString(),
+          elapsed_seconds: 12,
+          title: 'Forest Adventures',
+          stage: 'drafting',
+        },
+      ]);
+      vi.spyOn(clientApi, 'fetchVoices').mockResolvedValue([]);
+
+      render(
+        <DirectorStudio
+          session={adminSessionFixture}
+          onLogout={() => {}}
+          onNavigateHome={() => {}}
+        />
+      );
+
+      // Verify active draft card is shown
+      await waitFor(() => {
+        expect(screen.getByTestId('queue-another-story-btn')).toBeInTheDocument();
+      });
+
+      // Click Queue Another Story
+      fireEvent.click(screen.getByTestId('queue-another-story-btn'));
+
+      // Verify creation form is unlocked and ready for new input
+      await waitFor(() => {
+        const promptTextarea = screen.getByPlaceholderText(/A comedic sci-fi adventure/i);
+        expect(promptTextarea).not.toBeDisabled();
+        expect(promptTextarea).toHaveValue('');
+      });
+
+      // Generation Activity tray still renders the running job
+      const tray = screen.getByTestId('generation-activity-tray');
+      expect(tray).toBeInTheDocument();
+      expect(within(tray).getByText('Forest Adventures')).toBeInTheDocument();
+    });
+
+    it('Generation Activity tray renders running, completed (Open Story →), and failed (✕ dismiss) jobs', async () => {
+      vi.spyOn(clientApi, 'fetchAdminStories').mockResolvedValue([]);
+      vi.spyOn(clientApi, 'fetchActiveJobs').mockResolvedValue([]);
+      vi.spyOn(clientApi, 'fetchRecentJobs').mockResolvedValue([]);
+      vi.spyOn(clientApi, 'fetchRecentJobs').mockResolvedValue([]);
+      vi.spyOn(clientApi, 'fetchVoices').mockResolvedValue([]);
+      const dismissSpy = vi.spyOn(clientApi, 'dismissJob').mockResolvedValue({ ok: true });
+      const fetchStorySpy = vi.spyOn(clientApi, 'fetchStory').mockResolvedValue(phase15StoryFixture);
+
+      const mockJobs: JobProgress[] = [
+        {
+          job_id: 'job-run-1',
+          story_id: 'new',
+          type: 'draft',
+          status: 'running',
+          started_at: new Date().toISOString(),
+          elapsed_seconds: 4,
+          title: 'Running Story Draft',
+          stage: 'drafting',
+        },
+        {
+          job_id: 'job-comp-1',
+          story_id: 'phase15-story-1',
+          result_story_id: 'phase15-story-1',
+          type: 'direct',
+          status: 'completed',
+          started_at: new Date(Date.now() - 60_000).toISOString(),
+          elapsed_seconds: 15,
+          title: 'Completed Story Direction',
+          stage: 'completed',
+        },
+        {
+          job_id: 'job-fail-1',
+          story_id: 'new',
+          type: 'draft',
+          status: 'failed',
+          started_at: new Date(Date.now() - 120_000).toISOString(),
+          elapsed_seconds: 3,
+          title: 'Failed Story Draft',
+          stage: 'failed',
+          error: 'Rate limit exceeded',
+        },
+      ];
+
+      vi.spyOn(clientApi, 'fetchRecentJobs').mockResolvedValue(mockJobs);
+
+      render(
+        <DirectorStudio
+          session={adminSessionFixture}
+          onLogout={() => {}}
+          onNavigateHome={() => {}}
+        />
+      );
+
+      // Verify activity tray renders all 3 jobs
+      await waitFor(() => {
+        const trayEl = screen.getByTestId('generation-activity-tray');
+        expect(trayEl).toBeInTheDocument();
+        expect(within(trayEl).getByText('Running Story Draft')).toBeInTheDocument();
+        expect(within(trayEl).getByText('Completed Story Direction')).toBeInTheDocument();
+        expect(within(trayEl).getByText('Failed Story Draft')).toBeInTheDocument();
+      });
+
+      // Verify Open Story button on completed job
+      const openStoryBtn = screen.getByRole('button', { name: /Open Story →/i });
+      fireEvent.click(openStoryBtn);
+
+      await waitFor(() => {
+        expect(fetchStorySpy).toHaveBeenCalledWith('phase15-story-1');
+      });
+
+      // Verify dismiss button on failed job
+      const dismissBtns = screen.getAllByRole('button', { name: /Dismiss/i });
+      expect(dismissBtns.length).toBeGreaterThanOrEqual(2);
+      fireEvent.click(dismissBtns[1]);
+
+      await waitFor(() => {
+        expect(dismissSpy).toHaveBeenCalledWith('job-fail-1');
+      });
+    });
+
+    it('VoiceStudioPanel stops polling and displays a recoverable error on 404 instead of looping endlessly', async () => {
+      vi.spyOn(clientApi, 'fetchVoices').mockResolvedValue([
+        {
+          id: 'prebuilt-kore',
+          label: 'Kore (Warm Prebuilt)',
+          source: 'prebuilt',
+          gemini_voice_name: 'Kore',
+          description: 'Warm soothing cadence',
+          language_code: 'en-US',
+          tags: ['bedtime'],
+          created_at: new Date().toISOString(),
+        },
+      ]);
+      vi.spyOn(clientApi, 'fetchActiveJobs').mockResolvedValue([]);
+      vi.spyOn(clientApi, 'fetchRecentJobs').mockResolvedValue([]);
+
+      const storyWithStaleJob: Story = {
+        ...phase15StoryFixture,
+        active_job: {
+          job_id: 'job-stale-restart',
+          type: 'synthesize',
+          started_at: new Date(Date.now() - 60_000).toISOString(),
+        },
+      };
+
+      // Mock fetchJobStatus throwing 404 ApiError
+      vi.spyOn(clientApi, 'fetchJobStatus').mockRejectedValue(
+        new clientApi.ApiError(404, 'Job not found')
+      );
+
+      render(
+        <VoiceStudioPanel
+          story={storyWithStaleJob}
+          onStoryUpdated={() => {}}
+        />
+      );
+
+      // Verify error banner is shown with restart recovery guidance
+      await waitFor(() => {
+        expect(
+          screen.getByText(/Previous synthesis job is no longer active \(server may have restarted\)\. You can safely start a new synthesis\./i)
+        ).toBeInTheDocument();
+      });
+
+      // Verify synthesis progress card is dismissed
+      expect(screen.queryByText(/Synthesizing audio turns with Gemini 3\.8 Flash TTS/i)).not.toBeInTheDocument();
     });
   });
 });

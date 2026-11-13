@@ -10,6 +10,7 @@ import {
   fetchActiveJobs,
   fetchJobStatus,
   fetchStory,
+  ApiError,
 } from '../api/client';
 import { VoiceDesigner } from './VoiceDesigner';
 
@@ -169,14 +170,19 @@ export function VoiceStudioPanel({
   // Check and restore active synthesis job for this story
   const checkActiveSynthesisJob = useCallback(async () => {
     try {
-      const activeJobs = await fetchActiveJobs(story.id);
+      let activeJobs: any[] = [];
+      try {
+        activeJobs = await fetchActiveJobs(story.id);
+      } catch {
+        // activeJobs fetch failed or offline
+      }
       const synthJob =
-        activeJobs.find(
+        (Array.isArray(activeJobs) && activeJobs.find(
           (j) =>
             j.type === 'synthesize' &&
             j.status === 'running' &&
             (j.story_id === story.id || j.result_story_id === story.id)
-        ) ||
+        )) ||
         (story.active_job?.type === 'synthesize'
           ? {
               job_id: story.active_job.job_id,
@@ -209,7 +215,7 @@ export function VoiceStudioPanel({
           clearInterval(synthPollTimerRef.current);
         }
 
-        synthPollTimerRef.current = setInterval(async () => {
+        const pollOnce = async () => {
           try {
             const job = await fetchJobStatus(synthJob.job_id);
             if (job.status === 'running') {
@@ -239,10 +245,28 @@ export function VoiceStudioPanel({
               setIsSynthesizing(false);
               setSynthError(job.error || 'Audio synthesis failed');
             }
-          } catch {
-            // Keep polling
+          } catch (err) {
+            const status = (err as any)?.status;
+            if (status === 404 || status === '404' || (err instanceof ApiError && err.status === 404)) {
+              if (synthPollTimerRef.current) {
+                clearInterval(synthPollTimerRef.current);
+                synthPollTimerRef.current = null;
+              }
+              if (timerRef.current) {
+                clearInterval(timerRef.current);
+                timerRef.current = null;
+              }
+              setIsSynthesizing(false);
+              setSynthError(
+                'Previous synthesis job is no longer active (server may have restarted). You can safely start a new synthesis.'
+              );
+            }
+            // Keep polling for network blips
           }
-        }, 1500);
+        };
+
+        pollOnce();
+        synthPollTimerRef.current = setInterval(pollOnce, 1500);
       }
     } catch {
       // Graceful fallback
@@ -252,20 +276,6 @@ export function VoiceStudioPanel({
   useEffect(() => {
     checkActiveSynthesisJob();
   }, [checkActiveSynthesisJob]);
-
-  // Prevent accidental navigation or tab closure while synthesis is active
-  useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (isSynthesizing) {
-        e.preventDefault();
-        e.returnValue = '';
-      }
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-  }, [isSynthesizing]);
 
   // Initialize casting defaults once voices are loaded or characters change
   useEffect(() => {
@@ -939,7 +949,7 @@ export function VoiceStudioPanel({
               </strong>
             </div>
             <p style={{ margin: '0 0 0.75rem 0', fontSize: '0.85rem', color: 'var(--ink-muted)' }}>
-              🎧 Synthesizing audio turns with Gemini 3.8 Flash TTS... {elapsedSeconds}s. Producing speech chunks and assembling 24kHz studio WAV. Please keep this tab open.
+              🎧 Synthesizing audio turns with Gemini 3.8 Flash TTS... {elapsedSeconds}s. Producing speech chunks and assembling 24kHz studio WAV. Running in the background — you can safely switch stories or close this tab.
             </p>
             <div className="tactile-progress-bar-container">
               <div className="tactile-progress-bar-indeterminate" />

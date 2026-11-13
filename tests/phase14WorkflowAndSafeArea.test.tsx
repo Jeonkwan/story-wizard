@@ -414,6 +414,7 @@ describe('Phase 14: One-Tap Chained Pipeline, Story Length & Name Diversity Test
     it('renders Story Length pills and switches between Quick, Standard, Extended, and Epic', async () => {
       vi.spyOn(clientApi, 'fetchAdminStories').mockResolvedValue([]);
       vi.spyOn(clientApi, 'fetchActiveJobs').mockResolvedValue([]);
+      vi.spyOn(clientApi, 'fetchRecentJobs').mockResolvedValue([]);
       vi.spyOn(clientApi, 'fetchVoices').mockResolvedValue([
         {
           id: 'prebuilt-kore',
@@ -468,6 +469,7 @@ describe('Phase 14: One-Tap Chained Pipeline, Story Length & Name Diversity Test
     it('renders Narrator Voice selector and auto-synthesize toggle, updating CTA button text', async () => {
       vi.spyOn(clientApi, 'fetchAdminStories').mockResolvedValue([]);
       vi.spyOn(clientApi, 'fetchActiveJobs').mockResolvedValue([]);
+      vi.spyOn(clientApi, 'fetchRecentJobs').mockResolvedValue([]);
       vi.spyOn(clientApi, 'fetchVoices').mockResolvedValue([
         {
           id: 'prebuilt-kore',

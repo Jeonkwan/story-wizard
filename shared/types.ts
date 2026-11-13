@@ -61,6 +61,9 @@ export interface JobProgress {
   message?: string;
   result_story_id?: string;
   error?: string | null;
+  title?: string;
+  stage?: string;
+  finished_at?: string;
 }
 
 export interface ActiveJobSummary {
