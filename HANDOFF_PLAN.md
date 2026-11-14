@@ -2029,6 +2029,21 @@ Per `AGENTS.md` Section 1.A, 1.B, and 1.C:
     - Standalone documentation (`HANDOFF_PLAN.md`, `AGENTS.md`, `docs/reviews/phase-17-review.md`) is authored by the Main Agent (Lead Architect); inline code comments and JSDoc/TSDoc docstrings are authored by whoever writes the code.
     - When the `phase-builder` subagent reports completion, the Lead Architect MUST read every modified/new file line-by-line, inspect all 4 `qa-screenshots/phase17-*.png` screenshots with `read_file` vision, verify `docker build` (if Docker daemon is running) and `npm run typecheck && npx tsc -p tsconfig.server.json && npm test && npm run build && npx playwright test` firsthand in WSL, and iterate with the **same** subagent via `send_message` if any review items arise before tagging `phase-17-verified`.
 
+---
+
+### 23.7 Post-Phase 17 Production Rollout, GCS Backfill & CI/CD Hardening (`ops/phase-17`)
+
+Following `phase-17-verified`:
+1. **GitHub Actions CI (`test-and-verify` in `.github/workflows/deploy.yml`):**
+   - Added `sudo apt-get update && sudo apt-get install -y ffmpeg` before `npm test` so FFmpeg-backed `.m4a` transcoding and migration tests pass on `ubuntu-latest`.
+2. **GCS Migration `gcloud` Fallback (`scripts/migrateWavToM4a.ts`):**
+   - Added `--gcloud-auth` and automatic fallback (`createMigrationStorage`) to `gcloud auth print-access-token` via `google-auth-library` `OAuth2Client` when local ADC credentials are expired (`invalid_grant`).
+   - Backfilled all existing published stories in `gs://storyteller-studio-mokamaker` (`3` versions migrated, `0` errors) and verified `catalog.json` `default_audio_url` values point to `.m4a`.
+3. **Cloud Run Production Deployment (`./deploy.sh`):**
+   - Built and deployed Cloud Run revision `storyteller-studio-00010-899` (`mokamaker-gcp`, `asia-southeast1`, `https://storyteller-studio-wrtjpohpgq-as.a.run.app`) with `GOOGLE_CLIENT_ID`, `GCS_BUCKET_NAME`, `ADMIN_GOOGLE_EMAIL`, and Secret Manager bindings (`storyteller-session-secret:latest`, `storyteller-gemini-api-key:latest`).
+   - Verified live `.m4a` `206 Partial Content` (`audio/mp4`), `.wav?download=1` attachment download, `devBypassEnabled: false` + active `googleClientId` on `/api/admin/me`, and `/api/podcasts/:id/feed.xml` route availability.
+
+
 
 
 
