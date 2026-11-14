@@ -14,6 +14,7 @@ import { GeminiTtsService } from '../services/geminiTts.js';
 import { JobManager, defaultJobManager } from '../services/jobManager.js';
 import {
   type CatalogItem,
+  type PodcastConfig,
   type VoiceDesignCandidate,
   type StoryAgeRange,
   type StoryVocabularyLevel,
@@ -552,6 +553,28 @@ export function createAdminStoriesRouter(
         []
       );
 
+      // Best-effort cleanup: remove deleted story from any podcast episode lists
+      try {
+        const podcasts = await storage.listPodcasts();
+        for (const podcast of podcasts) {
+          if (podcast.episodes?.some((ep) => ep.story_id === story.id)) {
+            await storage.updateJsonAtomic<PodcastConfig>(
+              `podcasts/${podcast.id}/podcast.json`,
+              (current) => {
+                const base = current || podcast;
+                return {
+                  ...base,
+                  episodes: (base.episodes || []).filter((ep) => ep.story_id !== story.id),
+                  updated_at: new Date().toISOString(),
+                };
+              }
+            );
+          }
+        }
+      } catch (err) {
+        console.warn(`[adminStories] Best-effort podcast cleanup failed after deleting story ${story.id}:`, err);
+      }
+
       res.json({ ok: true, deletedId: story.id });
     })
   );
@@ -735,6 +758,53 @@ export function createAdminStoriesRouter(
         },
         []
       );
+
+      // Best-effort cleanup/re-pointing of podcast episodes referencing the deleted audio version
+      try {
+        const podcasts = await storage.listPodcasts();
+        const newDefaultVer =
+          story.audio_versions.find((v) => v.is_default) || story.audio_versions[0];
+        for (const podcast of podcasts) {
+          const referencesStory = podcast.episodes?.some((ep) => ep.story_id === story.id);
+          const referencesDeletedVer = podcast.episodes?.some(
+            (ep) => ep.story_id === story.id && ep.version_id === versionId
+          );
+          if (story.audio_versions.length === 0 && referencesStory) {
+            await storage.updateJsonAtomic<PodcastConfig>(
+              `podcasts/${podcast.id}/podcast.json`,
+              (current) => {
+                const base = current || podcast;
+                return {
+                  ...base,
+                  episodes: (base.episodes || []).filter((ep) => ep.story_id !== story.id),
+                  updated_at: new Date().toISOString(),
+                };
+              }
+            );
+          } else if (newDefaultVer && referencesDeletedVer) {
+            await storage.updateJsonAtomic<PodcastConfig>(
+              `podcasts/${podcast.id}/podcast.json`,
+              (current) => {
+                const base = current || podcast;
+                return {
+                  ...base,
+                  episodes: (base.episodes || []).map((ep) =>
+                    ep.story_id === story.id && ep.version_id === versionId
+                      ? { ...ep, version_id: newDefaultVer.version_id }
+                      : ep
+                  ),
+                  updated_at: new Date().toISOString(),
+                };
+              }
+            );
+          }
+        }
+      } catch (err) {
+        console.warn(
+          `[adminStories] Best-effort podcast cleanup failed after deleting version ${versionId} on ${story.id}:`,
+          err
+        );
+      }
 
       res.json(story);
     })

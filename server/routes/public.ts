@@ -12,6 +12,18 @@ import { ADMIN_COOKIE_NAME, verifyAdminSession } from '../middleware/auth.js';
 import { asyncHandler } from '../lib/asyncHandler.js';
 
 /**
+ * Escapes special XML characters so RSS 2.0 channel and item fields stay well-formed.
+ */
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+/**
  * Shared HTTP Range partial audio streaming helper.
  * Supports standard 200 OK for full audio, 206 Partial Content for valid byte ranges,
  * and 416 Range Not Satisfiable for out-of-bounds or malformed range requests.
@@ -20,11 +32,12 @@ export function streamAudioWithRange(
   req: Request,
   res: Response,
   audioDesc: AudioStreamDescriptor,
-  cacheControl: string
+  cacheControl: string,
+  contentType = 'audio/wav'
 ): void {
   const totalBytes = audioDesc.totalBytes;
   res.setHeader('Accept-Ranges', 'bytes');
-  res.setHeader('Content-Type', 'audio/wav');
+  res.setHeader('Content-Type', contentType);
   res.setHeader('Cache-Control', cacheControl);
 
   const rangeHeader = req.headers.range;
@@ -198,11 +211,12 @@ export function createPublicRouter(config: AppConfig, storage: StorageAdapter): 
         return;
       }
 
-      // Validate audio filename: must be <validSlug>.wav
-      if (!filename.endsWith('.wav')) {
-        res.status(400).json({ error: 'Audio filename must end with .wav' });
+      // Validate audio filename: must be <validSlug>.m4a or <validSlug>.wav
+      if (!filename.endsWith('.m4a') && !filename.endsWith('.wav')) {
+        res.status(400).json({ error: 'Audio filename must end with .m4a or .wav' });
         return;
       }
+      const ext = filename.endsWith('.m4a') ? 'm4a' : 'wav';
       const versionId = filename.slice(0, -4);
       try {
         validateSlug(versionId, 'versionId');
@@ -227,10 +241,13 @@ export function createPublicRouter(config: AppConfig, storage: StorageAdapter): 
         throw err;
       }
 
-      // Retrieve audio stream descriptor
+      // Retrieve audio stream descriptor (.m4a default stream or lossless .wav)
       let audioDesc;
       try {
-        audioDesc = await storage.getAudioStream(id, versionId);
+        audioDesc =
+          ext === 'm4a'
+            ? await storage.getAudioM4aStream(id, versionId)
+            : await storage.getAudioStream(id, versionId);
       } catch (err: unknown) {
         if (err instanceof StorageNotFoundError) {
           res.status(404).json({ error: 'Audio not found' });
@@ -239,12 +256,17 @@ export function createPublicRouter(config: AppConfig, storage: StorageAdapter): 
         throw err;
       }
 
+      if (ext === 'wav' && (req.query.download === '1' || req.query.download === 'true')) {
+        res.setHeader('Content-Disposition', `attachment; filename="${id}-${versionId}.wav"`);
+      }
+
       const cacheControl =
         story.status === 'published'
           ? 'public, max-age=31536000, immutable'
           : 'private, no-store';
 
-      streamAudioWithRange(req, res, audioDesc, cacheControl);
+      const contentType = ext === 'm4a' ? 'audio/mp4' : 'audio/wav';
+      streamAudioWithRange(req, res, audioDesc, cacheControl, contentType);
     })
   );
 
@@ -267,6 +289,162 @@ export function createPublicRouter(config: AppConfig, storage: StorageAdapter): 
       } catch (err: unknown) {
         if (err instanceof StorageNotFoundError) {
           res.status(404).json({ error: `Voice preview not found: "${id}"` });
+          return;
+        }
+        throw err;
+      }
+    })
+  );
+
+  // GET /api/podcasts/:podcastId/feed.xml
+  router.get(
+    '/podcasts/:podcastId/feed.xml',
+    asyncHandler(async (req: Request, res: Response) => {
+      const { podcastId } = req.params;
+      try {
+        validateSlug(podcastId, 'podcastId');
+      } catch {
+        res.status(400).json({ error: `Invalid podcast id: "${podcastId}"` });
+        return;
+      }
+
+      let podcast;
+      try {
+        podcast = await storage.getPodcast(podcastId);
+      } catch (err: unknown) {
+        if (err instanceof StorageNotFoundError) {
+          res.status(404).json({ error: `Podcast not found: "${podcastId}"` });
+          return;
+        }
+        throw err;
+      }
+
+      // Private token guard
+      if (podcast.token && podcast.token.trim().length > 0) {
+        if (req.query.token !== podcast.token) {
+          res.status(403).json({ error: 'Invalid or missing podcast feed token' });
+          return;
+        }
+      }
+
+      // Reverse-proxy base URL resolution
+      const forwardedProto = (req.headers['x-forwarded-proto'] as string | undefined)
+        ?.split(',')[0]
+        ?.trim();
+      const forwardedHost = (req.headers['x-forwarded-host'] as string | undefined)
+        ?.split(',')[0]
+        ?.trim();
+      const proto = forwardedProto || req.protocol || 'https';
+      const host = forwardedHost || req.get('host') || 'localhost:8080';
+      const baseUrl = (process.env.PUBLIC_BASE_URL || `${proto}://${host}`).replace(/\/+$/, '');
+
+      const itemsXml: string[] = [];
+      for (const ep of podcast.episodes || []) {
+        let story;
+        try {
+          story = await storage.getStory(ep.story_id);
+        } catch {
+          continue; // Skip deleted/missing stories cleanly
+        }
+        if (story.status !== 'published' || !story.audio_versions?.length) {
+          continue; // Skip drafts or stories without audio
+        }
+
+        const ver =
+          story.audio_versions.find((v) => v.version_id === ep.version_id) ||
+          story.audio_versions.find((v) => v.is_default) ||
+          story.audio_versions[0];
+        if (!ver) continue;
+
+        const m4aSizeBytes =
+          ver.m4a_size_bytes ||
+          (await storage
+            .getAudioM4aStream(story.id, ver.version_id)
+            .then((d) => d.totalBytes)
+            .catch(() => 0));
+
+        const enclosureUrl = `${baseUrl}/api/stories/${story.id}/audios/${ver.version_id}.m4a`;
+        const storyLink = `${baseUrl}/stories/${story.id}`;
+        const pubDate = new Date(ep.published_at || story.updated_at).toUTCString();
+        const durationSec = Math.max(0, Math.round(ver.duration_sec));
+        const guid = `${podcast.id}:${story.id}:${ver.version_id}`;
+        const episodeTag =
+          story.series_context?.episode_number != null
+            ? `\n      <itunes:episode>${story.series_context.episode_number}</itunes:episode>`
+            : '';
+
+        itemsXml.push(`    <item>
+      <title>${escapeXml(story.title)}</title>
+      <link>${escapeXml(storyLink)}</link>
+      <description>${escapeXml(story.summary || story.title)}</description>
+      <itunes:summary>${escapeXml(story.summary || story.title)}</itunes:summary>
+      <pubDate>${escapeXml(pubDate)}</pubDate>
+      <guid isPermaLink="false">${escapeXml(guid)}</guid>
+      <itunes:duration>${durationSec}</itunes:duration>${episodeTag}
+      <enclosure url="${escapeXml(enclosureUrl)}" length="${m4aSizeBytes}" type="audio/x-m4a" />
+    </item>`);
+      }
+
+      const coverUrl = podcast.cover_image_url
+        ? podcast.cover_image_url.startsWith('http://') ||
+          podcast.cover_image_url.startsWith('https://')
+          ? podcast.cover_image_url
+          : `${baseUrl}${podcast.cover_image_url.startsWith('/') ? '' : '/'}${podcast.cover_image_url}`
+        : null;
+
+      const coverXml = coverUrl
+        ? `\n    <itunes:image href="${escapeXml(coverUrl)}" />\n    <image>\n      <url>${escapeXml(coverUrl)}</url>\n      <title>${escapeXml(podcast.title)}</title>\n      <link>${escapeXml(baseUrl)}</link>\n    </image>`
+        : '';
+
+      const feedUrl = `${baseUrl}/api/podcasts/${podcast.id}/feed.xml${
+        podcast.token ? `?token=${encodeURIComponent(podcast.token)}` : ''
+      }`;
+
+      const rssXml = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>${escapeXml(podcast.title)}</title>
+    <link>${escapeXml(baseUrl)}</link>
+    <atom:link href="${escapeXml(feedUrl)}" rel="self" type="application/rss+xml" />
+    <description>${escapeXml(podcast.description || podcast.title)}</description>
+    <language>${escapeXml(podcast.language || 'en-us')}</language>
+    <itunes:author>${escapeXml(podcast.author || 'Storyteller Studio')}</itunes:author>
+    <itunes:summary>${escapeXml(podcast.description || podcast.title)}</itunes:summary>
+    <itunes:explicit>false</itunes:explicit>${coverXml}
+${itemsXml.join('\n')}
+  </channel>
+</rss>`;
+
+      res.status(200);
+      res.setHeader('Content-Type', 'application/rss+xml; charset=utf-8');
+      res.setHeader('Cache-Control', 'private, no-cache');
+      res.send(rssXml);
+    })
+  );
+
+  // GET /api/podcasts/:podcastId/cover.:ext (jpg | png)
+  router.get(
+    '/podcasts/:podcastId/cover.:ext',
+    asyncHandler(async (req: Request, res: Response) => {
+      const { podcastId, ext } = req.params;
+      if (ext !== 'jpg' && ext !== 'png') {
+        res.status(400).json({ error: 'Cover extension must be .jpg or .png' });
+        return;
+      }
+
+      try {
+        validateSlug(podcastId, 'podcastId');
+      } catch {
+        res.status(400).json({ error: `Invalid podcast id: "${podcastId}"` });
+        return;
+      }
+
+      try {
+        const { streamDesc, contentType } = await storage.getPodcastCoverStream(podcastId);
+        streamAudioWithRange(req, res, streamDesc, 'public, max-age=3600', contentType);
+      } catch (err: unknown) {
+        if (err instanceof StorageNotFoundError) {
+          res.status(404).json({ error: `Podcast cover not found: "${podcastId}"` });
           return;
         }
         throw err;

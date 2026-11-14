@@ -1,4 +1,4 @@
-import type { CatalogItem, Story, VoiceEntry } from '../../shared/types.js';
+import type { CatalogItem, PodcastConfig, Story, VoiceEntry } from '../../shared/types.js';
 
 export const SLUG_REGEX = /^[a-z0-9][a-z0-9-_]{1,80}$/;
 
@@ -40,12 +40,22 @@ export interface StorageAdapter {
   deleteStory(storyId: string): Promise<void>;
 
   saveAudio(storyId: string, versionId: string, wavBuffer: Buffer): Promise<void>;
+  saveAudioM4a(storyId: string, versionId: string, m4aBuffer: Buffer): Promise<void>;
   deleteAudio(storyId: string, versionId: string): Promise<void>;
   getAudioStream(storyId: string, versionId: string): Promise<AudioStreamDescriptor>;
+  getAudioM4aStream(storyId: string, versionId: string): Promise<AudioStreamDescriptor>;
 
   saveVoicePreview(voiceId: string, wavBuffer: Buffer): Promise<void>;
   deleteVoicePreview(voiceId: string): Promise<void>;
   getVoicePreviewStream(voiceId: string): Promise<AudioStreamDescriptor>;
+
+  listPodcasts(): Promise<PodcastConfig[]>;
+  getPodcast(podcastId: string): Promise<PodcastConfig>;
+  savePodcast(podcast: PodcastConfig): Promise<void>;
+  deletePodcast(podcastId: string): Promise<void>;
+  getPodcastCoverStream(
+    podcastId: string
+  ): Promise<{ streamDesc: AudioStreamDescriptor; contentType: string }>;
 
   updateJsonAtomic<T>(
     relativePath: string,

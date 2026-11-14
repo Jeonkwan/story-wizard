@@ -1,4 +1,5 @@
 import { wrapPcmAsWav, SAMPLE_RATE } from '../server/lib/wav.js';
+import { transcodeWavToM4a } from '../server/lib/m4a.js';
 import { LocalStorageAdapter } from '../server/storage/localStorage.js';
 import type { CatalogItem, Story, VoiceEntry } from '../shared/types.js';
 
@@ -52,6 +53,12 @@ export async function seedLocalData(targetDir = process.env.DATA_DIR || './data'
     },
   ];
   await storage.saveVoices(voices);
+
+  // Generate dual-format audio (.wav lossless + .m4a faststart AAC-LC default) for seeded stories
+  const s1v1Wav = generateChimeWav(587.33, 2);
+  const s1v1M4a = await transcodeWavToM4a(s1v1Wav);
+  const s1v2Wav = generateChimeWav(440.0, 2);
+  const s1v2M4a = await transcodeWavToM4a(s1v2Wav);
 
   // 2. Story 1: The Sleepy Little Train (Ep 1)
   const story1Id = '2026-11-04-sleepy-little-train';
@@ -110,7 +117,9 @@ export async function seedLocalData(targetDir = process.env.DATA_DIR || './data'
         },
         is_default: true,
         duration_sec: 2,
-        audio_url: `/api/stories/${story1Id}/audios/v1-owl-solo.wav`,
+        audio_url: `/api/stories/${story1Id}/audios/v1-owl-solo.m4a`,
+        wav_url: `/api/stories/${story1Id}/audios/v1-owl-solo.wav`,
+        m4a_size_bytes: s1v1M4a.length,
         created_at: '2026-11-04T00:00:00.000Z',
       },
       {
@@ -123,7 +132,9 @@ export async function seedLocalData(targetDir = process.env.DATA_DIR || './data'
         },
         is_default: false,
         duration_sec: 2,
-        audio_url: `/api/stories/${story1Id}/audios/v2-aoede-solo.wav`,
+        audio_url: `/api/stories/${story1Id}/audios/v2-aoede-solo.m4a`,
+        wav_url: `/api/stories/${story1Id}/audios/v2-aoede-solo.wav`,
+        m4a_size_bytes: s1v2M4a.length,
         created_at: '2026-11-04T01:00:00.000Z',
       },
     ],
@@ -131,11 +142,15 @@ export async function seedLocalData(targetDir = process.env.DATA_DIR || './data'
     updated_at: '2026-11-04T00:00:00.000Z',
   };
   await storage.saveStory(story1);
-  await storage.saveAudio(story1Id, 'v1-owl-solo', generateChimeWav(587.33, 2));
-  await storage.saveAudio(story1Id, 'v2-aoede-solo', generateChimeWav(440.0, 2));
+  await storage.saveAudio(story1Id, 'v1-owl-solo', s1v1Wav);
+  await storage.saveAudioM4a(story1Id, 'v1-owl-solo', s1v1M4a);
+  await storage.saveAudio(story1Id, 'v2-aoede-solo', s1v2Wav);
+  await storage.saveAudioM4a(story1Id, 'v2-aoede-solo', s1v2M4a);
 
   // 3. Story 2: The Star Mountain Express (Ep 2)
   const story2Id = '2026-11-05-star-mountain-express';
+  const s2v1Wav = generateChimeWav(523.25, 2);
+  const s2v1M4a = await transcodeWavToM4a(s2v1Wav);
   const story2: Story = {
     id: story2Id,
     status: 'published',
@@ -179,7 +194,9 @@ export async function seedLocalData(targetDir = process.env.DATA_DIR || './data'
         },
         is_default: true,
         duration_sec: 2,
-        audio_url: `/api/stories/${story2Id}/audios/v1-kore-solo.wav`,
+        audio_url: `/api/stories/${story2Id}/audios/v1-kore-solo.m4a`,
+        wav_url: `/api/stories/${story2Id}/audios/v1-kore-solo.wav`,
+        m4a_size_bytes: s2v1M4a.length,
         created_at: '2026-11-05T00:00:00.000Z',
       },
     ],
@@ -187,10 +204,13 @@ export async function seedLocalData(targetDir = process.env.DATA_DIR || './data'
     updated_at: '2026-11-05T00:00:00.000Z',
   };
   await storage.saveStory(story2);
-  await storage.saveAudio(story2Id, 'v1-kore-solo', generateChimeWav(523.25, 2));
+  await storage.saveAudio(story2Id, 'v1-kore-solo', s2v1Wav);
+  await storage.saveAudioM4a(story2Id, 'v1-kore-solo', s2v1M4a);
 
   // 4. Story 3: The Whispering Owl (Standalone)
   const story3Id = '2026-11-06-whispering-owl';
+  const s3v1Wav = generateChimeWav(659.25, 2);
+  const s3v1M4a = await transcodeWavToM4a(s3v1Wav);
   const story3: Story = {
     id: story3Id,
     status: 'published',
@@ -225,7 +245,9 @@ export async function seedLocalData(targetDir = process.env.DATA_DIR || './data'
         },
         is_default: true,
         duration_sec: 2,
-        audio_url: `/api/stories/${story3Id}/audios/v1-puck-solo.wav`,
+        audio_url: `/api/stories/${story3Id}/audios/v1-puck-solo.m4a`,
+        wav_url: `/api/stories/${story3Id}/audios/v1-puck-solo.wav`,
+        m4a_size_bytes: s3v1M4a.length,
         created_at: '2026-11-06T00:00:00.000Z',
       },
     ],
@@ -233,7 +255,8 @@ export async function seedLocalData(targetDir = process.env.DATA_DIR || './data'
     updated_at: '2026-11-06T00:00:00.000Z',
   };
   await storage.saveStory(story3);
-  await storage.saveAudio(story3Id, 'v1-puck-solo', generateChimeWav(659.25, 2));
+  await storage.saveAudio(story3Id, 'v1-puck-solo', s3v1Wav);
+  await storage.saveAudioM4a(story3Id, 'v1-puck-solo', s3v1M4a);
 
   // 5. Catalog
   const catalog: CatalogItem[] = [

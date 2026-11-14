@@ -2,6 +2,7 @@ import type {
   CatalogItem,
   CharacterProfile,
   JobProgress,
+  PodcastConfig,
   ScriptTurn,
   Story,
   StoryAgeRange,
@@ -481,5 +482,102 @@ export async function transcribeAudioBlob(
   });
   const data = await handleResponse<{ text: string }>(res);
   return data.text;
+}
+
+export interface CreatePodcastPayload {
+  title: string;
+  id?: string;
+  author?: string;
+  description?: string;
+  language?: string;
+  token?: string;
+}
+
+export interface UpdatePodcastPatch {
+  title?: string;
+  author?: string;
+  description?: string;
+  language?: string;
+  token?: string;
+  regenerateToken?: boolean;
+}
+
+/**
+ * Fetches all dynamically discovered podcast configurations from storage.
+ */
+export async function fetchAdminPodcasts(): Promise<PodcastConfig[]> {
+  const res = await fetch('/api/admin/podcasts');
+  const data = await handleResponse<{ podcasts: PodcastConfig[] }>(res);
+  return Array.isArray(data?.podcasts) ? data.podcasts : [];
+}
+
+/**
+ * Creates a new podcast RSS feed configuration in storage.
+ */
+export async function createPodcast(payload: CreatePodcastPayload): Promise<PodcastConfig> {
+  const res = await fetch('/api/admin/podcasts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return handleResponse<PodcastConfig>(res);
+}
+
+/**
+ * Updates podcast metadata or rotates its private RSS token.
+ */
+export async function updatePodcast(
+  podcastId: string,
+  patch: UpdatePodcastPatch
+): Promise<PodcastConfig> {
+  const res = await fetch(`/api/admin/podcasts/${encodeURIComponent(podcastId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  return handleResponse<PodcastConfig>(res);
+}
+
+/**
+ * Deletes a podcast feed configuration and its directory.
+ */
+export async function deletePodcast(
+  podcastId: string
+): Promise<{ ok: boolean; deletedId: string }> {
+  const res = await fetch(`/api/admin/podcasts/${encodeURIComponent(podcastId)}`, {
+    method: 'DELETE',
+  });
+  return handleResponse<{ ok: boolean; deletedId: string }>(res);
+}
+
+/**
+ * Releases or updates a story episode on a podcast feed (deduplicated by storyId).
+ */
+export async function releaseStoryToPodcast(
+  podcastId: string,
+  payload: { storyId: string; versionId?: string }
+): Promise<PodcastConfig> {
+  const res = await fetch(`/api/admin/podcasts/${encodeURIComponent(podcastId)}/episodes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  return handleResponse<PodcastConfig>(res);
+}
+
+/**
+ * Removes a story episode from a podcast feed.
+ */
+export async function unreleaseStoryFromPodcast(
+  podcastId: string,
+  storyId: string
+): Promise<PodcastConfig> {
+  const res = await fetch(
+    `/api/admin/podcasts/${encodeURIComponent(podcastId)}/episodes/${encodeURIComponent(storyId)}`,
+    {
+      method: 'DELETE',
+    }
+  );
+  return handleResponse<PodcastConfig>(res);
 }
 

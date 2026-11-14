@@ -17,6 +17,7 @@ import { createAuthRouter } from './routes/auth.js';
 import { createAdminStoriesRouter } from './routes/adminStories.js';
 import { createAdminVoicesRouter } from './routes/adminVoices.js';
 import { createAdminTranscribeRouter } from './routes/adminTranscribe.js';
+import { createAdminPodcastsRouter } from './routes/adminPodcasts.js';
 import { createPublicRouter } from './routes/public.js';
 import {
   GeminiStoryService,
@@ -26,6 +27,7 @@ import {
   GeminiTtsService,
   type TtsProvider,
 } from './services/geminiTts.js';
+import type { M4aTranscoder } from './lib/m4a.js';
 import { JobManager, defaultJobManager } from './services/jobManager.js';
 import { ValidationError, ConflictError, NotFoundError } from './lib/validators.js';
 
@@ -37,6 +39,7 @@ export interface CreateAppOptions {
   storyService?: GeminiStoryService;
   ttsProvider?: TtsProvider;
   ttsService?: GeminiTtsService;
+  m4aTranscoder?: M4aTranscoder;
   jobManager?: JobManager;
 }
 
@@ -53,7 +56,7 @@ export function createApp(options: CreateAppOptions = {}): express.Express {
 
   const ttsService =
     options.ttsService ||
-    new GeminiTtsService(config, storage, options.ttsProvider);
+    new GeminiTtsService(config, storage, options.ttsProvider, options.m4aTranscoder);
 
   const jobManager = options.jobManager || defaultJobManager;
   jobManager.setStorage(storage);
@@ -71,6 +74,7 @@ export function createApp(options: CreateAppOptions = {}): express.Express {
   app.use('/api/admin', createAuthRouter(config, storage, verifyGoogleIdToken));
   app.use('/api/admin', createAdminVoicesRouter(config, storage, ttsService));
   app.use('/api/admin', createAdminTranscribeRouter(config, storyService));
+  app.use('/api/admin', createAdminPodcastsRouter(config, storage));
   app.use('/api/admin', createAdminStoriesRouter(config, storage, storyService, ttsService, jobManager));
 
   // Serve client static assets + SPA fallback ONLY if dist/client/index.html exists

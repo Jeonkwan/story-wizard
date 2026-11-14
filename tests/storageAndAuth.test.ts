@@ -336,9 +336,43 @@ describe('Phase 1: Dual-Mode Storage, HTTP Range Streaming & Admin Auth', () => 
       const res2 = await request(app).get('/api/stories/published-story/audios/..%2Fsecret.wav');
       expect(res2.status).toBe(400);
 
-      // Missing .wav extension
+      // Missing .m4a / .wav extension or unsupported .mp3 extension
       const res3 = await request(app).get('/api/stories/published-story/audios/v1-solo');
       expect(res3.status).toBe(400);
+
+      const resMp3 = await request(app).get('/api/stories/published-story/audios/v1-solo.mp3');
+      expect(resMp3.status).toBe(400);
+    });
+
+    it('streams .m4a (audio/mp4) and .wav (audio/wav + ?download=1 Content-Disposition) with 200 and 206 Range', async () => {
+      await seedTestStories();
+      const mockM4a = Buffer.concat([
+        Buffer.from([0x00, 0x00, 0x00, 0x18]),
+        Buffer.from('ftypM4A '),
+        Buffer.alloc(64, 0xab),
+      ]);
+      await storage.saveAudioM4a('published-story', 'v1-solo', mockM4a);
+      const app = createTestApp();
+
+      const resM4a200 = await request(app).get('/api/stories/published-story/audios/v1-solo.m4a');
+      expect(resM4a200.status).toBe(200);
+      expect(resM4a200.headers['content-type']).toBe('audio/mp4');
+      expect(resM4a200.headers['accept-ranges']).toBe('bytes');
+
+      const resM4a206 = await request(app)
+        .get('/api/stories/published-story/audios/v1-solo.m4a')
+        .set('Range', 'bytes=0-15');
+      expect(resM4a206.status).toBe(206);
+      expect(resM4a206.headers['content-type']).toBe('audio/mp4');
+      expect(resM4a206.headers['content-range']).toBe(`bytes 0-15/${mockM4a.length}`);
+
+      const resWavDownload = await request(app).get(
+        '/api/stories/published-story/audios/v1-solo.wav?download=1'
+      );
+      expect(resWavDownload.status).toBe(200);
+      expect(resWavDownload.headers['content-type']).toBe('audio/wav');
+      expect(resWavDownload.headers['content-disposition']).toContain('attachment');
+      expect(resWavDownload.headers['content-disposition']).toContain('published-story-v1-solo.wav');
     });
 
     it('storage layer throws InvalidSlugError for invalid slugs and path traversal in paths', async () => {

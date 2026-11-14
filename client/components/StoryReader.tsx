@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { AudioVersion, Story } from '../../shared/types';
+import { getLosslessWavUrl, type AudioVersion, type Story } from '../../shared/types';
 import { cleanTextForReader } from '../../shared/textClean';
 import { setDefaultAudioVersion, deleteAudioVersion, deleteStory } from '../api/client';
 
@@ -38,6 +38,9 @@ export function StoryReader({
     const rem = sec % 60;
     return `${mins}m ${rem < 10 ? '0' : ''}${rem}s`;
   };
+
+  const getWavDownloadHref = (ver: AudioVersion): string =>
+    `${getLosslessWavUrl(ver)}?download=1`;
 
   const handleSetDefault = async (versionId: string) => {
     setActionError(null);
@@ -132,13 +135,28 @@ export function StoryReader({
           )}
           <h1 className="reader-title">{story.title}</h1>
 
-          {story.tags && story.tags.length > 0 && (
+          {((story.tags && story.tags.length > 0) || activeAudioVersion) && (
             <div className="reader-meta-row">
-              {story.tags.map((tag) => (
+              {story.tags?.map((tag) => (
                 <span key={tag} className="badge-mono" style={{ opacity: 0.85 }}>
                   #{tag}
                 </span>
               ))}
+              {activeAudioVersion && (
+                <a
+                  href={getWavDownloadHref(activeAudioVersion)}
+                  download
+                  className="btn-tactile"
+                  data-testid="reader-download-wav-btn"
+                  style={{
+                    fontSize: '0.75rem',
+                    padding: '0.2rem 0.6rem',
+                    textDecoration: 'none',
+                  }}
+                >
+                  ⬇ WAV (Lossless)
+                </a>
+              )}
             </div>
           )}
         </div>
@@ -221,7 +239,17 @@ export function StoryReader({
                       )}
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap' }}>
+                      <a
+                        href={getWavDownloadHref(ver)}
+                        download
+                        className="btn-tactile"
+                        data-testid={`admin-download-wav-${ver.version_id}`}
+                        style={{ fontSize: '0.75rem', padding: '0.15rem 0.45rem', textDecoration: 'none' }}
+                      >
+                        ⬇ WAV
+                      </a>
+
                       {onVersionChange && !isActive && (
                         <button
                           type="button"

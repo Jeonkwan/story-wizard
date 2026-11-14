@@ -206,7 +206,7 @@ test.describe('Phase 5 Formatted Reader & Docked Audio Player with HTTP 206 Rang
 
     // Monitor for HTTP 206 Partial Content Range streaming
     page.on('response', (response) => {
-      if (response.url().includes('.wav') && response.status() === 206) {
+      if ((response.url().includes('.m4a') || response.url().includes('.wav')) && response.status() === 206) {
         received206Range = true;
       }
     });
@@ -355,7 +355,7 @@ test.describe('Phase 5 Formatted Reader & Docked Audio Player with HTTP 206 Rang
 
     // Audio src and track version updated
     const newSrc = await page.evaluate(() => document.querySelector('audio')?.getAttribute('src'));
-    expect(newSrc).toContain('v2-aoede-solo.wav');
+    expect(newSrc).toContain('v2-aoede-solo.m4a');
     await expect(trackVersion).toHaveText('Aoede (Melodic Solo)');
 
     // Reset back to default v1

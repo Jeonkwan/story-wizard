@@ -8,6 +8,7 @@ import {
 } from '../api/client';
 import { DirectorStudio } from './DirectorStudio';
 import { VoiceLibraryPage } from './VoiceLibraryPage';
+import { PodcastLibraryPage } from './PodcastLibraryPage';
 
 declare global {
   interface Window {
@@ -163,6 +164,8 @@ export function AdminLoginGate({
     const effectivePath =
       currentPath || (typeof window !== 'undefined' ? window.location.pathname : '/admin');
     const isVoiceLibrary = effectivePath.startsWith('/admin/voices');
+    const isPodcastLibrary = effectivePath.startsWith('/admin/podcasts');
+    const isStoriesWorkbench = !isVoiceLibrary && !isPodcastLibrary;
 
     return (
       <div className="admin-studio-wrapper">
@@ -184,9 +187,9 @@ export function AdminLoginGate({
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
             <button
               type="button"
-              className={`btn-tactile ${!isVoiceLibrary ? 'btn-tactile-primary' : ''}`}
+              className={`btn-tactile ${isStoriesWorkbench ? 'btn-tactile-primary' : ''}`}
               onClick={() => onNavigate?.('/admin')}
-              aria-current={!isVoiceLibrary ? 'page' : undefined}
+              aria-current={isStoriesWorkbench ? 'page' : undefined}
               style={{ minHeight: '44px', padding: '0.5rem 1rem' }}
             >
               📖 Stories Workbench
@@ -199,6 +202,16 @@ export function AdminLoginGate({
               style={{ minHeight: '44px', padding: '0.5rem 1rem' }}
             >
               🎙️ Voice Library
+            </button>
+            <button
+              type="button"
+              data-testid="admin-tab-podcasts"
+              className={`btn-tactile ${isPodcastLibrary ? 'btn-tactile-primary' : ''}`}
+              onClick={() => onNavigate?.('/admin/podcasts')}
+              aria-current={isPodcastLibrary ? 'page' : undefined}
+              style={{ minHeight: '44px', padding: '0.5rem 1rem' }}
+            >
+              📻 Podcasts
             </button>
           </div>
 
@@ -217,7 +230,20 @@ export function AdminLoginGate({
           </div>
         </nav>
 
-        {isVoiceLibrary ? (
+        {isPodcastLibrary ? (
+          <PodcastLibraryPage
+            session={session}
+            onLogout={handleLogout}
+            onNavigate={
+              onNavigate ||
+              ((path: string) => {
+                if (typeof window !== 'undefined') window.history.pushState(null, '', path);
+              })
+            }
+            onNavigateHome={onNavigateHome}
+            onCatalogChanged={onCatalogChanged}
+          />
+        ) : isVoiceLibrary ? (
           <VoiceLibraryPage
             session={session}
             onLogout={handleLogout}

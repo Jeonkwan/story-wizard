@@ -190,10 +190,13 @@ describe('Phase 8: GCS Data Migration Tooling (scripts/migrateToGcs.ts)', () => 
       expect(getContentType('DATA.JSON')).toBe('application/json');
     });
 
-    it('identifies WAV audio files as audio/wav', () => {
+    it('identifies WAV, M4A, JPG, and PNG media files with accurate MIME types', () => {
       expect(getContentType('v1-narration.wav')).toBe('audio/wav');
       expect(getContentType('stories/123/audios/v2.wav')).toBe('audio/wav');
       expect(getContentType('AUDIO.WAV')).toBe('audio/wav');
+      expect(getContentType('v1-narration.m4a')).toBe('audio/mp4');
+      expect(getContentType('podcasts/leo/cover.jpg')).toBe('image/jpeg');
+      expect(getContentType('podcasts/leo/cover.png')).toBe('image/png');
     });
 
     it('defaults unknown file extensions to application/octet-stream', () => {

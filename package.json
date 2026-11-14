@@ -12,7 +12,8 @@
     "test:e2e": "npm run seed && npm run build && playwright test",
     "seed": "tsx scripts/seedLocalData.ts",
     "tunnel": "bash scripts/tunnel.sh",
-    "migrate:gcs": "tsx scripts/migrateToGcs.ts"
+    "migrate:gcs": "tsx scripts/migrateToGcs.ts",
+    "migrate:m4a": "tsx --env-file-if-exists=.env scripts/migrateWavToM4a.ts"
   },
   "dependencies": {
     "@google-cloud/storage": "^7.15.2",

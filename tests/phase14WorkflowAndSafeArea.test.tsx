@@ -220,7 +220,8 @@ describe('Phase 14: One-Tap Chained Pipeline, Story Length & Name Diversity Test
       expect(story.audio_versions[0].casting.mode).toBe('solo');
       expect(story.audio_versions[0].casting.narrator_voice_id).toBe('prebuilt-kore');
       expect(story.audio_versions[0].is_default).toBe(true);
-      expect(story.audio_versions[0].audio_url).toContain('.wav');
+      expect(story.audio_versions[0].audio_url).toContain('.m4a');
+      expect(story.audio_versions[0].wav_url).toContain('.wav');
     });
 
     it('chains Writer -> Director without TTS when autoSynthesize is false', async () => {

@@ -1,7 +1,18 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import type { Story, VoiceCasting, VoiceEntry, VoicePace } from '../../shared/types';
+import type {
+  AudioVersion,
+  PodcastConfig,
+  Story,
+  VoiceCasting,
+  VoiceEntry,
+  VoicePace,
+} from '../../shared/types';
+import { getLosslessWavUrl } from '../../shared/types';
 import {
   fetchVoices,
+  fetchAdminPodcasts,
+  releaseStoryToPodcast,
+  unreleaseStoryFromPodcast,
   previewVoiceAudio,
   createCustomVoice,
   synthesizeStoryAudio,
@@ -84,6 +95,12 @@ export function VoiceStudioPanel({
   const [showFullNarratorPrompt, setShowFullNarratorPrompt] = useState<boolean>(true);
   const [copiedPrompt, setCopiedPrompt] = useState<boolean>(false);
 
+  // Dynamic bucket-driven podcast release state
+  const [podcasts, setPodcasts] = useState<PodcastConfig[]>([]);
+  const [selectedPodcastVersions, setSelectedPodcastVersions] = useState<Record<string, string>>({});
+  const [podcastBusyId, setPodcastBusyId] = useState<string | null>(null);
+  const [podcastError, setPodcastError] = useState<string | null>(null);
+
   // Stop any active audition preview and clean up object URLs
   const stopAudition = useCallback(() => {
     if (currentAudioRef.current) {
@@ -137,6 +154,63 @@ export function VoiceStudioPanel({
   useEffect(() => {
     loadVoices();
   }, [loadVoices]);
+
+  // Dynamically discover bucket-configured podcasts so release controls stay hidden when 0 exist
+  useEffect(() => {
+    let mounted = true;
+    fetchAdminPodcasts()
+      .then((list) => {
+        if (mounted) {
+          setPodcasts(list);
+        }
+      })
+      .catch(() => {
+        // Ignore errors when podcast endpoint is unavailable in isolated unit tests
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [story.id]);
+
+  const getWavDownloadHref = (ver: AudioVersion): string =>
+    `${getLosslessWavUrl(ver)}?download=1`;
+
+  const handleReleaseToPodcast = async (podcastId: string, versionId: string) => {
+    setPodcastBusyId(podcastId);
+    setPodcastError(null);
+    try {
+      const updatedPodcast = await releaseStoryToPodcast(podcastId, {
+        storyId: story.id,
+        versionId,
+      });
+      setPodcasts((prev) => prev.map((p) => (p.id === updatedPodcast.id ? updatedPodcast : p)));
+      if (story.status !== 'published') {
+        try {
+          const refreshedStory = await fetchStory(story.id);
+          onStoryUpdated(refreshedStory);
+        } catch {
+          // Non-fatal
+        }
+      }
+    } catch (err) {
+      setPodcastError(err instanceof Error ? err.message : 'Failed to release story to podcast');
+    } finally {
+      setPodcastBusyId(null);
+    }
+  };
+
+  const handleUnreleaseFromPodcast = async (podcastId: string) => {
+    setPodcastBusyId(podcastId);
+    setPodcastError(null);
+    try {
+      const updatedPodcast = await unreleaseStoryFromPodcast(podcastId, story.id);
+      setPodcasts((prev) => prev.map((p) => (p.id === updatedPodcast.id ? updatedPodcast : p)));
+    } catch (err) {
+      setPodcastError(err instanceof Error ? err.message : 'Failed to unrelease story from podcast');
+    } finally {
+      setPodcastBusyId(null);
+    }
+  };
 
   // Handle external initialNarratorVoiceId updates
   useEffect(() => {
@@ -1026,7 +1100,17 @@ export function VoiceStudioPanel({
                       )}
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                      <a
+                        href={getWavDownloadHref(ver)}
+                        download
+                        className="btn-tactile"
+                        data-testid={`download-wav-${ver.version_id}`}
+                        style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem', textDecoration: 'none' }}
+                      >
+                        ⬇ WAV
+                      </a>
+
                       {!ver.is_default && (
                         <button
                           type="button"
@@ -1093,6 +1177,145 @@ export function VoiceStudioPanel({
         )}
       </div>
     </section>
+
+    {/* Dynamic Bucket-Driven Podcast Release Section (shown only when >= 1 podcast exists & story has audio) */}
+    {podcasts.length > 0 && story.audio_versions.length > 0 && (
+      <section
+        className="card-tactile"
+        data-testid="story-podcast-release-panel"
+        style={{
+          padding: '1.1rem',
+          backgroundColor: 'var(--bg-surface)',
+          borderLeft: '4px solid var(--accent-primary)',
+          marginTop: '1rem',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
+          <h4
+            style={{
+              margin: 0,
+              fontFamily: 'var(--font-mono)',
+              fontSize: '0.85rem',
+              fontWeight: 700,
+              color: 'var(--ink-primary)',
+            }}
+          >
+            📻 PODCAST RELEASE
+          </h4>
+          <span style={{ fontSize: '0.78rem', color: 'var(--ink-muted)' }}>
+            Release this story directly to private Apple Podcasts feeds
+          </span>
+        </div>
+
+        {podcastError && (
+          <p style={{ margin: '0 0 0.6rem 0', color: 'var(--accent-state)', fontSize: '0.8rem', fontWeight: 600 }}>
+            ⚠️ {podcastError}
+          </p>
+        )}
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+          {podcasts.map((podcast) => {
+            const existingEp = (podcast.episodes || []).find((ep) => ep.story_id === story.id);
+            const defaultVerId =
+              story.audio_versions.find((v) => v.is_default)?.version_id ||
+              story.audio_versions[0].version_id;
+            const selectedVerId =
+              selectedPodcastVersions[podcast.id] ||
+              existingEp?.version_id ||
+              defaultVerId;
+            const isBusy = podcastBusyId === podcast.id;
+            const versionChanged = Boolean(existingEp && selectedVerId !== existingEp.version_id);
+
+            return (
+              <div
+                key={podcast.id}
+                className="card-tactile"
+                data-testid={`story-podcast-row-${podcast.id}`}
+                style={{
+                  padding: '0.7rem 0.85rem',
+                  backgroundColor: 'var(--bg-canvas)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: '0.6rem',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', minWidth: 0 }}>
+                  <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--ink-primary)' }}>
+                    {podcast.title}
+                  </span>
+                  <span
+                    className="badge-mono"
+                    style={{
+                      fontSize: '0.7rem',
+                      backgroundColor: existingEp ? 'var(--accent-root-bg)' : 'var(--bg-well)',
+                      color: existingEp ? 'var(--accent-root)' : 'var(--ink-muted)',
+                      fontWeight: existingEp ? 700 : 500,
+                    }}
+                  >
+                    {existingEp ? '✓ Released' : 'Not Released'}
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
+                  {story.audio_versions.length > 1 && (
+                    <select
+                      aria-label={`Select audio version for ${podcast.title}`}
+                      data-testid={`podcast-release-version-${podcast.id}`}
+                      className="input-tactile"
+                      value={selectedVerId}
+                      disabled={isBusy}
+                      onChange={(e) =>
+                        setSelectedPodcastVersions((prev) => ({
+                          ...prev,
+                          [podcast.id]: e.target.value,
+                        }))
+                      }
+                      style={{ fontSize: '0.8rem', padding: '0.25rem 0.45rem' }}
+                    >
+                      {story.audio_versions.map((ver) => (
+                        <option key={ver.version_id} value={ver.version_id}>
+                          {ver.label}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+
+                  <button
+                    type="button"
+                    className={`btn-tactile ${!existingEp || versionChanged ? 'btn-tactile-primary' : ''}`}
+                    data-testid={`podcast-release-btn-${podcast.id}`}
+                    disabled={isBusy}
+                    onClick={() => handleReleaseToPodcast(podcast.id, selectedVerId)}
+                    style={{ fontSize: '0.78rem', padding: '0.3rem 0.65rem' }}
+                  >
+                    {existingEp
+                      ? versionChanged
+                        ? '🔄 Update Version'
+                        : '✓ Released'
+                      : '📻 Release to Podcast'}
+                  </button>
+
+                  {existingEp && (
+                    <button
+                      type="button"
+                      className="btn-tactile"
+                      data-testid={`podcast-unrelease-btn-${podcast.id}`}
+                      disabled={isBusy}
+                      onClick={() => handleUnreleaseFromPodcast(podcast.id)}
+                      style={{ fontSize: '0.78rem', padding: '0.3rem 0.6rem', color: 'var(--accent-state)' }}
+                    >
+                      ✕ Unrelease
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+    )}
   </div>
 );
 }

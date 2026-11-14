@@ -4,6 +4,7 @@ import type { StorageAdapter } from '../storage/storageAdapter.js';
 import { validateSlug } from '../storage/storageAdapter.js';
 import { ValidationError, ConflictError, NotFoundError } from '../lib/validators.js';
 import { extractPcmFromWavOrRaw, createSilencePcm, wrapPcmAsWav } from '../lib/wav.js';
+import { transcodeWavToM4a, type M4aTranscoder } from '../lib/m4a.js';
 import { storyToCatalogItem } from './geminiStory.js';
 import type {
   AudioVersion,
@@ -330,14 +331,17 @@ export const DEFAULT_PREBUILT_VOICES: VoiceEntry[] = [
 
 export class GeminiTtsService {
   private readonly ttsProvider: TtsProvider;
+  private readonly m4aTranscoder: M4aTranscoder;
 
   constructor(
     private readonly config: AppConfig,
     private readonly storage: StorageAdapter,
-    ttsProvider?: TtsProvider
+    ttsProvider?: TtsProvider,
+    m4aTranscoder?: M4aTranscoder
   ) {
     this.ttsProvider =
       ttsProvider || new GoogleGenAITtsProvider(this.config.geminiApiKey);
+    this.m4aTranscoder = m4aTranscoder || transcodeWavToM4a;
   }
 
   /**
@@ -1012,6 +1016,7 @@ export class GeminiTtsService {
 
     const fullPcm = Buffer.concat(chainedPcm);
     const { wav, durationSec } = wrapPcmAsWav(fullPcm);
+    const m4a = await this.m4aTranscoder(wav);
 
     // Generate version ID slug
     const baseLabel = (
@@ -1033,8 +1038,9 @@ export class GeminiTtsService {
     const versionId = `v${versionNum}-${kebabLabel}-${timestamp}`;
     validateSlug(versionId, 'versionId');
 
-    // Save audio WAV to storage
+    // Save both lossless WAV and faststart AAC-LC M4A to storage
     await this.storage.saveAudio(story.id, versionId, wav);
+    await this.storage.saveAudioM4a(story.id, versionId, m4a);
 
     const shouldBeDefault =
       !story.audio_versions || story.audio_versions.length === 0
@@ -1062,7 +1068,9 @@ export class GeminiTtsService {
       casting: normalizedCasting,
       is_default: shouldBeDefault,
       duration_sec: durationSec,
-      audio_url: `/api/stories/${story.id}/audios/${versionId}.wav`,
+      audio_url: `/api/stories/${story.id}/audios/${versionId}.m4a`,
+      wav_url: `/api/stories/${story.id}/audios/${versionId}.wav`,
+      m4a_size_bytes: m4a.length,
       created_at: new Date().toISOString(),
     };
 

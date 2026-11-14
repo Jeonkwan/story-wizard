@@ -54,6 +54,15 @@ export function getContentType(filePath: string): string {
   if (lower.endsWith('.wav')) {
     return 'audio/wav';
   }
+  if (lower.endsWith('.m4a')) {
+    return 'audio/mp4';
+  }
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) {
+    return 'image/jpeg';
+  }
+  if (lower.endsWith('.png')) {
+    return 'image/png';
+  }
   return 'application/octet-stream';
 }
 
@@ -82,7 +91,14 @@ export async function discoverDataFiles(dataDir: string): Promise<MigrationFile[
         await walk(fullPath);
       } else if (entry.isFile()) {
         const lower = entry.name.toLowerCase();
-        if (lower.endsWith('.json') || lower.endsWith('.wav')) {
+        if (
+          lower.endsWith('.json') ||
+          lower.endsWith('.wav') ||
+          lower.endsWith('.m4a') ||
+          lower.endsWith('.jpg') ||
+          lower.endsWith('.jpeg') ||
+          lower.endsWith('.png')
+        ) {
           const stats = await fs.promises.stat(fullPath);
           const relativePath = path.relative(resolvedDir, fullPath).replace(/\\/g, '/');
           results.push({

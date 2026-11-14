@@ -118,8 +118,37 @@ export interface AudioVersion {
   casting: VoiceCasting;
   is_default: boolean;
   duration_sec: number;
-  audio_url: string;               // "/api/stories/{story_id}/audios/{version_id}.wav"
+  audio_url: string;               // Default streaming URL: "/api/stories/{story_id}/audios/{version_id}.m4a" (or legacy .wav)
+  wav_url?: string;                // Lossless download URL: "/api/stories/{story_id}/audios/{version_id}.wav"
+  m4a_size_bytes?: number;         // Exact byte length of .m4a file for RSS <enclosure length="...">
   created_at: string;
+}
+
+/**
+ * Resolves the lossless .wav download URL for an AudioVersion, preserving
+ * explicit `wav_url` if set or deriving it from an `.m4a` `audio_url`.
+ */
+export function getLosslessWavUrl(version: { audio_url: string; wav_url?: string }): string {
+  return version.wav_url || version.audio_url.replace(/\.m4a$/i, '.wav');
+}
+
+export interface PodcastEpisodeEntry {
+  story_id: string;                // References Story.id (unique per podcast — no duplicates)
+  version_id: string;              // References AudioVersion.version_id on that story
+  published_at: string;            // ISO 8601 timestamp when released to this podcast
+}
+
+export interface PodcastConfig {
+  id: string;                      // Slug matching SLUG_REGEX, e.g. "leo-bedtime"
+  title: string;                   // e.g. "Leo's Bedtime Stories"
+  author: string;                  // Default "Storyteller Studio"
+  description: string;             // Short summary for <description> and <itunes:summary>
+  language: string;                // Default "en-us"
+  token: string;                   // Secret token required on GET /api/podcasts/:id/feed.xml?token=...
+  cover_image_url?: string | null; // Optional "/api/podcasts/{id}/cover.jpg" if present in bucket
+  episodes: PodcastEpisodeEntry[]; // Ordered list of opted-in story episodes (deduplicated by story_id)
+  created_at: string;              // ISO 8601
+  updated_at: string;              // ISO 8601
 }
 
 export interface SeriesContext {
