@@ -24,8 +24,9 @@ import type {
   PromptedVoiceRequest,
   PromptedVoiceResponse,
 } from '../server/services/geminiTts.js';
-import type { CatalogItem, PodcastConfig, Story, VoiceEntry } from '../shared/types.js';
+import type { CatalogItem, PodcastConfig, PublicPodcastSummary, Story, VoiceEntry } from '../shared/types.js';
 import { PodcastLibraryPage } from '../client/components/PodcastLibraryPage.js';
+import { StoryCatalog } from '../client/components/StoryCatalog.js';
 import { VoiceStudioPanel } from '../client/components/VoiceStudioPanel.js';
 import { StoryReader } from '../client/components/StoryReader.js';
 
@@ -522,6 +523,117 @@ describe('Phase 17: FFmpeg M4A Streaming, Lossless WAV Download, Migration & Pod
     expect(cleanedPodcast.episodes).toHaveLength(0);
   });
 
+  it('GET /api/podcasts exposes only token-free public feeds, counts published audio episodes, and omits tokens', async () => {
+    const pubStory: Story = {
+      id: 'pub-pod-story',
+      status: 'published',
+      title: 'Public Starlight Tale',
+      summary: 'A free bedtime episode.',
+      tags: ['bedtime'],
+      series_context: null,
+      characters: [],
+      script_turns: [{ turn_id: 1, speaker: 'Narrator', style: 'Calm', text: 'Sweet dreams.' }],
+      voice_candidates: [],
+      audio_versions: [
+        {
+          version_id: 'v1',
+          label: 'Kore',
+          casting: { mode: 'solo', narrator_voice_id: 'prebuilt-kore', character_voices: {} },
+          is_default: true,
+          duration_sec: 12,
+          audio_url: '/api/stories/pub-pod-story/audios/v1.m4a',
+          created_at: '2026-11-10T00:00:00.000Z',
+        },
+      ],
+      created_at: '2026-11-10T00:00:00.000Z',
+      updated_at: '2026-11-10T00:00:00.000Z',
+    };
+    const draftStory: Story = {
+      ...pubStory,
+      id: 'draft-pod-story',
+      status: 'draft',
+      title: 'Draft Only',
+    };
+
+    await storage.saveStory(pubStory);
+    await storage.saveStory(draftStory);
+    await storage.saveCatalog([
+      {
+        id: pubStory.id,
+        status: 'published',
+        title: pubStory.title,
+        summary: pubStory.summary,
+        tags: pubStory.tags,
+        series_id: null,
+        episode_number: null,
+        default_audio_url: '/api/stories/pub-pod-story/audios/v1.m4a',
+        audio_versions_count: 1,
+        created_at: pubStory.created_at,
+        updated_at: pubStory.updated_at,
+      },
+      {
+        id: draftStory.id,
+        status: 'draft',
+        title: draftStory.title,
+        summary: draftStory.summary,
+        tags: draftStory.tags,
+        series_id: null,
+        episode_number: null,
+        default_audio_url: '/api/stories/draft-pod-story/audios/v1.m4a',
+        audio_versions_count: 1,
+        created_at: draftStory.created_at,
+        updated_at: draftStory.updated_at,
+      },
+    ]);
+
+    await storage.savePodcast({
+      id: 'public-bedtime-radio',
+      title: 'Public Bedtime Radio',
+      author: 'Storyteller Studio',
+      description: 'Open feed for everyone.',
+      language: 'en-us',
+      token: '',
+      episodes: [
+        { story_id: pubStory.id, version_id: 'v1', published_at: '2026-11-10T00:00:00.000Z' },
+        { story_id: draftStory.id, version_id: 'v1', published_at: '2026-11-10T00:00:00.000Z' },
+      ],
+      created_at: '2026-11-10T00:00:00.000Z',
+      updated_at: '2026-11-10T00:00:00.000Z',
+    });
+
+    await storage.savePodcast({
+      id: 'private-family-vault',
+      title: 'Private Family Vault',
+      author: 'Family',
+      description: 'Protected by secret token.',
+      language: 'en-us',
+      token: 'super-secret-token-xyz',
+      episodes: [
+        { story_id: pubStory.id, version_id: 'v1', published_at: '2026-11-10T00:00:00.000Z' },
+      ],
+      created_at: '2026-11-10T00:00:00.000Z',
+      updated_at: '2026-11-10T00:00:00.000Z',
+    });
+
+    const res = await request(app).get('/api/podcasts');
+    expect(res.status).toBe(200);
+    expect(res.body.podcasts).toHaveLength(1);
+    const pub = res.body.podcasts[0];
+    expect(pub).toEqual({
+      id: 'public-bedtime-radio',
+      title: 'Public Bedtime Radio',
+      author: 'Storyteller Studio',
+      description: 'Open feed for everyone.',
+      language: 'en-us',
+      episode_count: 1,
+      feed_url: '/api/podcasts/public-bedtime-radio/feed.xml',
+      cover_image_url: null,
+    });
+    expect(pub).not.toHaveProperty('token');
+    expect(JSON.stringify(res.body)).not.toContain('super-secret-token-xyz');
+    expect(JSON.stringify(res.body)).not.toContain('private-family-vault');
+  });
+
   /* -------------------------------------------------------------------------
    * 4. Frontend UI Tests (PodcastLibraryPage, VoiceStudioPanel, StoryReader)
    * ----------------------------------------------------------------------- */
@@ -858,5 +970,78 @@ describe('Phase 17: FFmpeg M4A Streaming, Lossless WAV Download, Migration & Pod
       'href',
       '/api/stories/reader-wav-story/audios/v1-bell.wav?download=1'
     );
+  });
+
+  it('StoryCatalog hides Podcast RSS button when publicPodcasts is empty and opens modal + copies URL when populated', async () => {
+    const sampleCatalog: CatalogItem[] = [
+      {
+        id: 'cat-story-1',
+        status: 'published',
+        title: 'Starry Night Bus',
+        summary: 'A bus rides to the moon.',
+        tags: ['bedtime'],
+        series_id: null,
+        episode_number: null,
+        default_audio_url: '/api/stories/cat-story-1/audios/v1.m4a',
+        audio_versions_count: 1,
+        created_at: '2026-11-10T00:00:00.000Z',
+        updated_at: '2026-11-10T00:00:00.000Z',
+      },
+    ];
+
+    const { unmount } = render(
+      <StoryCatalog catalog={sampleCatalog} publicPodcasts={[]} onSelectStory={() => {}} />
+    );
+    expect(screen.queryByTestId('public-podcast-subscribe-btn')).not.toBeInTheDocument();
+    unmount();
+
+    const writeTextMock = vi.fn(async () => {});
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: writeTextMock },
+      configurable: true,
+    });
+
+    const publicPodcasts: PublicPodcastSummary[] = [
+      {
+        id: 'storyteller-studio',
+        title: 'Storyteller Studio Radio',
+        author: 'Storyteller Studio',
+        description: 'Bedtime stories for the whole family.',
+        language: 'en-us',
+        episode_count: 3,
+        feed_url: '/api/podcasts/storyteller-studio/feed.xml',
+        cover_image_url: null,
+      },
+    ];
+
+    render(
+      <StoryCatalog
+        catalog={sampleCatalog}
+        publicPodcasts={publicPodcasts}
+        onSelectStory={() => {}}
+      />
+    );
+
+    const openBtn = screen.getByTestId('public-podcast-subscribe-btn');
+    expect(openBtn).toBeInTheDocument();
+    fireEvent.click(openBtn);
+
+    const modal = screen.getByTestId('public-podcast-modal');
+    expect(modal).toBeInTheDocument();
+    expect(modal).toHaveTextContent('Storyteller Studio Radio');
+    expect(modal).toHaveTextContent('3 episodes');
+
+    const rssInput = screen.getByTestId('public-rss-url-storyteller-studio') as HTMLInputElement;
+    expect(rssInput.value).toBe(`${window.location.origin}/api/podcasts/storyteller-studio/feed.xml`);
+
+    fireEvent.click(screen.getByTestId('public-copy-rss-storyteller-studio'));
+    await waitFor(() => {
+      expect(writeTextMock).toHaveBeenCalledWith(
+        `${window.location.origin}/api/podcasts/storyteller-studio/feed.xml`
+      );
+    });
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByTestId('public-podcast-modal')).not.toBeInTheDocument();
   });
 });

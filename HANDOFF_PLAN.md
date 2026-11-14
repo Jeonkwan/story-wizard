@@ -2042,6 +2042,10 @@ Following `phase-17-verified`:
 3. **Cloud Run Production Deployment (`./deploy.sh`):**
    - Built and deployed Cloud Run revision `storyteller-studio-00010-899` (`mokamaker-gcp`, `asia-southeast1`, `https://storyteller-studio-wrtjpohpgq-as.a.run.app`) with `GOOGLE_CLIENT_ID`, `GCS_BUCKET_NAME`, `ADMIN_GOOGLE_EMAIL`, and Secret Manager bindings (`storyteller-session-secret:latest`, `storyteller-gemini-api-key:latest`).
    - Verified live `.m4a` `206 Partial Content` (`audio/mp4`), `.wav?download=1` attachment download, `devBypassEnabled: false` + active `googleClientId` on `/api/admin/me`, and `/api/podcasts/:id/feed.xml` route availability.
+4. **Public (Token-Free) Podcast RSS Discovery (`GET /api/podcasts` & Storybook Library Modal):**
+   - Added `PublicPodcastSummary` (`shared/types.ts`) and `GET /api/podcasts` (`server/routes/public.ts`), strictly filtering to feeds where `token` is empty (`!p.token || p.token.trim().length === 0`) and never exposing secret `token`s or token-protected private feeds.
+   - Added `fetchPublicPodcasts()` (`client/api/client.ts`), wired `publicPodcasts` state in `client/App.tsx`, and added the conditional `📻 Podcast RSS` button (`data-testid="public-podcast-subscribe-btn"`, hidden when `publicPodcasts.length === 0`) + Fireside Espresso modal (`data-testid="public-podcast-modal"`) in `client/components/StoryCatalog.tsx` with copyable RSS link, Overcast (`overcast://`), and Apple Podcasts (`podcast://`) deep-links.
+   - Covered by API + UI unit tests (`tests/phase17PodcastAndM4a.test.tsx`) and responsive E2E checks (`tests/e2e/qa-phase17.spec.ts`).
 
 
 

@@ -144,11 +144,26 @@ export interface PodcastConfig {
   author: string;                  // Default "Storyteller Studio"
   description: string;             // Short summary for <description> and <itunes:summary>
   language: string;                // Default "en-us"
-  token: string;                   // Secret token required on GET /api/podcasts/:id/feed.xml?token=...
+  token: string;                   // Secret token required on GET /api/podcasts/:id/feed.xml?token=... (empty = public)
   cover_image_url?: string | null; // Optional "/api/podcasts/{id}/cover.jpg" if present in bucket
   episodes: PodcastEpisodeEntry[]; // Ordered list of opted-in story episodes (deduplicated by story_id)
   created_at: string;              // ISO 8601
   updated_at: string;              // ISO 8601
+}
+
+/**
+ * Sanitized public-facing summary for open podcast feeds (`token === ""`).
+ * Never includes secret tokens or private token-gated podcasts.
+ */
+export interface PublicPodcastSummary {
+  id: string;
+  title: string;
+  author: string;
+  description: string;
+  language: string;
+  episode_count: number;
+  feed_url: string;
+  cover_image_url?: string | null;
 }
 
 export interface SeriesContext {

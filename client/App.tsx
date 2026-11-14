@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import type { AudioVersion, CatalogItem, Story } from '../shared/types';
-import { fetchCatalog, fetchStory, fetchAdminSession, deleteStory, type AdminSession } from './api/client';
+import type { AudioVersion, CatalogItem, PublicPodcastSummary, Story } from '../shared/types';
+import { fetchCatalog, fetchPublicPodcasts, fetchStory, fetchAdminSession, deleteStory, type AdminSession } from './api/client';
 import { Masthead } from './components/Masthead';
 import { StoryCatalog } from './components/StoryCatalog';
 import { StoryReader } from './components/StoryReader';
@@ -22,6 +22,7 @@ export function App(): React.JSX.Element {
 
   const [activeAudioVersion, setActiveAudioVersion] = useState<AudioVersion | null>(null);
   const [adminSession, setAdminSession] = useState<AdminSession | null>(null);
+  const [publicPodcasts, setPublicPodcasts] = useState<PublicPodcastSummary[]>([]);
 
   // Sync admin session on route changes
   useEffect(() => {
@@ -104,6 +105,9 @@ export function App(): React.JSX.Element {
         setCatalogError(err instanceof Error ? err.message : 'Failed to load catalog');
         setLoadingCatalog(false);
       });
+    fetchPublicPodcasts()
+      .then(setPublicPodcasts)
+      .catch(() => setPublicPodcasts([]));
   }, []);
 
   // Fetch catalog on mount
@@ -225,6 +229,7 @@ export function App(): React.JSX.Element {
             ) : (
               <StoryCatalog
                 catalog={catalog}
+                publicPodcasts={publicPodcasts}
                 onSelectStory={handleSelectStory}
                 loading={loadingCatalog}
                 isAdmin={Boolean(adminSession?.authenticated)}

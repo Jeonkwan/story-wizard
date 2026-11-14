@@ -206,6 +206,60 @@ test.describe('Phase 17: M4A Streaming, Lossless WAV Download & Dynamic Private 
         path: 'qa-screenshots/phase17-mobile-podcasts-tab-dark.png',
         fullPage: false,
       });
+
+      // Public podcast RSS discovery: create a podcast, make it public via PATCH token: '', and verify visitor modal on /
+      const pubCreateRes = await page.request.post('/api/admin/podcasts', {
+        data: {
+          title: 'Public Family Radio',
+          author: 'Storyteller Studio',
+          description: 'Open public story feed.',
+          language: 'en-us',
+        },
+      });
+      expect(pubCreateRes.status()).toBe(201);
+      const createdPubPodcast = await pubCreateRes.json();
+      const createdPubId: string = createdPubPodcast.id;
+
+      try {
+        const makePublicRes = await page.request.patch(`/api/admin/podcasts/${createdPubId}`, {
+          data: { token: '' },
+        });
+        expect(makePublicRes.status()).toBe(200);
+        await page.request.post(`/api/admin/podcasts/${createdPubId}/episodes`, {
+          data: { storyId: '2026-11-04-sleepy-little-train', versionId: 'v1-owl-solo' },
+        });
+
+        await page.setViewportSize({ width: 1440, height: 900 });
+        await page.goto('/');
+        const publicBtn = page.getByTestId('public-podcast-subscribe-btn');
+        await expect(publicBtn).toBeVisible();
+        await publicBtn.click();
+
+        const publicModal = page.getByTestId('public-podcast-modal');
+        await expect(publicModal).toBeVisible();
+        const publicRssValue = await page
+          .getByTestId(`public-rss-url-${createdPubId}`)
+          .inputValue();
+        expect(publicRssValue).toContain(`/api/podcasts/${createdPubId}/feed.xml`);
+        expect(publicRssValue).not.toContain('?token=');
+
+        const publicFeedRes = await page.request.get(publicRssValue);
+        expect(publicFeedRes.status()).toBe(200);
+        expect(await publicFeedRes.text()).toContain('<title>The Sleepy Little Train</title>');
+
+        // Verify mobile responsiveness (375x812) with modal open & zero horizontal overflow
+        await page.setViewportSize({ width: 375, height: 812 });
+        await expect(publicModal).toBeVisible();
+        const modalMobileOverflow = await page.evaluate(
+          () => document.documentElement.scrollWidth > window.innerWidth
+        );
+        expect(modalMobileOverflow).toBe(false);
+
+        await page.getByTestId('public-podcast-modal-close').click();
+        await expect(publicModal).not.toBeVisible();
+      } finally {
+        await page.request.delete(`/api/admin/podcasts/${createdPubId}`).catch(() => undefined);
+      }
     } finally {
       // Clean up test podcast so local ./data/podcasts stays clean across runs
       await page.request.delete(`/api/admin/podcasts/${createdPodcastId}`).catch(() => undefined);

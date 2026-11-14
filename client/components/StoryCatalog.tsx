@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from 'react';
-import type { CatalogItem } from '../../shared/types';
+import React, { useEffect, useMemo, useState } from 'react';
+import type { CatalogItem, PublicPodcastSummary } from '../../shared/types';
 
 export interface StoryCatalogProps {
   catalog: CatalogItem[];
+  publicPodcasts?: PublicPodcastSummary[];
   onSelectStory: (storyId: string) => void;
   loading?: boolean;
   isAdmin?: boolean;
@@ -11,6 +12,7 @@ export interface StoryCatalogProps {
 
 export function StoryCatalog({
   catalog,
+  publicPodcasts = [],
   onSelectStory,
   loading = false,
   isAdmin = false,
@@ -21,6 +23,35 @@ export function StoryCatalog({
   const [selectedSeries, setSelectedSeries] = useState('all');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [showPodcastModal, setShowPodcastModal] = useState(false);
+  const [copiedPodcastId, setCopiedPodcastId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!showPodcastModal) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setShowPodcastModal(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showPodcastModal]);
+
+  const handleCopyRss = async (podcast: PublicPodcastSummary) => {
+    const fullUrl =
+      typeof window !== 'undefined' ? `${window.location.origin}${podcast.feed_url}` : podcast.feed_url;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(fullUrl);
+      }
+      setCopiedPodcastId(podcast.id);
+      setTimeout(() => {
+        setCopiedPodcastId((prev) => (prev === podcast.id ? null : prev));
+      }, 2000);
+    } catch {
+      // Clipboard access can be restricted in headless browsers; the read-only input remains selectable.
+    }
+  };
 
   // Extract unique tags and series
   const uniqueTags = useMemo(() => {
@@ -111,6 +142,18 @@ export function StoryCatalog({
               </option>
             ))}
           </select>
+
+          {publicPodcasts.length > 0 && (
+            <button
+              type="button"
+              className="btn-tactile"
+              data-testid="public-podcast-subscribe-btn"
+              onClick={() => setShowPodcastModal(true)}
+              style={{ whiteSpace: 'nowrap' }}
+            >
+              📻 Podcast RSS
+            </button>
+          )}
         </div>
 
         {uniqueTags.length > 1 && (
@@ -225,6 +268,186 @@ export function StoryCatalog({
               </div>
             </article>
           ))}
+        </div>
+      )}
+
+      {showPodcastModal && publicPodcasts.length > 0 && (
+        <div
+          className="focus-composer-overlay"
+          data-testid="public-podcast-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="public-podcast-modal-title"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowPodcastModal(false);
+            }
+          }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(18, 12, 8, 0.72)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1rem',
+            zIndex: 1000,
+          }}
+        >
+          <div
+            className="card-tactile"
+            style={{
+              width: '100%',
+              maxWidth: '520px',
+              maxHeight: '85vh',
+              overflowY: 'auto',
+              boxSizing: 'border-box',
+              padding: '1.25rem',
+              backgroundColor: 'var(--bg-surface)',
+              border: '1px solid var(--border-subtle)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '1rem',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '0.75rem',
+                minWidth: 0,
+              }}
+            >
+              <h2
+                id="public-podcast-modal-title"
+                style={{
+                  margin: 0,
+                  fontSize: '1.15rem',
+                  color: 'var(--ink-primary)',
+                }}
+              >
+                📻 Listen in Your Podcast App
+              </h2>
+              <button
+                type="button"
+                className="btn-tactile"
+                data-testid="public-podcast-modal-close"
+                onClick={() => setShowPodcastModal(false)}
+                style={{ flexShrink: 0 }}
+              >
+                ✕ Close
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', minWidth: 0 }}>
+              {publicPodcasts.map((podcast) => {
+                const origin = typeof window !== 'undefined' ? window.location.origin : '';
+                const fullUrl = `${origin}${podcast.feed_url}`;
+                const appleUrl = `podcast://${fullUrl.replace(/^https?:\/\//, '')}`;
+                const overcastUrl = `overcast://x-callback-url/add?url=${encodeURIComponent(fullUrl)}`;
+                const isCopied = copiedPodcastId === podcast.id;
+
+                return (
+                  <div
+                    key={podcast.id}
+                    data-testid={`public-podcast-card-${podcast.id}`}
+                    style={{
+                      padding: '0.9rem',
+                      borderRadius: 'var(--radius-tactile)',
+                      backgroundColor: 'var(--bg-well)',
+                      border: '1px solid var(--border-subtle)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.65rem',
+                      minWidth: 0,
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '0.5rem',
+                        flexWrap: 'wrap',
+                        minWidth: 0,
+                      }}
+                    >
+                      <strong style={{ color: 'var(--ink-primary)', fontSize: '1rem' }}>
+                        {podcast.title}
+                      </strong>
+                      <span className="badge-mono">
+                        {podcast.episode_count}{' '}
+                        {podcast.episode_count === 1 ? 'episode' : 'episodes'}
+                      </span>
+                    </div>
+
+                    {podcast.author && (
+                      <div style={{ fontSize: '0.85rem', color: 'var(--ink-muted)' }}>
+                        By {podcast.author}
+                      </div>
+                    )}
+
+                    {podcast.description && (
+                      <p
+                        style={{
+                          margin: 0,
+                          fontSize: '0.9rem',
+                          color: 'var(--ink-muted)',
+                          lineHeight: 1.45,
+                        }}
+                      >
+                        {podcast.description}
+                      </p>
+                    )}
+
+                    <input
+                      type="text"
+                      readOnly
+                      className="input-tactile"
+                      aria-label={`${podcast.title} RSS feed URL`}
+                      data-testid={`public-rss-url-${podcast.id}`}
+                      value={fullUrl}
+                      onFocus={(e) => e.currentTarget.select()}
+                      style={{
+                        width: '100%',
+                        minWidth: 0,
+                        boxSizing: 'border-box',
+                        fontSize: '0.8rem',
+                      }}
+                    />
+
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', minWidth: 0 }}>
+                      <button
+                        type="button"
+                        className="btn-tactile btn-tactile-primary"
+                        data-testid={`public-copy-rss-${podcast.id}`}
+                        onClick={() => {
+                          void handleCopyRss(podcast);
+                        }}
+                      >
+                        {isCopied ? '✓ Copied RSS Link' : '📋 Copy RSS Link'}
+                      </button>
+                      <a
+                        href={overcastUrl}
+                        className="btn-tactile"
+                        style={{ textDecoration: 'none' }}
+                      >
+                        🎧 Overcast
+                      </a>
+                      <a
+                        href={appleUrl}
+                        className="btn-tactile"
+                        style={{ textDecoration: 'none' }}
+                      >
+                        🎙️ Apple Podcasts
+                      </a>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       )}
     </section>

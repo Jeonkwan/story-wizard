@@ -3,6 +3,7 @@ import type {
   CharacterProfile,
   JobProgress,
   PodcastConfig,
+  PublicPodcastSummary,
   ScriptTurn,
   Story,
   StoryAgeRange,
@@ -580,4 +581,14 @@ export async function unreleaseStoryFromPodcast(
   );
   return handleResponse<PodcastConfig>(res);
 }
+
+/**
+ * Fetches publicly discoverable (token-free) podcast feeds for visitors.
+ */
+export async function fetchPublicPodcasts(): Promise<PublicPodcastSummary[]> {
+  const res = await fetch('/api/podcasts');
+  const data = await handleResponse<{ podcasts: PublicPodcastSummary[] }>(res);
+  return Array.isArray(data?.podcasts) ? data.podcasts : [];
+}
+
 

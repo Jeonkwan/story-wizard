@@ -10,6 +10,7 @@ import {
 } from '../storage/storageAdapter.js';
 import { ADMIN_COOKIE_NAME, verifyAdminSession } from '../middleware/auth.js';
 import { asyncHandler } from '../lib/asyncHandler.js';
+import type { PublicPodcastSummary } from '../../shared/types.js';
 
 /**
  * Escapes special XML characters so RSS 2.0 channel and item fields stay well-formed.
@@ -293,6 +294,40 @@ export function createPublicRouter(config: AppConfig, storage: StorageAdapter): 
         }
         throw err;
       }
+    })
+  );
+
+  // GET /api/podcasts — List public (token-free) podcast feeds for non-admin discovery
+  router.get(
+    '/podcasts',
+    asyncHandler(async (_req: Request, res: Response) => {
+      const [allPodcasts, catalog] = await Promise.all([
+        storage.listPodcasts(),
+        storage.getCatalog(),
+      ]);
+
+      const publishedAudioStoryIds = new Set(
+        catalog
+          .filter((item) => item.status === 'published' && item.audio_versions_count > 0)
+          .map((item) => item.id)
+      );
+
+      const publicPodcasts: PublicPodcastSummary[] = allPodcasts
+        .filter((podcast) => !podcast.token || podcast.token.trim().length === 0)
+        .map((podcast) => ({
+          id: podcast.id,
+          title: podcast.title,
+          author: podcast.author || 'Storyteller Studio',
+          description: podcast.description || podcast.title,
+          language: podcast.language || 'en-us',
+          episode_count: (podcast.episodes || []).filter((ep) =>
+            publishedAudioStoryIds.has(ep.story_id)
+          ).length,
+          feed_url: `/api/podcasts/${podcast.id}/feed.xml`,
+          cover_image_url: podcast.cover_image_url ?? null,
+        }));
+
+      res.json({ podcasts: publicPodcasts });
     })
   );
 
