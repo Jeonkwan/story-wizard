@@ -793,6 +793,7 @@ Use your interactive browser capabilities (`/browser`) on `http://localhost:8080
 - [x] **Phase 14:** One-Tap Chained Pipeline (`Write -> Auto-Direct -> Optional Auto-Synthesize`), Dedicated Story Length Control, Character Name Diversity, Age-Driven Complexity, & iPhone Safe-Area Support (`phase-14-verified`)
 - [x] **Phase 15:** Fire-and-Go Background Generation, Durable Job History (`jobs.json`), Activity Tray & Cloud Run `--no-cpu-throttling` (`phase-15-verified`)
 - [x] **Phase 16:** Switch Text/Multimodal LLM to `gemini-4-hydrogen` (`LOW` Reasoning Effort) & Update Subagent Policy to Gemini 4 Hydrogen (`High`) (`phase-16-verified`)
+- [ ] **Phase 17:** FFmpeg `.m4a` (AAC) Default Streaming, Lossless `.wav` Download, Automated `.m4a` Migration & Dynamic Bucket-Driven Private Podcast RSS Engine (`phase-17-verified`)
 
 ---
 
@@ -1725,6 +1726,309 @@ Although Phase 7 introduced `JobManager` and `?async=true`, users still felt for
 - [x] Playwright E2E (`npx playwright test`) passes cleanly (14/14 specs).
 - [~] Conditional live smoke check (`scripts/smokePhase3Live.ts`): Skipped cleanly because no live `GEMINI_API_KEY` is configured in `.env`.
 - [x] Completion audit written to `docs/audits/phase-16-audit.md` and milestone tagged `phase-16-verified`.
+
+---
+
+## 23. Phase 17 — FFmpeg `.m4a` (AAC) Default Streaming, Lossless `.wav` Download, Automated `.m4a` Migration & Dynamic Bucket-Driven Private Podcast RSS Engine
+
+### 23.1 Confirmed Architectural & Product Decisions
+
+1. **FFmpeg `.m4a` (AAC-LC `+faststart`) Compression & Default Streaming Everywhere:**
+   - **Native `ffmpeg` Integration:**
+     - Add `RUN apk add --no-cache ffmpeg` to `Dockerfile` (in both `builder` and `runner` stages so container builds and tests have native `ffmpeg`).
+     - In WSL Ubuntu development environment, ensure `ffmpeg` is installed via `sudo apt-get update && sudo apt-get install -y ffmpeg`.
+   - **Why `.m4a` (AAC) + `-movflags +faststart`:**
+     - Every synthesized story audio version is encoded from the 24kHz 16-bit mono WAV into `.m4a` using `ffmpeg -y -f wav -i <tmpIn.wav> -c:a aac -b:a 128k -movflags +faststart <tmpOut.m4a>` (using temporary files in `os.tmpdir()` so `ffmpeg` can seek backward and relocate the MP4 `moov` atom to byte `0` for instant HTTP 206 Range streaming).
+     - **Default Streaming:** Both the **Storyteller Studio web player** (`AudioVersion.audio_url` / `CatalogItem.default_audio_url`) and the **Podcast RSS `<enclosure>`** stream the compact `.m4a` file (`/api/stories/{id}/audios/{version_id}.m4a`) by default.
+     - **Lossless `.wav` Offline Download Only:** The uncompressed `.wav` file (`/api/stories/{id}/audios/{version_id}.wav?download=1`) is preserved in storage and exposed via a clean **`⬇ WAV`** download button in `StoryReader.tsx` (in the reader header/version area and admin version panel) and `VoiceStudioPanel.tsx` (in the audio versions list), keeping the compact floating mobile `AudioPlayerBar.tsx` uncluttered.
+     - **Voice Previews Untouched:** Short 4-second voice preview clips (`voices/{id}/preview.wav`) remain `.wav` (no dual `.m4a` storage needed for 4-second audition clips).
+
+2. **Dedicated Automated `.wav -> .m4a` Migration Task (`scripts/migrateWavToM4a.ts`):**
+   - Provide `npm run migrate:m4a` (`tsx --env-file-if-exists=.env scripts/migrateWavToM4a.ts`) and run it as part of Phase 17 implementation so all existing stories in local `./data/` (and in the GCS bucket when `GCS_BUCKET_NAME` is configured) automatically get `.m4a` files generated and `audio_url`, `wav_url`, `m4a_size_bytes`, and `catalog.json` (`default_audio_url`) updated with zero manual admin clicking.
+   - Update `scripts/seedLocalData.ts` so `npm run seed` writes both `.wav` and `.m4a` for all seeded story audio versions, and update `scripts/migrateToGcs.ts` to handle `.m4a` (`audio/mp4`) and `podcasts/**`.
+
+3. **Dynamic Bucket-Driven Multi-Podcast Architecture (`podcasts/{id}/podcast.json`):**
+   - **Zero Hardcoded Podcast Coupling:** Podcasts live dynamically under `podcasts/{podcast_id}/podcast.json` in GCS (and `data/podcasts/{podcast_id}/podcast.json` locally), with optional `podcasts/{podcast_id}/cover.jpg` or `cover.png`.
+   - **Dynamic Discovery (`storage.listPodcasts()`):**
+     - Scans `podcasts/*/podcast.json` dynamically from the bucket (`bucket.getFiles({ prefix: 'podcasts/' })` in GCS; directory scan of `data/podcasts/` in local mode).
+     - If an admin drops a new `podcasts/{id}/podcast.json` directly into the bucket or creates one via the Admin UI, the app discovers it immediately on load.
+     - If `0` podcasts exist in the bucket, the per-story Podcast Release section in `Stories Workbench` (`VoiceStudioPanel.tsx`) stays hidden; if `>= 1` podcasts exist, it dynamically renders release/version controls for each discovered podcast.
+
+4. **Dedicated `📻 Podcasts` Admin Tab (`/admin/podcasts`) & Per-Story Release Controls:**
+   - **Admin Navigation (`client/components/AdminLoginGate.tsx`):**
+     - Add a 3rd navigation tab **`📻 Podcasts`** (`/admin/podcasts`) alongside **`📖 Stories Workbench`** (`/admin`) and **`🎙️ Voice Library`** (`/admin/voices`).
+   - **Podcast Library Management Page (`client/components/PodcastLibraryPage.tsx`):**
+     - Lists all discovered podcasts (`GET /api/admin/podcasts`).
+     - Includes a simple **New / Edit Podcast** modal/card (`Title`, `Author`, `Description`, `Language`, and `Private Token` with regenerate option) that writes `podcasts/{id}/podcast.json` to storage, plus podcast deletion with confirmation.
+     - Displays each podcast's **Private RSS Feed Link** (`https://<host>/api/podcasts/{id}/feed.xml?token={token}`) with a 1-click **`📋 Copy Private RSS Link`** button for subscribing in Apple Podcasts (*"Follow a Show by URL"*).
+     - Displays the **Published Episodes List** inside each podcast card, showing episode title, selected audio version label, duration, and release date, allowing the admin to:
+       - Change which `AudioVersion` (`version_id`) is used for that episode.
+       - Unrelease (`✕ Remove`) an episode from the podcast.
+       - Add/release any published story with audio into the podcast via an inline picker.
+   - **Per-Story Podcast Release in `Stories Workbench` (`client/components/VoiceStudioPanel.tsx`):**
+     - When `podcasts.length > 0` and the story has `audio_versions.length > 0`, displays a **`📻 Podcast Release`** section where the admin can release/update or unrelease the story to any configured podcast and choose which `version_id` to use when multiple versions exist.
+   - **Strict Deduplication & Lifecycle Safety:**
+     - A `story_id` can appear **at most once** in a given podcast's `episodes[]` array. Releasing a story that is already in `podcast.episodes` updates its `version_id` in-place rather than creating a duplicate episode.
+     - Only stories with synthesized audio can be released (if the story is `draft` but has audio, releasing to a podcast promotes it to `published`; or only `published` stories are emitted).
+     - If a story is later deleted or reverted to `draft`, or if its audio version is deleted in `server/routes/adminStories.ts`, the RSS feed (`GET /api/podcasts/:podcastId/feed.xml`) automatically skips draft/deleted stories and falls back to the story's new default `version_id` (and `adminStories.ts` cleans up/updates affected `podcast.json` episode pointers).
+     - Cover art (`<itunes:image>`) is optional: included in the RSS XML only if `podcasts/{id}/cover.jpg` or `.png` exists in storage or `cover_image_url` is set.
+
+5. **GitHub Actions CI/CD Deferred:**
+   - Do **not** modify `.github/workflows/deploy.yml` in Phase 17; verify the local Docker image build (`Dockerfile` with `ffmpeg`) and local/GCS runtime first.
+
+---
+
+### 23.2 Exact Shared Contracts (`shared/types.ts`)
+
+1. **Extend `AudioVersion` in `shared/types.ts` (Additive & Backward-Compatible):**
+   ```ts
+   export interface AudioVersion {
+     version_id: string;              // Immutable slug, e.g. "v1-owl-solo-1762350000"
+     label: string;                   // e.g. "Grandpa Owl (Solo)"
+     casting: VoiceCasting;
+     is_default: boolean;
+     duration_sec: number;
+     audio_url: string;               // Default streaming URL: "/api/stories/{story_id}/audios/{version_id}.m4a" (or legacy .wav)
+     wav_url?: string;                // Lossless download URL: "/api/stories/{story_id}/audios/{version_id}.wav"
+     m4a_size_bytes?: number;         // Exact byte length of .m4a file for RSS <enclosure length="...">
+     created_at: string;
+   }
+   ```
+
+2. **Add Podcast Data Contracts in `shared/types.ts`:**
+   ```ts
+   export interface PodcastEpisodeEntry {
+     story_id: string;                // References Story.id (unique per podcast — no duplicates)
+     version_id: string;              // References AudioVersion.version_id on that story
+     published_at: string;            // ISO 8601 timestamp when released to this podcast
+   }
+
+   export interface PodcastConfig {
+     id: string;                      // Slug matching SLUG_REGEX, e.g. "leo-bedtime"
+     title: string;                   // e.g. "Leo's Bedtime Stories"
+     author: string;                  // Default "Storyteller Studio"
+     description: string;             // Short summary for <description> and <itunes:summary>
+     language: string;                // Default "en-us"
+     token: string;                   // Secret token required on GET /api/podcasts/:id/feed.xml?token=...
+     cover_image_url?: string | null; // Optional "/api/podcasts/{id}/cover.jpg" if present in bucket
+     episodes: PodcastEpisodeEntry[]; // Ordered list of opted-in story episodes (deduplicated by story_id)
+     created_at: string;              // ISO 8601
+     updated_at: string;              // ISO 8601
+   }
+   ```
+
+---
+
+### 23.3 Backend Storage, FFmpeg Transcoding, & API Contracts (`server/**`)
+
+1. **FFmpeg `.m4a` Transcoder (`server/lib/m4a.ts` — Remember Explicit `.js` Relative Imports!):**
+   - Export `type M4aTranscoder = (wavBuffer: Buffer) => Promise<Buffer>;`
+   - Export `async function transcodeWavToM4a(wavBuffer: Buffer): Promise<Buffer>`:
+     - Writes `wavBuffer` to a unique temp path in `os.tmpdir()` (`story-wizard-${process.pid}-${Date.now()}-${rand}.wav`).
+     - Executes `execFile('ffmpeg', ['-y', '-f', 'wav', '-i', tmpWavPath, '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', tmpM4aPath])`.
+     - Reads `tmpM4aPath` into a `Buffer`, verifies non-empty output containing `ftyp` at bytes `4..8`, and unlinks both `tmpWavPath` and `tmpM4aPath` inside `finally`.
+   - Export a helper `getLosslessWavUrl(version: { audio_url: string; wav_url?: string }): string` (or in `shared/`) that returns `version.wav_url || version.audio_url.replace(/\.m4a$/i, '.wav')`.
+
+2. **Storage Adapter Extensions (`server/storage/storageAdapter.ts`, `localStorage.ts`, `gcsStorage.ts`):**
+   - **Keep existing `saveAudio`, `getAudioStream` (for `.wav`) signatures intact** so all existing unit/integration tests calling `storage.saveAudio(storyId, versionId, wav)` and `storage.getAudioStream(storyId, versionId)` continue to pass without changes!
+   - Add to `StorageAdapter`:
+     ```ts
+     saveAudioM4a(storyId: string, versionId: string, m4aBuffer: Buffer): Promise<void>;
+     getAudioM4aStream(storyId: string, versionId: string): Promise<AudioStreamDescriptor>;
+
+     listPodcasts(): Promise<PodcastConfig[]>;
+     getPodcast(podcastId: string): Promise<PodcastConfig>;
+     savePodcast(podcast: PodcastConfig): Promise<void>;
+     deletePodcast(podcastId: string): Promise<void>;
+     getPodcastCoverStream(podcastId: string): Promise<{ streamDesc: AudioStreamDescriptor; contentType: string }>;
+     ```
+   - Update `deleteAudio(storyId: string, versionId: string)` in both `LocalStorageAdapter` and `GcsStorageAdapter` to delete **both** `stories/${storyId}/audios/${versionId}.wav` and `stories/${storyId}/audios/${versionId}.m4a` (ignoring not-found on either).
+   - **Dynamic Bucket Scanning in `listPodcasts()`:**
+     - **`LocalStorageAdapter`:** Checks if `path.join(this.dataDir, 'podcasts')` exists; reads subdirectories matching `SLUG_REGEX`, parses `podcasts/${id}/podcast.json` if present, checks if `cover.jpg` or `cover.png` exists in `podcasts/${id}/` (setting `cover_image_url = \`/api/podcasts/${id}/cover.${ext}\`` when present and not already set), and returns sorted by `created_at` desc (or `title` asc).
+     - **`GcsStorageAdapter`:** Calls `const [files] = await this.bucket.getFiles({ prefix: 'podcasts/' });`, matches `^podcasts/([a-z0-9][a-z0-9-_]{1,80})/podcast\.json$`, downloads and parses each `PodcastConfig`, checks if `podcasts/${id}/cover.jpg` or `cover.png` exists in the `files` list to populate `cover_image_url`, and returns the array.
+
+3. **TTS Synthesis Updates (`server/services/geminiTts.ts` & `server/app.ts`):**
+   - Allow optional `m4aTranscoder?: M4aTranscoder` in `GeminiTtsService` constructor (defaulting to `transcodeWavToM4a`) and `CreateAppOptions` (`server/app.ts`).
+   - In `GeminiTtsService.synthesizeFullStory`:
+     - After `const { wav, durationSec } = wrapPcmAsWav(fullPcm);`, call `const m4a = await this.m4aTranscoder(wav);`.
+     - Save both files:
+       ```ts
+       await this.storage.saveAudio(story.id, versionId, wav);
+       await this.storage.saveAudioM4a(story.id, versionId, m4a);
+       ```
+     - Construct `newVersion`:
+       ```ts
+       const newVersion: AudioVersion = {
+         version_id: versionId,
+         label: baseLabel,
+         casting: normalizedCasting,
+         is_default: shouldBeDefault,
+         duration_sec: durationSec,
+         audio_url: `/api/stories/${story.id}/audios/${versionId}.m4a`,
+         wav_url: `/api/stories/${story.id}/audios/${versionId}.wav`,
+         m4a_size_bytes: m4a.length,
+         created_at: new Date().toISOString(),
+       };
+       ```
+
+4. **Public Streaming, Lossless Download & Podcast RSS Routes (`server/routes/public.ts`):**
+   - Update `streamAudioWithRange(req, res, audioDesc, cacheControl, contentType = 'audio/wav')` to accept `contentType` (`'audio/mp4'` for `.m4a`, `'audio/wav'` for `.wav`).
+   - **Update `GET /api/stories/:id/audios/:filename`:**
+     - Accept filenames ending in **either** `.m4a` or `.wav` (if neither, return `400 { error: 'Audio filename must end with .m4a or .wav' }`).
+     - Extract `ext = filename.endsWith('.m4a') ? 'm4a' : 'wav'` and `versionId = filename.slice(0, -4)`. Validate `id` and `versionId` via `validateSlug`.
+     - Verify `story` exists and is `published` (or requester is `isAdmin(req)`).
+     - If `ext === 'm4a'`: call `await storage.getAudioM4aStream(id, versionId)` and stream with `contentType = 'audio/mp4'`.
+     - If `ext === 'wav'`: call `await storage.getAudioStream(id, versionId)`. If `req.query.download === '1' || req.query.download === 'true'`, set `res.setHeader('Content-Disposition', \`attachment; filename="${id}-${versionId}.wav"\`)`. Stream with `contentType = 'audio/wav'`.
+   - **Add `GET /api/podcasts/:podcastId/feed.xml`:**
+     - Validate `podcastId` via `validateSlug`. Load `podcast = await storage.getPodcast(podcastId)` (`404` if not found).
+     - **Private Token Guard:** If `podcast.token && podcast.token.trim().length > 0`, check `req.query.token === podcast.token`. If missing or mismatched, return `403 { error: 'Invalid or missing podcast feed token' }`.
+     - **Reverse-Proxy Base URL Resolution:**
+       - `const forwardedProto = (req.headers['x-forwarded-proto'] as string | undefined)?.split(',')[0]?.trim();`
+       - `const forwardedHost = (req.headers['x-forwarded-host'] as string | undefined)?.split(',')[0]?.trim();`
+       - `const proto = forwardedProto || req.protocol || 'https';`
+       - `const host = forwardedHost || req.get('host') || 'localhost:8080';`
+       - `const baseUrl = (process.env.PUBLIC_BASE_URL || \`${proto}://${host}\`).replace(/\/+$/, '');`
+     - **Episode Resolution & Stale/Draft Filtering:**
+       - For each `ep` in `podcast.episodes`:
+         - Try `const story = await storage.getStory(ep.story_id);`. If not found, `story.status !== 'published'`, or `!story.audio_versions?.length`, skip cleanly.
+         - Find `ver = story.audio_versions.find((v) => v.version_id === ep.version_id) || story.audio_versions.find((v) => v.is_default) || story.audio_versions[0]`.
+         - Resolve `m4aSizeBytes = ver.m4a_size_bytes || (await storage.getAudioM4aStream(story.id, ver.version_id).then(d => d.totalBytes).catch(() => 0))`.
+         - Build `<item>` with XML-escaped `<title>`, `<description>`, `<itunes:summary>` (using `story.summary`), `<pubDate>` (`new Date(ep.published_at).toUTCString()`), `<guid isPermaLink="false">${podcast.id}:${story.id}:${ver.version_id}</guid>`, `<itunes:duration>${Math.round(ver.duration_sec)}</itunes:duration>`, optional `<itunes:episode>${story.series_context.episode_number}</itunes:episode>` if `story.series_context?.episode_number != null`, and:
+           `<enclosure url="${baseUrl}/api/stories/${story.id}/audios/${ver.version_id}.m4a" length="${m4aSizeBytes}" type="audio/x-m4a" />`
+     - Return `200` with `Content-Type: application/rss+xml; charset=utf-8` and `Cache-Control: private, no-cache`.
+   - **Add `GET /api/podcasts/:podcastId/cover.:ext` (`ext` in `jpg` | `png`):**
+     - Streams optional cover image from `storage.getPodcastCoverStream(podcastId)` if placed in the bucket.
+
+5. **Admin Podcast CRUD & Episode Release Routes (`server/routes/adminPodcasts.ts` + `server/routes/adminStories.ts`):**
+   - Create `server/routes/adminPodcasts.ts` (protected by `requireAdmin(config)` and mounted at `/api/admin` in `server/app.ts`):
+     - `GET /api/admin/podcasts` -> `{ podcasts: await storage.listPodcasts() }`
+     - `POST /api/admin/podcasts` -> body `{ title: string, id?: string, author?: string, description?: string, language?: string, token?: string }`:
+       - Validates `title` is non-empty. Derives slug `id` from `body.id || slugify(title)` (ensuring uniqueness against existing podcasts).
+       - Generates random 24-hex-char `token` (`crypto.randomBytes(12).toString('hex')`) if `token` is omitted.
+       - Saves `podcasts/${id}/podcast.json` and returns `201 PodcastConfig`.
+     - `PATCH /api/admin/podcasts/:id` -> updates `title`, `author`, `description`, `language`, `token` (`regenerateToken?: boolean`). Returns `200 PodcastConfig`.
+     - `DELETE /api/admin/podcasts/:id` -> calls `storage.deletePodcast(id)` and returns `200 { ok: true, deletedId: id }`.
+     - `POST /api/admin/podcasts/:id/episodes` -> body `{ storyId: string, versionId?: string }`:
+       - Validates `storyId` slug and loads `story = await storage.getStory(storyId)`.
+       - Requires `story.audio_versions.length > 0` (`400 ValidationError` if story has no audio).
+       - Resolves `targetVer = versionId ? story.audio_versions.find(v => v.version_id === versionId) : (story.audio_versions.find(v => v.is_default) || story.audio_versions[0])` (`404` if specified `versionId` not found on story).
+       - If `story.status !== 'published'`, automatically promotes `story.status = 'published'`, saves `story.json`, and syncs `catalog.json` so the released episode is immediately streamable!
+       - **Deduplication Rule:** Atomically updates `podcasts/${id}/podcast.json`:
+         - If `podcast.episodes` already contains an entry with `story_id === storyId`, updates that entry's `version_id = targetVer.version_id` (and `published_at = new Date().toISOString()`).
+         - Otherwise unshifts `{ story_id: storyId, version_id: targetVer.version_id, published_at: new Date().toISOString() }`.
+       - Returns `200 PodcastConfig`.
+     - `DELETE /api/admin/podcasts/:id/episodes/:storyId` -> removes any entry with `story_id === storyId` from `podcast.episodes`, saves `podcast.json`, and returns `200 PodcastConfig`.
+   - **Cleanup Hook in `server/routes/adminStories.ts`:**
+     - When `DELETE /api/admin/stories/:id` deletes a story: best-effort iterate `await storage.listPodcasts()` and remove any episode with `story_id === id`.
+     - When `DELETE /api/admin/stories/:id/versions/:versionId` deletes an audio version: best-effort iterate `await storage.listPodcasts()` — if `story.audio_versions.length === 0` (reverted to draft), remove the episode from any podcast referencing `story.id`; if `story.audio_versions.length > 0`, update any episode referencing the deleted `versionId` to the story's new default `version_id`.
+
+---
+
+### 23.4 Frontend UI Components & Client API (`client/**`)
+
+1. **`client/api/client.ts`:**
+   - Add typed Podcast API functions:
+     - `fetchAdminPodcasts(): Promise<PodcastConfig[]>` (`GET /api/admin/podcasts`)
+     - `createPodcast(payload: { title: string; id?: string; author?: string; description?: string; language?: string; token?: string }): Promise<PodcastConfig>` (`POST /api/admin/podcasts`)
+     - `updatePodcast(podcastId: string, patch: { title?: string; author?: string; description?: string; language?: string; token?: string; regenerateToken?: boolean }): Promise<PodcastConfig>` (`PATCH /api/admin/podcasts/:id`)
+     - `deletePodcast(podcastId: string): Promise<{ ok: boolean; deletedId: string }>` (`DELETE /api/admin/podcasts/:id`)
+     - `releaseStoryToPodcast(podcastId: string, payload: { storyId: string; versionId?: string }): Promise<PodcastConfig>` (`POST /api/admin/podcasts/:id/episodes`)
+     - `unreleaseStoryFromPodcast(podcastId: string, storyId: string): Promise<PodcastConfig>` (`DELETE /api/admin/podcasts/:id/episodes/:storyId`)
+
+2. **Admin Navigation & Standalone `📻 Podcasts` Tab (`client/components/AdminLoginGate.tsx` & `client/components/PodcastLibraryPage.tsx`):**
+   - In `AdminLoginGate.tsx` (lines 163–243):
+     - Detect `isPodcastLibrary = effectivePath.startsWith('/admin/podcasts')`.
+     - Add the **`📻 Podcasts`** button (`data-testid="admin-tab-podcasts"`, `onClick={() => onNavigate?.('/admin/podcasts')}`) next to `📖 Stories Workbench` and `🎙️ Voice Library`.
+     - Render `<PodcastLibraryPage ... />` when `isPodcastLibrary` is true.
+   - Create `client/components/PodcastLibraryPage.tsx`:
+     - Loads `fetchAdminPodcasts()` and `fetchCatalog(true)` (admin catalog) on mount.
+     - **Header & New Podcast Button:** `📻 Podcast Feeds` header + **`➕ New Podcast`** button opening the Create/Edit Podcast form (`Title`, `Author`, `Description`, `Private Token` + `Save Podcast`).
+     - **Podcast Feed Cards:** For each `PodcastConfig`:
+       - Displays Title, Author, Description, Episode Count badge, Edit (`✏️ Edit`) and Delete (`🗑 Delete` with 2-step Confirm/Cancel) buttons.
+       - **Private RSS Feed URL Bar:** Displays `${window.location.origin}/api/podcasts/${podcast.id}/feed.xml?token=${podcast.token}` in a monospace input/box with a **`📋 Copy RSS Link`** button (`data-testid="copy-rss-link-${podcast.id}"`) and **`🔄 Rotate Token`** button.
+       - **Published Episodes List (`episodes`):**
+         - Lists each episode in `podcast.episodes` matched against the story catalog/details.
+         - Shows Story Title, Episode Release Date, a `<select>` to switch which `AudioVersion` (`version_id`) is published for that story (if multiple versions exist), and an **`✕ Unrelease`** button (`data-testid="unrelease-episode-${podcast.id}-${ep.story_id}"`).
+       - **Quick Release Picker (`➕ Release a Story to This Podcast`):**
+         - Dropdown of stories with synthesized audio (`audio_versions_count > 0`) that are not yet in `podcast.episodes`, plus **`📻 Release Episode`** button.
+
+3. **Dynamic Per-Story Podcast Release Section in `VoiceStudioPanel.tsx`:**
+   - In `VoiceStudioPanel.tsx`:
+     - Fetch `fetchAdminPodcasts()` alongside `fetchVoices()`.
+     - **Dynamic Bucket-Driven Visibility:** If `podcasts.length > 0` and `story.audio_versions.length > 0`, render a **`📻 PODCAST RELEASE`** card (`data-testid="story-podcast-release-panel"`):
+       - For each `podcast` in `podcasts`:
+         - Check if `existingEp = podcast.episodes.find(e => e.story_id === story.id)`.
+         - Show podcast title + status badge (`✓ Released` vs `Not Released`).
+         - Include an audio version `<select>` (pre-selected to `existingEp?.version_id` or the story's default `version_id`) when `story.audio_versions.length > 1`.
+         - Show **`📻 Release to Podcast`** (or **`🔄 Update Version`** if a different version is selected) and **`✕ Unrelease`** when `existingEp` is present.
+
+4. **Lossless `.wav` Download Controls (`client/components/StoryReader.tsx` & `client/components/VoiceStudioPanel.tsx`):**
+   - Helper `const getWavDownloadHref = (ver: AudioVersion) => `${ver.wav_url || ver.audio_url.replace(/\.m4a$/i, '.wav')}?download=1`;`
+   - In `StoryReader.tsx`:
+     - When `activeAudioVersion` is present, render a compact **`⬇ WAV (Lossless)`** download link (`<a href={getWavDownloadHref(activeAudioVersion)} download className="btn-tactile" data-testid="reader-download-wav-btn">⬇ WAV (Lossless)</a>`) in the reader header / meta area.
+     - In the Admin Audio Versions panel (`StoryReader.tsx` lines 224–285), add a compact **`⬇ WAV`** link on each version row.
+   - In `VoiceStudioPanel.tsx` (lines 1029–1081):
+     - In each audio version card's action buttons row, add **`⬇ WAV`** (`<a href={getWavDownloadHref(ver)} download className="btn-tactile" data-testid={`download-wav-${ver.version_id}`}>⬇ WAV</a>`).
+
+---
+
+### 23.5 Exact Existing Test Files & Line Numbers to Update + New Phase 17 Validation Gate Tests
+
+1. **`tests/phase14WorkflowAndSafeArea.test.tsx` (Line 223):**
+   - **Line 223:** Currently asserts `expect(story.audio_versions[0].audio_url).toContain('.wav');` after `POST /api/admin/stories/write` with `autoSynthesize: true`.
+   - Update Line 223 to assert `expect(story.audio_versions[0].audio_url).toContain('.m4a');` and `expect(story.audio_versions[0].wav_url).toContain('.wav');`.
+
+2. **`tests/e2e/qa-phase5.spec.ts` (Lines 209 & 358):**
+   - **Line 209:** Currently checks `if (response.url().includes('.wav') && response.status() === 206)`. Update to:
+     `if ((response.url().includes('.m4a') || response.url().includes('.wav')) && response.status() === 206)`
+   - **Line 358:** Currently checks `expect(newSrc).toContain('v2-aoede-solo.wav');`. Because `scripts/seedLocalData.ts` now seeds `.m4a` as the default `audio_url`, update Line 358 to:
+     `expect(newSrc).toContain('v2-aoede-solo.m4a');`
+
+3. **`tests/storageAndAuth.test.ts` (Line 341):**
+   - **Line 341:** Tests invalid audio extension (`GET /api/stories/published-story/audios/v1-solo.mp3` -> `400`). Keep testing `.mp3` returning `400`, and add assertions verifying both `.m4a` (`Content-Type: audio/mp4`) and `.wav` (`Content-Type: audio/wav`, plus `?download=1` returning `Content-Disposition: attachment`) return `200` and `206 Partial Content`.
+
+4. **`tests/deploymentConfig.test.ts` (Lines 194–265):**
+   - Add assertion that `getContentType('v1-narration.m4a') === 'audio/mp4'` in `scripts/migrateToGcs.ts`.
+
+5. **New Unit & Integration Suite (`tests/phase17PodcastAndM4a.test.tsx`):**
+   - **FFmpeg `.m4a` Transcoding & Synthesis Integration:**
+     - Verify `transcodeWavToM4a(wav)` produces a valid `.m4a` buffer with `ftyp` MP4 header and `moov` atom preceding `mdat` (`+faststart`).
+     - Verify `GeminiTtsService.synthesizeFullStory` writes both `${versionId}.m4a` and `${versionId}.wav` to storage, sets `audio_url` to `.m4a`, `wav_url` to `.wav`, and `m4a_size_bytes > 0`.
+     - Verify `GET /api/stories/:id/audios/:versionId.m4a` streams `200 OK` and `206 Partial Content` with `Content-Type: audio/mp4`, and `GET /api/stories/:id/audios/:versionId.wav?download=1` returns `Content-Type: audio/wav` with `Content-Disposition: attachment`.
+   - **Migration Script (`scripts/migrateWavToM4a.ts`) Test:**
+     - Seed a legacy story with only `${versionId}.wav` and `audio_url: '.../v1.wav'`, run `migrateWavToM4a(storage)`, and verify `${versionId}.m4a` is created on disk and `story.json` + `catalog.json` are updated to `.m4a` while preserving `wav_url: '.../v1.wav'`.
+   - **Dynamic Bucket-Driven Podcast Discovery & Deduplication API Tests:**
+     - Write a raw `podcasts/bucket-dropped/podcast.json` file directly into the storage directory (simulating dropping a config file into the GCS bucket) and verify `GET /api/admin/podcasts` dynamically discovers it without any prior API call.
+     - Verify `POST /api/admin/podcasts`, `PATCH /api/admin/podcasts/:id`, `DELETE /api/admin/podcasts/:id`.
+     - Verify releasing a story via `POST /api/admin/podcasts/:id/episodes` adds the episode, and releasing the **same `storyId`** again with a different `versionId` updates `version_id` in-place with **zero duplicate episodes** (`podcast.episodes.length === 1`).
+     - Verify `GET /api/podcasts/:id/feed.xml` rejects missing/wrong `?token=` with `403`, and with valid `?token=` returns valid RSS 2.0 XML containing `<enclosure url="https://.../v1.m4a" length="..." type="audio/x-m4a" />`, `<itunes:duration>`, and `<pubDate>` while respecting `x-forwarded-proto: https`.
+     - Verify deleting a story or reverting a story to `draft` automatically omits it from `feed.xml`, and deleting an audio version updates or cleans up the podcast episode pointer.
+   - **Frontend UI Tests (`PodcastLibraryPage`, `VoiceStudioPanel`, `StoryReader`):**
+     - Verify `VoiceStudioPanel` hides the Podcast Release section when `podcasts` is empty (`[]`), and renders the Podcast Release section when `>= 1` podcasts exist.
+     - Verify `PodcastLibraryPage` renders discovered podcasts, creates a new podcast, copies the private RSS link, switches an episode's audio version, and unreleases an episode.
+     - Verify `StoryReader` and `VoiceStudioPanel` render the **`⬇ WAV`** lossless download link pointing to `.wav?download=1`.
+
+6. **New Playwright E2E Suite (`tests/e2e/qa-phase17.spec.ts`):**
+   - Verify `.m4a` audio streaming (`206 Partial Content`) in Public Story Reader and `⬇ WAV (Lossless)` download link presence.
+   - Navigate to `/admin/podcasts` (`📻 Podcasts` tab), create a private podcast feed, release a story from the Studio, verify the episode appears in the podcast card, and fetch the generated `/api/podcasts/:id/feed.xml?token=...` verifying valid RSS 2.0 XML + `.m4a` enclosure.
+   - Verify zero horizontal overflow at `375x812` mobile and `1440x900` desktop, and capture verification screenshots:
+     1. `qa-screenshots/phase17-desktop-podcasts-tab-dark.png` (`1440x900` Desktop `📻 Podcasts` Library tab with Private RSS link & episodes list)
+     2. `qa-screenshots/phase17-mobile-podcasts-tab-dark.png` (`375x812` Mobile `📻 Podcasts` tab)
+     3. `qa-screenshots/phase17-desktop-workbench-podcast-release-dark.png` (`1440x900` Story Step 3 showing dynamic `📻 Podcast Release` panel & `⬇ WAV` button)
+     4. `qa-screenshots/phase17-mobile-reader-wav-download-dark.png` (`375x812` Public Story Reader showing `⬇ WAV (Lossless)` button and `.m4a` player)
+
+---
+
+### 23.6 Recommended Execution Mode & Subagent Strategy for Phase 17
+
+Per `AGENTS.md` Section 1.A, 1.B, and 1.C:
+- **Recommended Execution Mode:** **Mode 3 — Full Subagent Delegation (or Mode 2 Hybrid)** using **ONE single cohesive `phase-builder` subagent running Gemini 4 Hydrogen High (`Model: "inherit"`, `Workspace: "inherit"`)**:
+  - **Why One Single Cohesive Subagent:** The `.m4a` FFmpeg transcoder (`server/lib/m4a.ts`), `StorageAdapter` extensions (`saveAudioM4a`, `listPodcasts`), TTS synthesis updates, RSS XML route, migration script (`scripts/migrateWavToM4a.ts`), `PodcastLibraryPage.tsx`, and test suites share tight data contracts (`AudioVersion.audio_url` / `wav_url` / `m4a_size_bytes` and `PodcastConfig`). Grouping them into **one** `phase-builder` subagent (`Gemini 4 Hydrogen` with `high` reasoning effort) avoids context splitting and token waste.
+  - **Pre-Flight Environment Step:** Before or at the start of Phase 17, ensure `ffmpeg` is installed in WSL (`sudo apt-get update && sudo apt-get install -y ffmpeg`) and run `npm run migrate:m4a` once the migration script is built so all local `./data/` (and GCS bucket if configured) stories are migrated to `.m4a`.
+  - **Strict Ownership & Firsthand Review:**
+    - Standalone documentation (`HANDOFF_PLAN.md`, `AGENTS.md`, `docs/reviews/phase-17-review.md`) is authored by the Main Agent (Lead Architect); inline code comments and JSDoc/TSDoc docstrings are authored by whoever writes the code.
+    - When the `phase-builder` subagent reports completion, the Lead Architect MUST read every modified/new file line-by-line, inspect all 4 `qa-screenshots/phase17-*.png` screenshots with `read_file` vision, verify `docker build` (if Docker daemon is running) and `npm run typecheck && npx tsc -p tsconfig.server.json && npm test && npm run build && npx playwright test` firsthand in WSL, and iterate with the **same** subagent via `send_message` if any review items arise before tagging `phase-17-verified`.
+
 
 
 

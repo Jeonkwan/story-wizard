@@ -59,7 +59,7 @@ Before starting implementation (or during Orchestration Planning), the Main Agen
 ---
 
 ## 2. Non-Negotiable Technical Guardrails
-- **Zero Over-Engineering:** No databases (Postgres/SQLite/Redis), no queues (BullMQ/Cloud Tasks), no `ffmpeg`, and no legacy `@google/generative-ai` (use `@google/genai >= 2.24.0` only).
+- **Zero Over-Engineering:** No databases (Postgres/SQLite/Redis), no queues (BullMQ/Cloud Tasks), and no legacy `@google/generative-ai` (use `@google/genai >= 2.24.0` only). Native `ffmpeg` is permitted strictly for `.wav` -> `.m4a` (AAC-LC `+faststart`) audio compression.
 - **ESM Relative Imports:** In `server/**` and `shared/**`, always include explicit `.js` extensions on relative imports (e.g., `import { cleanTextForReader } from '../../shared/textClean.js'`) so compiled `dist/server/*.js` runs natively in Node ESM.
 - **Gemini 3.8 TTS Multi-Speaker Exact-2 Rule:** `multiSpeakerVoiceConfig.speakerVoiceConfigs` MUST contain **exact 2** speakers (`length === 2`). If a batch or sub-batch has **1** distinct speaker, use single-speaker `speechConfig.voiceConfig` instead (passing 1 speaker inside `multiSpeakerVoiceConfig` returns `HTTP 400 INVALID_ARGUMENT`).
 - **Git Discipline:** Never commit `.env`, `node_modules/`, `dist/`, `data/`, or `qa-screenshots/`.
