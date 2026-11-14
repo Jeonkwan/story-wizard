@@ -35,6 +35,9 @@ jobs:
       - name: Server ESM Compilation Verification
         run: npx tsc -p tsconfig.server.json
 
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
       - name: Unit & Integration Tests
         run: npm test
 

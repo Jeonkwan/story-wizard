@@ -487,6 +487,7 @@ describe('Phase 8: Cloud Run & DevOps Hygiene Specifications', () => {
       expect(content).toContain('npm ci');
       expect(content).toContain('npm run typecheck');
       expect(content).toContain('npx tsc -p tsconfig.server.json');
+      expect(content).toContain('sudo apt-get install -y ffmpeg');
       expect(content).toContain('npm test');
 
       // Deploy job verification

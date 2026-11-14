@@ -1,5 +1,13 @@
-import { loadConfig } from '../server/config.js';
-import { createStorageAdapter, StorageNotFoundError, type StorageAdapter } from '../server/storage/index.js';
+import { execFileSync } from 'node:child_process';
+import { Storage, type StorageOptions } from '@google-cloud/storage';
+import { OAuth2Client } from 'google-auth-library';
+import { loadConfig, type AppConfig } from '../server/config.js';
+import {
+  createStorageAdapter,
+  GcsStorageAdapter,
+  StorageNotFoundError,
+  type StorageAdapter,
+} from '../server/storage/index.js';
 import { transcodeWavToM4a, type M4aTranscoder } from '../server/lib/m4a.js';
 import { storyToCatalogItem } from '../server/services/geminiStory.js';
 import type { CatalogItem } from '../shared/types.js';
@@ -8,6 +16,103 @@ export interface MigrateWavToM4aOptions {
   force?: boolean;
   dryRun?: boolean;
   transcoder?: M4aTranscoder;
+}
+
+export interface CreateMigrationStorageOptions {
+  /** Force authentication via `gcloud auth print-access-token` instead of ADC. */
+  useGcloudAuth?: boolean;
+  /** Injectable token provider for unit tests. */
+  getGcloudAccessToken?: () => string;
+  /** Injectable `@google-cloud/storage` factory for unit tests. */
+  createGcsStorage?: (opts?: StorageOptions) => Storage;
+  /** Injectable default storage factory for unit tests. */
+  createDefaultStorage?: (config: AppConfig) => StorageAdapter;
+}
+
+/**
+ * Obtains a short-lived OAuth2 access token from the active `gcloud` CLI session.
+ */
+function defaultGetGcloudAccessToken(): string {
+  return execFileSync('gcloud', ['auth', 'print-access-token'], {
+    encoding: 'utf-8',
+  }).trim();
+}
+
+/**
+ * Returns true when an error indicates missing, unreadable, or expired Application
+ * Default Credentials (e.g., `invalid_grant` on stale local ADC files).
+ */
+export function isAdcCredentialError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const record = err as {
+    message?: unknown;
+    code?: unknown;
+    response?: { data?: { error?: unknown; error_description?: unknown } };
+  };
+  const combined = [
+    typeof record.message === 'string' ? record.message : '',
+    typeof record.code === 'string' ? record.code : '',
+    typeof record.response?.data?.error === 'string' ? record.response.data.error : '',
+    typeof record.response?.data?.error_description === 'string'
+      ? record.response.data.error_description
+      : '',
+  ].join(' ');
+  return /invalid_grant|Could not load the default credentials|Unable to detect a Project Id|ENOENT.*application_default_credentials|default credentials/i.test(
+    combined
+  );
+}
+
+/**
+ * Creates a `StorageAdapter` for the `.wav -> .m4a` migration CLI.
+ * When `config.gcsBucketName` is set, supports explicit `--gcloud-auth` or
+ * automatic fallback to `gcloud auth print-access-token` if ADC fails with a
+ * credential error (such as `invalid_grant`).
+ */
+export async function createMigrationStorage(
+  config: AppConfig,
+  options: CreateMigrationStorageOptions = {}
+): Promise<StorageAdapter> {
+  const makeDefaultStorage = options.createDefaultStorage || createStorageAdapter;
+  if (!config.gcsBucketName) {
+    return makeDefaultStorage(config);
+  }
+
+  const buildGcloudStorage = (): StorageAdapter => {
+    const getToken = options.getGcloudAccessToken || defaultGetGcloudAccessToken;
+    const accessToken = getToken().trim();
+    if (!accessToken) {
+      throw new Error('Empty access token returned by `gcloud auth print-access-token`.');
+    }
+
+    // Omit expiry_date so OAuth2Client uses the provided token directly without
+    // attempting a refresh flow when no refresh_token is attached.
+    const authClient = new OAuth2Client();
+    authClient.setCredentials({ access_token: accessToken });
+
+    const makeStorage = options.createGcsStorage || ((opts?: StorageOptions) => new Storage(opts));
+    const gcsClient = makeStorage({
+      authClient: authClient as StorageOptions['authClient'],
+    });
+    return new GcsStorageAdapter(gcsClient.bucket(config.gcsBucketName));
+  };
+
+  if (options.useGcloudAuth) {
+    return buildGcloudStorage();
+  }
+
+  const defaultStorage = makeDefaultStorage(config);
+  try {
+    await defaultStorage.getCatalog();
+    return defaultStorage;
+  } catch (err) {
+    if (!isAdcCredentialError(err)) {
+      throw err;
+    }
+    console.warn(
+      '[migrate:m4a] ADC credentials unavailable or expired; falling back to `gcloud auth print-access-token`.'
+    );
+    return buildGcloudStorage();
+  }
 }
 
 export interface MigrateWavToM4aResult {
@@ -188,15 +293,16 @@ if (isDirectExecution) {
   const args = process.argv.slice(2);
   const force = args.includes('--force');
   const dryRun = args.includes('--dry-run');
+  const useGcloudAuth = args.includes('--gcloud-auth');
   const config = loadConfig();
-  const storage = createStorageAdapter(config);
 
   const mode = config.gcsBucketName ? `gcs:${config.gcsBucketName}` : `local:${config.dataDir}`;
   console.log(
-    `[migrate:m4a] Starting migration (mode=${mode}, force=${force}, dryRun=${dryRun})`
+    `[migrate:m4a] Starting migration (mode=${mode}, force=${force}, dryRun=${dryRun}, gcloudAuth=${useGcloudAuth})`
   );
 
-  migrateWavToM4a(storage, { force, dryRun })
+  createMigrationStorage(config, { useGcloudAuth })
+    .then((storage) => migrateWavToM4a(storage, { force, dryRun }))
     .then((result) => {
       if (result.errorCount > 0) {
         process.exitCode = 1;

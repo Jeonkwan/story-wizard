@@ -10,9 +10,14 @@ import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/re
 import { createApp } from '../server/app.js';
 import { loadConfig } from '../server/config.js';
 import { LocalStorageAdapter } from '../server/storage/localStorage.js';
+import { GcsStorageAdapter } from '../server/storage/gcsStorage.js';
 import { wrapPcmAsWav, SAMPLE_RATE } from '../server/lib/wav.js';
 import { transcodeWavToM4a } from '../server/lib/m4a.js';
-import { migrateWavToM4a } from '../scripts/migrateWavToM4a.js';
+import {
+  migrateWavToM4a,
+  createMigrationStorage,
+  isAdcCredentialError,
+} from '../scripts/migrateWavToM4a.js';
 import type {
   TtsProvider,
   SynthesizeBatchRequest,
@@ -252,6 +257,80 @@ describe('Phase 17: FFmpeg M4A Streaming, Lossless WAV Download, Migration & Pod
     const secondRun = await migrateWavToM4a(storage);
     expect(secondRun.migratedCount).toBe(0);
     expect(secondRun.skippedCount).toBe(1);
+  });
+
+  it('createMigrationStorage supports --gcloud-auth and automatic ADC invalid_grant fallback', async () => {
+    const gcsConfig = loadConfig({
+      DATA_DIR: tmpDir,
+      GCS_BUCKET_NAME: 'test-bucket-name',
+      NODE_ENV: 'test',
+      DEV_ADMIN_BYPASS: 'true',
+      ADMIN_GOOGLE_EMAIL: 'curator@storyteller.studio',
+      GEMINI_API_KEY: 'test-key',
+    });
+
+    const mockBucket = { name: 'test-bucket-name' };
+    const bucketSpy = vi.fn(() => mockBucket);
+    const createGcsStorage = vi.fn((opts?: { authClient?: unknown }) => {
+      return { bucket: bucketSpy, opts } as unknown as import('@google-cloud/storage').Storage;
+    });
+    const getToken = vi.fn(() => 'mock-gcloud-access-token\n');
+
+    // 1. Explicit --gcloud-auth bypasses ADC probe
+    const createDefaultUnused = vi.fn();
+    const explicitAdapter = await createMigrationStorage(gcsConfig, {
+      useGcloudAuth: true,
+      getGcloudAccessToken: getToken,
+      createGcsStorage,
+      createDefaultStorage: createDefaultUnused,
+    });
+
+    expect(explicitAdapter).toBeInstanceOf(GcsStorageAdapter);
+    expect(createDefaultUnused).not.toHaveBeenCalled();
+    expect(getToken).toHaveBeenCalledTimes(1);
+    expect(bucketSpy).toHaveBeenCalledWith('test-bucket-name');
+    const authClient1 = (createGcsStorage.mock.calls[0][0]?.authClient ?? {}) as {
+      credentials?: { access_token?: string };
+    };
+    expect(authClient1.credentials?.access_token).toBe('mock-gcloud-access-token');
+
+    // 2. Automatic fallback when ADC fails with invalid_grant
+    const failingAdcStorage = {
+      getCatalog: vi.fn(async () => {
+        throw new Error('invalid_grant: Token has been expired or revoked.');
+      }),
+    } as unknown as import('../server/storage/storageAdapter.js').StorageAdapter;
+
+    const fallbackAdapter = await createMigrationStorage(gcsConfig, {
+      getGcloudAccessToken: getToken,
+      createGcsStorage,
+      createDefaultStorage: () => failingAdcStorage,
+    });
+
+    expect(fallbackAdapter).toBeInstanceOf(GcsStorageAdapter);
+    expect(failingAdcStorage.getCatalog).toHaveBeenCalledTimes(1);
+    expect(getToken).toHaveBeenCalledTimes(2);
+
+    // 3. Non-credential errors are rethrown without invoking gcloud fallback
+    const networkFailStorage = {
+      getCatalog: vi.fn(async () => {
+        throw new Error('ECONNREFUSED 127.0.0.1');
+      }),
+    } as unknown as import('../server/storage/storageAdapter.js').StorageAdapter;
+
+    await expect(
+      createMigrationStorage(gcsConfig, {
+        getGcloudAccessToken: getToken,
+        createGcsStorage,
+        createDefaultStorage: () => networkFailStorage,
+      })
+    ).rejects.toThrow('ECONNREFUSED');
+    expect(getToken).toHaveBeenCalledTimes(2);
+
+    // 4. Credential error classifier
+    expect(isAdcCredentialError(new Error('Could not load the default credentials'))).toBe(true);
+    expect(isAdcCredentialError({ response: { data: { error: 'invalid_grant' } } })).toBe(true);
+    expect(isAdcCredentialError(new Error('Bucket not found'))).toBe(false);
   });
 
   /* -------------------------------------------------------------------------
