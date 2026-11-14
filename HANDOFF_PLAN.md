@@ -793,7 +793,7 @@ Use your interactive browser capabilities (`/browser`) on `http://localhost:8080
 - [x] **Phase 14:** One-Tap Chained Pipeline (`Write -> Auto-Direct -> Optional Auto-Synthesize`), Dedicated Story Length Control, Character Name Diversity, Age-Driven Complexity, & iPhone Safe-Area Support (`phase-14-verified`)
 - [x] **Phase 15:** Fire-and-Go Background Generation, Durable Job History (`jobs.json`), Activity Tray & Cloud Run `--no-cpu-throttling` (`phase-15-verified`)
 - [x] **Phase 16:** Switch Text/Multimodal LLM to `gemini-4-hydrogen` (`LOW` Reasoning Effort) & Update Subagent Policy to Gemini 4 Hydrogen (`High`) (`phase-16-verified`)
-- [ ] **Phase 17:** FFmpeg `.m4a` (AAC) Default Streaming, Lossless `.wav` Download, Automated `.m4a` Migration & Dynamic Bucket-Driven Private Podcast RSS Engine (`phase-17-verified`)
+- [x] **Phase 17:** FFmpeg `.m4a` (AAC) Default Streaming, Lossless `.wav` Download, Automated `.m4a` Migration & Dynamic Bucket-Driven Private Podcast RSS Engine (`phase-17-verified`)
 
 ---
 
